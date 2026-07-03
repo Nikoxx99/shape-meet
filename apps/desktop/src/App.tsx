@@ -230,6 +230,40 @@ function createDemoMeeting(input: MeetingCreateInput, host: ShapeUser | null): M
   };
 }
 
+function createDemoWaitingAccess(meeting: Meeting, input: { displayName: string; email?: string | null; camera: boolean; microphone: boolean }) {
+  const normalizedEmail = input.email?.trim().toLowerCase() || null;
+  const normalizedName = input.displayName.trim().toLowerCase();
+  const existingParticipant = meeting.participants.find((participant) => {
+    if (participant.role === "host") return false;
+    if (normalizedEmail && participant.email?.toLowerCase() === normalizedEmail) return true;
+    return participant.displayName.trim().toLowerCase() === normalizedName;
+  });
+  const participantId = existingParticipant?.id ?? `guest_demo_${Date.now()}`;
+  const participant = {
+    id: participantId,
+    displayName: input.displayName,
+    email: input.email || null,
+    role: "guest" as const,
+    mic: input.microphone ? "on" as const : "muted" as const,
+    camera: input.camera ? "on" as const : "off" as const,
+    admittedAt: existingParticipant?.admittedAt ?? null,
+    joinedAt: null,
+    leftAt: null
+  };
+  const participants = existingParticipant
+    ? meeting.participants.map((item) => (item.id === participantId ? { ...item, ...participant } : item))
+    : [...meeting.participants, participant];
+
+  return {
+    participantId,
+    meeting: {
+      ...meeting,
+      status: "WAITING" as const,
+      participants
+    }
+  };
+}
+
 function formatMeetingTime(value: string) {
   if (!value.includes("T")) return value;
 
@@ -865,6 +899,20 @@ export default function App() {
       setCurrentMeeting(result.meeting);
       navigate("waiting");
     } catch (error) {
+      if (canUseDemoRuntimeFallback(error) && currentMeeting) {
+        const result = createDemoWaitingAccess(currentMeeting, {
+          displayName: guestName.trim(),
+          email: guestEmail.trim() || null,
+          camera: cameraEnabled,
+          microphone: micEnabled
+        });
+        setWaitingParticipantId(result.participantId);
+        setCurrentMeeting(result.meeting);
+        setApiMessage(null);
+        navigate("waiting");
+        return;
+      }
+
       setApiMessage(error instanceof Error ? error.message : "No se pudo solicitar acceso.");
     }
   }
@@ -998,10 +1046,16 @@ export default function App() {
     if (route !== "waiting" || !waitingParticipantId || !currentMeeting) return;
 
     const interval = window.setInterval(() => {
-      void refreshCurrentMeeting().catch((error) => setApiMessage(error instanceof Error ? error.message : "No se pudo actualizar la sala."));
+      void refreshCurrentMeeting().catch((error) => {
+        if (canUseDemoRuntimeFallback(error)) return;
+        setApiMessage(error instanceof Error ? error.message : "No se pudo actualizar la sala.");
+      });
     }, 2500);
 
-    void refreshCurrentMeeting().catch(() => undefined);
+    void refreshCurrentMeeting().catch((error) => {
+      if (canUseDemoRuntimeFallback(error)) return;
+      setApiMessage(error instanceof Error ? error.message : "No se pudo actualizar la sala.");
+    });
 
     return () => window.clearInterval(interval);
   }, [currentMeeting?.code, route, waitingParticipantId]);
@@ -2020,9 +2074,9 @@ function WaitingRoomScreen({
   error: string | null;
 }) {
   return (
-    <ScreenFrame title={meeting.title}>
-      <div className="workbench">
-        <section className="preview-column">
+    <ScreenFrame title={meeting.title} showTitle>
+      <div className="workbench waiting-workbench">
+        <section className="preview-column waiting-preview-column">
           <VideoPreview enabled={cameraEnabled} label="Vista previa" cameraDeviceId={cameraDeviceId} />
           <div className="control-row">
             <ControlButton active={micEnabled} icon={micEnabled ? <Mic /> : <MicOff />} label="Mic" onClick={onToggleMic} />
@@ -2030,17 +2084,19 @@ function WaitingRoomScreen({
             <ControlButton icon={<Settings />} label="Ajustes" onClick={onSettings} />
           </div>
         </section>
-        <aside className="side-panel waiting-panel">
+        <aside className="side-panel waiting-panel waiting-status-panel">
           <h1>Listo para entrar</h1>
           <InlineNotice icon={admitted ? <Check /> : <RefreshCw />}>
             {admitted ? "Admitido por el host" : "Esperando admisión"}
           </InlineNotice>
           {error ? <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice> : null}
+          {admitted ? (
+            <Button icon={<ArrowRight />} onClick={onEnter}>
+              Entrar a la reunión
+            </Button>
+          ) : null}
           <Button icon={<LogOut />} variant="outline" onClick={onLeave}>
-            Salir de la sala
-          </Button>
-          <Button icon={<ArrowRight />} onClick={onEnter} disabled={!admitted}>
-            Entrar
+            Salir de sala
           </Button>
         </aside>
       </div>
@@ -2910,12 +2966,14 @@ function ScreenFrame({
   title,
   children,
   onBack,
-  right
+  right,
+  showTitle
 }: {
   title: string;
   children: React.ReactNode;
   onBack?: () => void;
   right?: React.ReactNode;
+  showTitle?: boolean;
 }) {
   const backButton = onBack ? (
     <Button variant="outline" icon={<ArrowLeft />} onClick={onBack}>
@@ -2932,7 +2990,14 @@ function ScreenFrame({
   return (
     <section className="screen" aria-label={title}>
       <header className="topbar">
-        <LogoMark />
+        {showTitle ? (
+          <div className="screen-title-brand">
+            <LogoMark />
+            <strong>{title}</strong>
+          </div>
+        ) : (
+          <LogoMark />
+        )}
         {rightContent}
       </header>
       {children}

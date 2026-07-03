@@ -158,10 +158,15 @@ svg {
 
 .brand,
 .breadcrumb,
-.meeting-title {
+.meeting-title,
+.screen-title-brand {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.screen-title-brand {
+  gap: 12px;
 }
 
 .meeting-title > div {
@@ -171,7 +176,8 @@ svg {
 }
 
 .brand strong,
-.breadcrumb strong {
+.breadcrumb strong,
+.screen-title-brand strong {
   font-size: 16px;
   line-height: 1.35;
 }
@@ -585,6 +591,10 @@ svg {
   gap: 28px;
 }
 
+.waiting-workbench {
+  grid-template-columns: minmax(0, 1fr) 390px;
+}
+
 .detail-layout {
   padding: 32px;
   grid-template-columns: minmax(0, 1fr) 360px;
@@ -968,6 +978,11 @@ svg {
   min-height: clamp(360px, calc(100vh - 380px), 520px);
 }
 
+.waiting-preview-column .video-preview {
+  flex: 0 0 clamp(360px, calc(100vh - 340px), 560px);
+  min-height: clamp(360px, calc(100vh - 340px), 560px);
+}
+
 .avatar-preview {
   position: absolute;
   inset: 0;
@@ -1145,7 +1160,13 @@ svg {
 }
 
 .waiting-panel {
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+.waiting-status-panel {
+  width: 390px;
+  padding: 28px;
+  gap: 18px;
 }
 
 .call-screen {
