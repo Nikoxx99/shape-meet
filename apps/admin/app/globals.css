@@ -583,7 +583,8 @@ p {
 }
 
 .table-card {
-  overflow: hidden;
+  max-height: calc(100vh - 264px);
+  overflow: auto;
 }
 
 .table-card.full-width {
@@ -634,6 +635,9 @@ p {
 }
 
 .table-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   min-height: 48px;
   border-top: 0;
   color: #64748b;
