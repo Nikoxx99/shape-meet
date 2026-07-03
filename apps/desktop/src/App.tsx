@@ -460,6 +460,10 @@ function meetingShareUrl(code: string) {
   return `${baseUrl}/r/${code}`;
 }
 
+function isLikelyEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 function videoCaptureOptions(deviceId: string): VideoCaptureOptions {
   return {
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
@@ -940,6 +944,8 @@ export default function App() {
   }
 
   async function handleRequestMeetingAccess() {
+    const normalizedGuestEmail = guestEmail.trim().toLowerCase();
+
     try {
       setApiMessage(null);
       if (!currentMeeting) {
@@ -954,10 +960,27 @@ export default function App() {
         return;
       }
 
+      if (currentMeeting.access === "INVITE_ONLY") {
+        if (!isLikelyEmail(normalizedGuestEmail)) {
+          setApiMessage("Ingresa el correo invitado.");
+          navigate("found");
+          return;
+        }
+
+        if (
+          currentMeeting.invitedEmails.length > 0 &&
+          !currentMeeting.invitedEmails.some((email) => email.toLowerCase() === normalizedGuestEmail)
+        ) {
+          setApiMessage("Este correo no está en la lista de invitados.");
+          navigate("found");
+          return;
+        }
+      }
+
       const result = await requestMeetingAccess({
         code: currentMeeting.code,
         displayName: guestName.trim(),
-        email: guestEmail.trim() || null,
+        email: normalizedGuestEmail || null,
         camera: cameraEnabled,
         microphone: micEnabled
       });
@@ -969,7 +992,7 @@ export default function App() {
       if (canUseDemoRuntimeFallback(error) && currentMeeting) {
         const result = createDemoWaitingAccess(currentMeeting, {
           displayName: guestName.trim(),
-          email: guestEmail.trim() || null,
+          email: normalizedGuestEmail || null,
           camera: cameraEnabled,
           microphone: micEnabled
         });
@@ -1170,7 +1193,10 @@ export default function App() {
         currentMeeting ? (
           <MeetingFoundScreen
             meeting={currentMeeting}
+            email={guestEmail}
+            error={apiMessage}
             onBack={() => navigate("join")}
+            onEmailChange={setGuestEmail}
             onContinue={() => {
               setIsHostFlow(false);
               navigate("device-test");
@@ -1391,13 +1417,22 @@ function JoinScreen({
 
 function MeetingFoundScreen({
   meeting,
+  email,
+  error,
   onBack,
+  onEmailChange,
   onContinue
 }: {
   meeting: Meeting;
+  email: string;
+  error: string | null;
   onBack: () => void;
+  onEmailChange: (value: string) => void;
   onContinue: () => void;
 }) {
+  const inviteOnly = meeting.access === "INVITE_ONLY";
+  const canContinue = !inviteOnly || isLikelyEmail(email);
+
   return (
     <ScreenFrame title="Unirse a reunión" onBack={onBack}>
       <CenteredPanel width={620}>
@@ -1409,7 +1444,11 @@ function MeetingFoundScreen({
           <DetailRow label="Acceso" value="Sala de espera" />
           <DetailRow label="Código" value={meeting.code} />
         </div>
-        <Button icon={<ArrowRight />} onClick={onContinue}>
+        {inviteOnly ? (
+          <TextField label="Correo invitado" icon={<Mail />} value={email} onChange={onEmailChange} type="email" autoComplete="email" />
+        ) : null}
+        {error ? <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice> : null}
+        <Button icon={<ArrowRight />} onClick={onContinue} disabled={!canContinue}>
           Probar equipo
         </Button>
       </CenteredPanel>

@@ -49,11 +49,37 @@ async function main() {
   if (!meeting?.code) fail("create meeting", created, "No meeting code returned.");
   console.log(`meeting created: ${meeting.code}`);
 
+  const missingEmailAccess = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/waiting-room`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      displayName: guestName,
+      camera: false,
+      microphone: false
+    })
+  });
+  assertStatus("waiting room invite email guard", missingEmailAccess, 403, "INVITE_EMAIL_REQUIRED");
+  console.log("invite email guard ok: INVITE_EMAIL_REQUIRED");
+
+  const uninvitedAccess = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/waiting-room`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      displayName: guestName,
+      email: "not.invited@example.com",
+      camera: false,
+      microphone: false
+    })
+  });
+  assertStatus("waiting room invited email guard", uninvitedAccess, 403, "INVITE_REQUIRED");
+  console.log("invite list guard ok: INVITE_REQUIRED");
+
   const access = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/waiting-room`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       displayName: guestName,
+      email: guestEmail,
       camera: false,
       microphone: false
     })

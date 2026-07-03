@@ -38,6 +38,24 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
 
     const email = normalizeEmail(input.email);
 
+    if (meeting.access === "INVITE_ONLY") {
+      if (!email) {
+        return NextResponse.json(
+          { error: "Ingresa el correo invitado.", code: "INVITE_EMAIL_REQUIRED" },
+          { status: 403 }
+        );
+      }
+
+      const invitedEmails = new Set(meeting.invites.map((invite) => invite.email.trim().toLowerCase()));
+
+      if (!invitedEmails.has(email)) {
+        return NextResponse.json(
+          { error: "Este correo no está en la lista de invitados.", code: "INVITE_REQUIRED" },
+          { status: 403 }
+        );
+      }
+    }
+
     const existingParticipant = meeting.participants.find(
       (participant) =>
         participant.role !== "host" &&
