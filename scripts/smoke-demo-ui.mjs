@@ -65,6 +65,7 @@ async function main() {
   try {
     await enterGuestWaitingRoom(guestPage, publicLink, meetingCode);
     await enterHostCall(hostPage, meetingCode);
+    await assertHostAiVideoBridge(hostPage);
     await admitGuest(hostPage, guestPage);
     await guestJoinsCall(guestPage, meetingCode);
     await expectVisibleText(hostPage, "2 participantes", 20_000);
@@ -139,6 +140,22 @@ async function enterHostCall(page, meetingCode) {
   await clickByRole(page, "button", "Entrar a la reunión");
   await expectVisibleText(page, meetingCode, 20_000);
   await expectVisibleText(page, guestName, 20_000);
+}
+
+async function assertHostAiVideoBridge(page) {
+  await clickByRole(page, "button", "Más", 20_000);
+  await expectVisibleText(page, "Diagnóstico", 10_000);
+  await expectVisibleText(page, "Track IA publicado", 30_000);
+  await expectAnyVisibleText(
+    page,
+    [
+      "shape-demo-video-processor",
+      "adapter-contract procesando frames",
+      "Sidecar conectado en modo passthrough",
+      "Frame validado sin modelo activo",
+    ],
+    30_000,
+  );
 }
 
 async function admitGuest(hostPage, guestPage) {

@@ -8,12 +8,22 @@ const noPrepare = args.has("--no-prepare");
 const replaceAi = args.has("--replace-ai") || args.has("--restart-ai");
 const strict = args.has("--strict");
 const verifyUi = args.has("--verify-ui");
-const env = {
-  ...process.env,
-  ...readEnvFile("infra/env.local.example"),
-  ...readEnvFile(".env.local"),
+const infraEnv = readEnvFile("infra/env.local.example");
+const rootEnv = readEnvFile(".env.local");
+const appEnv = {
   ...readEnvFile("apps/admin/.env.local"),
   ...readEnvFile("apps/desktop/.env.local"),
+};
+const composeEnv = resolveLocalComposeEnv({
+  ...infraEnv,
+  ...rootEnv,
+  ...process.env,
+});
+const env = {
+  ...infraEnv,
+  ...rootEnv,
+  ...appEnv,
+  ...process.env,
 };
 const adminUrl = (
   env.SHAPE_DEMO_API_URL ??
@@ -31,6 +41,10 @@ const aiUrl = (
   env.VITE_SHAPE_AI_SERVICE_URL ??
   "http://127.0.0.1:7851"
 ).replace(/\/$/, "");
+const liveKitUrl = (env.LIVEKIT_URL ?? "ws://localhost:17883").replace(
+  /\/$/,
+  "",
+);
 const children = [];
 
 try {
@@ -55,14 +69,31 @@ async function main() {
 
   let services = await inspectServices();
   printServiceReport(services);
+  let liveKitRecreateReason = noDocker ? null : liveKitDemoRecreateReason();
 
   if (doctorOnly) {
-    if (strict && !demoReady(services)) process.exit(1);
+    if (liveKitRecreateReason) {
+      console.log(`- LiveKit RTC: ${liveKitRecreateReason}`);
+      console.log("");
+    }
+    if (strict && (!demoReady(services) || liveKitRecreateReason)) {
+      process.exit(1);
+    }
     return;
   }
 
   if (!services.admin.ok && !noDocker) {
     runDockerCompose();
+    services = await inspectServices();
+    printServiceReport(services);
+    liveKitRecreateReason = liveKitDemoRecreateReason();
+  }
+
+  if (liveKitRecreateReason) {
+    console.log(`${liveKitRecreateReason}; recrearé LiveKit local.`);
+    recreateLiveKitCompose();
+    services = await inspectServices();
+    printServiceReport(services);
   }
 
   if (services.ai.ok && !services.ai.demoReady) {
@@ -123,15 +154,17 @@ async function main() {
 }
 
 async function inspectServices() {
-  const [admin, desktop, ai] = await Promise.all([
+  const [admin, desktop, livekit, ai] = await Promise.all([
     inspectJson(
       `${adminUrl}/api/health`,
       (data) => data.ok === true && data.database === "ok",
     ),
     inspectHttp(appUrl),
+    inspectHttp(liveKitHttpUrl(liveKitUrl)),
     inspectJson(`${aiUrl}/health`, (data) => data.status === "ready"),
   ]);
   const demoReady =
+    livekit.ok &&
     ai.ok &&
     ai.data?.mode === "adapter-contract" &&
     ai.data?.diagnostics?.managedProcessors?.some(
@@ -144,6 +177,7 @@ async function inspectServices() {
   return {
     admin,
     desktop,
+    livekit,
     ai: {
       ...ai,
       demoReady: Boolean(demoReady),
@@ -165,7 +199,11 @@ async function waitForReady() {
 
 function demoReady(report) {
   return (
-    report.admin.ok && report.desktop.ok && report.ai.ok && report.ai.demoReady
+    report.admin.ok &&
+    report.desktop.ok &&
+    report.livekit.ok &&
+    report.ai.ok &&
+    report.ai.demoReady
   );
 }
 
@@ -174,6 +212,9 @@ function printServiceReport(report) {
   console.log(`- Admin/API: ${report.admin.ok ? "ok" : report.admin.message}`);
   console.log(
     `- Desktop: ${report.desktop.ok ? "ok" : report.desktop.message}`,
+  );
+  console.log(
+    `- LiveKit: ${report.livekit.ok ? "ok" : report.livekit.message}`,
   );
   console.log(
     `- IA local: ${
@@ -239,6 +280,66 @@ async function inspectJson(url, predicate) {
   }
 }
 
+function liveKitHttpUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "ws:") parsed.protocol = "http:";
+    if (parsed.protocol === "wss:") parsed.protocol = "https:";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return "http://localhost:17883";
+  }
+}
+
+function liveKitDemoRecreateReason() {
+  if (!isLocalLiveKit(composeEnv.LIVEKIT_URL)) return false;
+
+  const expectedNodeIp = composeEnv.LIVEKIT_NODE_IP;
+  if (!expectedNodeIp || isLoopbackAddress(expectedNodeIp)) return false;
+
+  const currentConfig = runningLiveKitConfig();
+  if (!currentConfig) return false;
+
+  const currentNodeIp = currentConfig.match(/node_ip:\s*([^\s]+)/)?.[1] ?? "";
+  if (currentNodeIp !== expectedNodeIp) {
+    return `LiveKit local anuncia node_ip=${currentNodeIp || "sin configurar"}; se requiere LIVEKIT_NODE_IP=${expectedNodeIp}`;
+  }
+
+  const currentTurnHost = currentConfig.match(/host:\s*([^\s]+)/)?.[1] ?? "";
+  const expectedTurnHost = composeEnv.LIVEKIT_TURN_DOMAIN;
+  if (currentTurnHost !== expectedTurnHost) {
+    return `LiveKit local anuncia TURN=${currentTurnHost || "sin configurar"}; se requiere LIVEKIT_TURN_DOMAIN=${expectedTurnHost}`;
+  }
+
+  return false;
+}
+
+function runningLiveKitConfig() {
+  const result = spawnSync(
+    "docker",
+    [
+      "compose",
+      "-p",
+      "shape-meet-local",
+      "-f",
+      "infra/docker-compose.coolify.yml",
+      "exec",
+      "-T",
+      "shape-livekit",
+      "printenv",
+      "LIVEKIT_CONFIG",
+    ],
+    {
+      cwd: process.cwd(),
+      env: composeEnv,
+      encoding: "utf8",
+    },
+  );
+
+  if (result.status !== 0 || !result.stdout.trim()) return null;
+  return result.stdout;
+}
+
 function runDockerCompose() {
   console.log(
     "> docker compose -p shape-meet-local -f infra/docker-compose.coolify.yml up -d --build",
@@ -257,7 +358,7 @@ function runDockerCompose() {
     ],
     {
       cwd: process.cwd(),
-      env,
+      env: composeEnv,
       encoding: "utf8",
       stdio: "inherit",
     },
@@ -265,6 +366,36 @@ function runDockerCompose() {
 
   if (result.status !== 0) {
     throw new Error("No se pudo levantar Docker Compose para el demo.");
+  }
+}
+
+function recreateLiveKitCompose() {
+  console.log(
+    "> docker compose -p shape-meet-local -f infra/docker-compose.coolify.yml up -d --force-recreate shape-livekit",
+  );
+  const result = spawnSync(
+    "docker",
+    [
+      "compose",
+      "-p",
+      "shape-meet-local",
+      "-f",
+      "infra/docker-compose.coolify.yml",
+      "up",
+      "-d",
+      "--force-recreate",
+      "shape-livekit",
+    ],
+    {
+      cwd: process.cwd(),
+      env: composeEnv,
+      encoding: "utf8",
+      stdio: "inherit",
+    },
+  );
+
+  if (result.status !== 0) {
+    throw new Error("No se pudo recrear LiveKit para el demo.");
   }
 }
 
@@ -533,6 +664,88 @@ function readEnvFile(path) {
   }
 
   return values;
+}
+
+function resolveLocalComposeEnv(values) {
+  const resolved = { ...values };
+
+  if (
+    isLocalLiveKit(resolved.LIVEKIT_URL) &&
+    String(resolved.LIVEKIT_USE_EXTERNAL_IP ?? "false").toLowerCase() ===
+      "false" &&
+    isLoopbackAddress(resolved.LIVEKIT_NODE_IP)
+  ) {
+    const lanIp = detectLanIp();
+    if (lanIp) {
+      resolved.LIVEKIT_NODE_IP = lanIp;
+    }
+  }
+
+  if (
+    isLocalLiveKit(resolved.LIVEKIT_URL) &&
+    !isLocalTurnDomain(resolved.LIVEKIT_TURN_DOMAIN)
+  ) {
+    resolved.LIVEKIT_TURN_DOMAIN = "127.0.0.1";
+  }
+
+  return resolved;
+}
+
+function isLocalLiveKit(url) {
+  try {
+    const parsed = new URL(url ?? "");
+    return ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackAddress(value) {
+  const address = String(value ?? "").trim();
+  return !address || ["127.0.0.1", "localhost", "::1"].includes(address);
+}
+
+function isLocalTurnDomain(value) {
+  const domain = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return ["127.0.0.1", "localhost", "::1"].includes(domain);
+}
+
+function detectLanIp() {
+  if (process.platform === "darwin") {
+    return firstCommandLine("sh", [
+      "-lc",
+      "ipconfig getifaddr \"$(route get default | awk '/interface:/ {print $2}')\"",
+    ]);
+  }
+
+  if (process.platform === "win32") {
+    return firstCommandLine("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      [
+        "$ip = Get-NetIPConfiguration |",
+        "Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |",
+        "Select-Object -First 1 -ExpandProperty IPv4Address |",
+        "Select-Object -ExpandProperty IPAddress;",
+        "if ($ip) { $ip }",
+      ].join(" "),
+    ]);
+  }
+
+  return firstCommandLine("sh", [
+    "-lc",
+    "hostname -I 2>/dev/null | awk '{print $1}'",
+  ]);
+}
+
+function firstCommandLine(command, commandArgs) {
+  const result = spawnSync(command, commandArgs, { encoding: "utf8" });
+  if (result.status !== 0) return null;
+  const line = result.stdout.trim().split(/\r?\n/)[0]?.trim();
+  return line && /^\d{1,3}(\.\d{1,3}){3}$/.test(line) ? line : null;
 }
 
 async function waitForExitSignal() {
