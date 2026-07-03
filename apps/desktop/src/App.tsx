@@ -15,7 +15,6 @@ import {
   Mail,
   Mic,
   MicOff,
-  MonitorUp,
   Phone,
   PhoneOff,
   Plus,
@@ -31,6 +30,7 @@ import {
   UserRound,
   Video,
   VideoOff,
+  Volume2,
   Wand2
 } from "lucide-react";
 import {
@@ -496,7 +496,7 @@ export default function App() {
   const [pendingDeepLinkCode, setPendingDeepLinkCode] = useState(initialDeepLinkCode);
   const [liveKitConnection, setLiveKitConnection] = useState<(LiveKitConnection & { warning?: string }) | null>(null);
   const [apiMessage, setApiMessage] = useState<string | null>(null);
-  const [micEnabled, setMicEnabled] = useState(true);
+  const [micEnabled, setMicEnabled] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [deviceSelection, setDeviceSelection] = useState<DeviceSelection>(() => readStoredDeviceSelection());
   const [faceEnabled, setFaceEnabled] = useState(false);
@@ -615,6 +615,11 @@ export default function App() {
       return;
     }
 
+    await handleRequestMeetingAccess();
+  }
+
+  async function joinAsGuestFromDeviceTest() {
+    setIsHostFlow(false);
     await handleRequestMeetingAccess();
   }
 
@@ -1125,21 +1130,14 @@ export default function App() {
           deviceChoices={mediaDevices.choices}
           deviceError={mediaDevices.error}
           devicesRefreshing={mediaDevices.refreshing}
-          gpuProfile={gpuProfile}
-          aiServiceStatus={aiServiceStatus}
-          aiSidecarRuntime={aiSidecarRuntime}
-          observabilityStatus={observabilityStatus}
+          hostMode={isHostFlow}
           onBack={() => navigate(isHostFlow ? "scheduled" : "found")}
           onContinue={continueAfterDeviceTest}
           onDeviceChange={updateDeviceSelection}
+          onJoinAsGuest={joinAsGuestFromDeviceTest}
           onRefreshDevices={mediaDevices.requestDeviceAccess}
           onToggleCamera={handleToggleCamera}
           onToggleMic={handleToggleMic}
-          onDebug={handleDebugBundle}
-          onDebugEvent={handleNativeDebugEvent}
-          onStartAi={handleStartAiSidecar}
-          onStopAi={handleStopAiSidecar}
-          debugMessage={debugMessage}
         />
       )}
       {route === "host-settings" && (
@@ -1725,21 +1723,14 @@ function DeviceTestScreen({
   deviceChoices,
   deviceError,
   devicesRefreshing,
-  gpuProfile,
-  aiServiceStatus,
-  aiSidecarRuntime,
-  observabilityStatus,
+  hostMode,
   onBack,
   onContinue,
   onDeviceChange,
+  onJoinAsGuest,
   onRefreshDevices,
   onToggleCamera,
-  onToggleMic,
-  onDebug,
-  onDebugEvent,
-  onStartAi,
-  onStopAi,
-  debugMessage
+  onToggleMic
 }: {
   cameraEnabled: boolean;
   micEnabled: boolean;
@@ -1747,54 +1738,32 @@ function DeviceTestScreen({
   deviceChoices: DeviceChoices;
   deviceError: string | null;
   devicesRefreshing: boolean;
-  gpuProfile: NativeGpuProfile | null;
-  aiServiceStatus: NativeAiServiceStatus | null;
-  aiSidecarRuntime: NativeAiSidecarRuntime | null;
-  observabilityStatus: NativeObservabilityStatus | null;
+  hostMode: boolean;
   onBack: () => void;
   onContinue: () => void;
   onDeviceChange: (key: keyof DeviceSelection, value: string) => void;
+  onJoinAsGuest: () => void;
   onRefreshDevices: () => void;
   onToggleCamera: () => void;
   onToggleMic: () => void;
-  onDebug: () => void;
-  onDebugEvent: () => void;
-  onStartAi: () => void;
-  onStopAi: () => void;
-  debugMessage: string | null;
 }) {
-  const aiLabel = aiServiceStatus?.online
-    ? `${aiServiceStatus.status} · ${aiServiceStatus.mode}`
-    : aiServiceStatus?.message ?? "Detectando";
-  const sentryLabel = observabilityStatus?.nativeSentryEnabled
-    ? `Nativo activo · ${observabilityStatus.environment}`
-    : observabilityStatus?.frontendSentryEnabled
-      ? `Frontend activo · ${observabilityStatus.environment}`
-      : "Debug local";
-  const sidecarLabel = aiSidecarRuntime?.running
-    ? aiSidecarRuntime.managed && aiSidecarRuntime.pid
-      ? `Gestionado · ${aiSidecarRuntime.pid}`
-      : "Externo"
-    : aiSidecarRuntime?.message ?? "Sin iniciar";
-  const gpuDevice = gpuDeviceLabel(gpuProfile);
-  const gpuVram = gpuVramLabel(gpuProfile);
-  const gpuCuda = gpuCudaLabel(gpuProfile);
-  const gpuWarning = gpuProfile?.warnings[0] ?? null;
+  const [rememberSettings, setRememberSettings] = useState(true);
 
   return (
     <ScreenFrame title="Prueba de equipo" right={<StepDots active={1} />} onBack={onBack}>
       <div className="workbench">
-        <section className="preview-column">
+        <section className="preview-column device-preview-column">
           <div className="section-header compact">
             <div>
-              <h1>Prueba cámara y micrófono</h1>
+              <h1>Revisa cámara y micrófono</h1>
             </div>
           </div>
           <VideoPreview enabled={cameraEnabled} label="Vista previa" cameraDeviceId={deviceSelection.cameraId} />
           <div className="control-row">
-            <ControlButton active={micEnabled} icon={micEnabled ? <Mic /> : <MicOff />} label="Mic" onClick={onToggleMic} />
+            <ControlButton active={micEnabled} icon={micEnabled ? <Mic /> : <MicOff />} label="Micrófono" onClick={onToggleMic} />
             <ControlButton active={cameraEnabled} icon={cameraEnabled ? <Video /> : <VideoOff />} label="Cámara" onClick={onToggleCamera} />
-            <ControlButton icon={<RefreshCw />} label={devicesRefreshing ? "Buscando" : "Ajustes"} onClick={onRefreshDevices} />
+            <ControlButton icon={<Volume2 />} label="Altavoz" />
+            <ControlButton icon={<Settings />} label={devicesRefreshing ? "Buscando" : "Ajustes"} onClick={onRefreshDevices} />
           </div>
         </section>
         <aside className="settings-column">
@@ -1822,39 +1791,17 @@ function DeviceTestScreen({
             />
             {deviceError ? <InlineNotice icon={<ShieldAlert />}>{deviceError}</InlineNotice> : null}
           </Panel>
-          <Panel title="IA local">
-            <StatusRow label="GPU" value={gpuProfileLabel(gpuProfile)} tone={gpuTone(gpuProfile)} />
-            <StatusRow label="IA local" value={aiLabel} tone={aiServiceStatus?.online ? "ok" : "warning"} />
-            <StatusRow label="Sidecar" value={sidecarLabel} tone={aiSidecarRuntime?.running ? "ok" : "warning"} />
-            <details className="debug-details">
-              <summary>Diagnóstico</summary>
-              <div className="debug-details-body">
-                {gpuDevice ? <StatusRow label="Dispositivo" value={gpuDevice} tone={gpuTone(gpuProfile)} /> : null}
-                {gpuVram ? <StatusRow label="VRAM" value={gpuVram} tone={gpuProfile?.gpuTier === "ready" ? "ok" : "warning"} /> : null}
-                {gpuCuda ? <StatusRow label="CUDA" value={gpuCuda} tone={gpuProfile?.cudaAvailable ? "ok" : "warning"} /> : null}
-                <StatusRow label="Sentry" value={sentryLabel} tone={observabilityStatus?.nativeSentryEnabled ? "ok" : "idle"} />
-                {gpuWarning ? <StatusRow label="Detalle" value={gpuWarning} tone="warning" /> : null}
-                <div className="stacked-actions compact">
-                  <Button variant="outline" icon={<RefreshCw />} onClick={onStartAi} disabled={Boolean(aiSidecarRuntime?.running)}>
-                    Iniciar IA
-                  </Button>
-                  <Button variant="outline" icon={<PhoneOff />} onClick={onStopAi} disabled={!aiSidecarRuntime?.managed}>
-                    Detener IA
-                  </Button>
-                  <Button variant="outline" icon={<MonitorUp />} onClick={onDebug}>
-                    Exportar debug
-                  </Button>
-                  <Button variant="outline" icon={<ShieldCheck />} onClick={onDebugEvent}>
-                    Probar Sentry
-                  </Button>
-                </div>
-              </div>
-            </details>
+          <Panel title="Al entrar">
+            <ToggleRow label="Entrar con micrófono apagado" checked={!micEnabled} onClick={onToggleMic} />
+            <ToggleRow label="Entrar con cámara encendida" checked={cameraEnabled} onClick={onToggleCamera} />
+            <ToggleRow label="Recordar esta configuración" checked={rememberSettings} onClick={() => setRememberSettings((current) => !current)} />
           </Panel>
-          {debugMessage && <InlineNotice icon={<MonitorUp />}>{debugMessage}</InlineNotice>}
-          <div className="stacked-actions">
-            <Button icon={<ArrowRight />} onClick={onContinue}>
-              Continuar
+          <div className="stacked-actions device-actions">
+            <Button icon={hostMode ? <UserRound /> : <LogIn />} onClick={onContinue}>
+              {hostMode ? "Configurar como host" : "Entrar como invitado"}
+            </Button>
+            <Button variant="outline" icon={hostMode ? <LogIn /> : <ArrowLeft />} onClick={hostMode ? onJoinAsGuest : onBack}>
+              {hostMode ? "Entrar como invitado" : "Volver"}
             </Button>
           </div>
         </aside>

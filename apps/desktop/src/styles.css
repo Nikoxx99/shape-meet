@@ -958,6 +958,11 @@ svg {
   object-fit: cover;
 }
 
+.device-preview-column .video-preview {
+  flex: 0 0 clamp(360px, calc(100vh - 390px), 510px);
+  min-height: clamp(360px, calc(100vh - 390px), 510px);
+}
+
 .avatar-preview {
   position: absolute;
   inset: 0;
@@ -1082,6 +1087,14 @@ svg {
 
 .stacked-actions .button:first-child {
   grid-column: 1 / -1;
+}
+
+.device-actions {
+  grid-template-columns: 1fr;
+}
+
+.device-actions .button:first-child {
+  grid-column: auto;
 }
 
 .stacked-actions.compact {
