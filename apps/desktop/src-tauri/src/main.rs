@@ -1376,6 +1376,8 @@ fn default_ai_runtime_env_template() -> String {
         "SHAPE_FACE_ENGINE=facefusion",
         "SHAPE_BACKGROUND_ENGINE=backgroundmattingv2",
         "SHAPE_VOICE_ENGINE=vcclient000",
+        "# Demo sin modelos reales: pnpm demo:ai-runtime genera un archivo listo.",
+        "# SHAPE_PROCESSOR_DEMO_EFFECTS=true",
         "# SHAPE_VIDEO_PROCESSOR_COMMAND=shape-ai-processor --kind video --port 7860",
         "# SHAPE_VIDEO_FRAME_COMMAND=C:\\\\shape-models\\\\video-wrapper.exe --input {input} --output {output} --identity {identity} --clean-plate {clean_plate}",
         "# SHAPE_AUDIO_PROCESSOR_COMMAND=shape-ai-processor --kind audio --port 7861",

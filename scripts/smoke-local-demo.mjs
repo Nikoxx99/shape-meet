@@ -5,6 +5,7 @@ const args = process.argv.slice(2);
 const skipSentry = args.includes("--skip-sentry");
 const skipAiContract = args.includes("--skip-ai-contract");
 const skipAiAdapters = args.includes("--skip-ai-adapters");
+const skipAiDemo = skipAiAdapters || args.includes("--skip-ai-demo");
 const skipAiManaged = skipAiAdapters || args.includes("--skip-ai-managed");
 const skipAiCommand = skipAiAdapters || args.includes("--skip-ai-command");
 const apiUrl = (
@@ -47,6 +48,9 @@ async function main() {
 
   if (!skipAiContract) {
     runPnpm("smoke:ai-contract");
+  }
+  if (!skipAiDemo) {
+    runPnpm("smoke:ai-demo");
   }
   if (!skipAiManaged) {
     runPnpm("smoke:ai-managed");

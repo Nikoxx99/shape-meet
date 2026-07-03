@@ -70,6 +70,7 @@ SHAPE_AUDIO_PROCESSOR_COMMAND=
 SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio
 SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health
 SHAPE_AUDIO_CHUNK_COMMAND=
+SHAPE_PROCESSOR_DEMO_EFFECTS=false
 SHAPE_MODEL_COMMAND_TIMEOUT_SECS=2.0
 SHAPE_PROCESSOR_TIMEOUT_SECS=0.8
 ```
@@ -103,6 +104,17 @@ SHAPE_VIDEO_FRAME_COMMAND="/path/to/video-wrapper --input {input} --output {outp
 SHAPE_AUDIO_PROCESSOR_COMMAND="python3 apps/ai-sidecar/processors/shape_processor_command.py --kind audio --port 7861"
 SHAPE_AUDIO_CHUNK_COMMAND="/path/to/voice-wrapper --input {input} --output {output} --sample-rate {sample_rate}"
 ```
+
+Para demo sin modelos reales, `SHAPE_PROCESSOR_DEMO_EFFECTS=true` hace que el
+procesador empaquetable devuelva un SVG con una capa visible sobre el frame y
+audio passthrough marcado como procesado. Genera el archivo runtime con:
+
+```bash
+pnpm demo:ai-runtime
+```
+
+Ese modo prueba sidecar, procesos gestionados, endpoints y publicación WebRTC;
+no reemplaza la integración final de modelos.
 
 El adaptador escribe archivos temporales y ejecuta el comando sin shell. Tambien
 inyecta variables como `SHAPE_FRAME_INPUT_PATH`, `SHAPE_FRAME_OUTPUT_PATH`,
@@ -146,6 +158,7 @@ Smoke automatizado del contrato de adaptadores:
 
 ```bash
 pnpm smoke:ai-contract
+pnpm smoke:ai-demo
 pnpm smoke:ai-managed
 pnpm smoke:ai-command
 ```

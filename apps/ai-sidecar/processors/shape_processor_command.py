@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import html
 import json
 import os
 import platform
@@ -11,6 +12,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import quote
 
 
 DEFAULT_VIDEO_PORT = 7860
@@ -36,12 +38,14 @@ class ShapeProcessorHandler(BaseHTTPRequestHandler):
 
         kind = STATE["kind"]
         command = model_command(kind)
+        demo_effects = demo_effects_enabled()
         self._json(
             {
-                "status": "ready" if command else "limited",
+                "status": "ready" if command or demo_effects else "limited",
                 "kind": kind,
-                "mode": "command" if command else "passthrough",
+                "mode": "command" if command else "demo-effects" if demo_effects else "passthrough",
                 "commandConfigured": bool(command),
+                "demoEffects": demo_effects,
                 "startedAt": STATE["startedAt"],
                 "requests": STATE["requests"],
                 "lastLatencyMs": STATE["lastLatencyMs"],
@@ -119,6 +123,7 @@ def process_video(payload):
     warnings = []
     output_data_url = input_data_url if isinstance(input_data_url, str) else ""
     status = "passthrough"
+    processor = "shape-video-command-adapter"
 
     if not isinstance(input_data_url, str) or not input_data_url.startswith("data:image/"):
         warnings.append("invalid_frame_data_url")
@@ -161,13 +166,18 @@ def process_video(payload):
                     status = "processed"
                 elif result["ok"]:
                     warnings.append("video_model_output_missing")
+        elif demo_effects_enabled():
+            output_data_url = demo_video_data_url(payload, input_data_url, width, height, sequence)
+            status = "processed"
+            processor = "shape-demo-video-processor"
+            warnings.append("demo_video_processor")
 
     latency_ms = elapsed_ms(started)
     update_state(latency_ms, warnings[-1] if warnings else None)
     return {
         "sequence": sequence,
         "status": status,
-        "processor": "shape-video-command-adapter",
+        "processor": processor,
         "frame": {
             "dataUrl": output_data_url,
             "width": width,
@@ -196,6 +206,7 @@ def process_audio(payload):
     output_base64 = input_base64 if isinstance(input_base64, str) else ""
     warnings = []
     status = "passthrough"
+    processor = "shape-audio-command-adapter"
 
     if not isinstance(input_base64, str) or not input_base64:
         warnings.append("invalid_audio_payload")
@@ -232,13 +243,17 @@ def process_audio(payload):
                     status = "processed"
                 elif result["ok"]:
                     warnings.append("audio_model_output_missing")
+        elif demo_effects_enabled():
+            status = "processed"
+            processor = "shape-demo-audio-processor"
+            warnings.append("demo_audio_passthrough")
 
     latency_ms = elapsed_ms(started)
     update_state(latency_ms, warnings[-1] if warnings else None)
     return {
         "sequence": sequence,
         "status": status,
-        "processor": "shape-audio-command-adapter",
+        "processor": processor,
         "audio": {
             "audioDataBase64": output_base64,
             "sampleRate": sample_rate,
@@ -310,6 +325,62 @@ def model_command(kind):
     if kind == "audio":
         return env_non_empty("SHAPE_AUDIO_CHUNK_COMMAND")
     return env_non_empty("SHAPE_VIDEO_FRAME_COMMAND")
+
+
+def demo_effects_enabled():
+    return str(os.environ.get("SHAPE_PROCESSOR_DEMO_EFFECTS", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def demo_video_data_url(payload, input_data_url, width, height, sequence):
+    identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
+    enabled = payload.get("enabled") if isinstance(payload.get("enabled"), dict) else {}
+    background = payload.get("background") if isinstance(payload.get("background"), dict) else {}
+    clean_plate = background.get("cleanPlate") if isinstance(background.get("cleanPlate"), dict) else {}
+    identity_label = identity.get("version") or identity.get("id") or "identidad demo"
+    effects = [
+        label
+        for enabled_flag, label in (
+            (enabled.get("face"), "rostro"),
+            (enabled.get("background"), "fondo"),
+            (enabled.get("voice"), "voz"),
+        )
+        if enabled_flag
+    ]
+    effect_label = " + ".join(effects) if effects else "passthrough"
+    plate_label = "clean plate" if clean_plate.get("ready") else "sin clean plate"
+    safe_frame = html.escape(input_data_url, quote=True)
+    safe_identity = html.escape(str(identity_label), quote=True)
+    safe_effects = html.escape(effect_label, quote=True)
+    safe_plate = html.escape(plate_label, quote=True)
+    safe_resolution = html.escape(f"{width}x{height}", quote=True)
+    pulse_x = 58 + (sequence % 18) * 6
+
+    svg = f"""
+<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+  <defs>
+    <linearGradient id="shape-demo-glow" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#2563eb" stop-opacity="0.18"/>
+      <stop offset="0.55" stop-color="#14b8a6" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#0f172a" stop-opacity="0.18"/>
+    </linearGradient>
+    <filter id="shape-demo-soft">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+  <rect width="{width}" height="{height}" fill="#0f172a"/>
+  <image href="{safe_frame}" width="{width}" height="{height}" preserveAspectRatio="xMidYMid slice"/>
+  <rect width="{width}" height="{height}" fill="url(#shape-demo-glow)"/>
+  <ellipse cx="{int(width * 0.5)}" cy="{int(height * 0.42)}" rx="{int(width * 0.18)}" ry="{int(height * 0.27)}" fill="none" stroke="#60a5fa" stroke-width="5" stroke-opacity="0.72"/>
+  <rect x="28" y="28" width="286" height="92" rx="14" fill="#020617" fill-opacity="0.72"/>
+  <circle cx="{pulse_x}" cy="74" r="12" fill="#22c55e"/>
+  <text x="86" y="66" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">IA demo activa</text>
+  <text x="86" y="94" fill="#bfdbfe" font-family="Inter, Arial, sans-serif" font-size="14">{safe_effects}</text>
+  <rect x="28" y="{height - 116}" width="{width - 56}" height="88" rx="16" fill="#020617" fill-opacity="0.72"/>
+  <text x="56" y="{height - 74}" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700">{safe_identity}</text>
+  <text x="56" y="{height - 44}" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="14">{safe_resolution} · {safe_plate} · frame {sequence}</text>
+</svg>
+""".strip()
+    return f"data:image/svg+xml;charset=utf-8,{quote(svg, safe='')}"
 
 
 def model_timeout():
