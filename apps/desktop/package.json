@@ -8,6 +8,7 @@
     "dev:vite": "vite --host 0.0.0.0 --port 1420",
     "build": "tsc --noEmit && vite build",
     "build:vite": "tsc --noEmit && vite build",
+    "check:native": "cargo check --manifest-path src-tauri/Cargo.toml",
     "sidecar:build": "node ../../scripts/build-ai-sidecar.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "pnpm sidecar:build && tauri build --config src-tauri/tauri.sidecar.conf.json",
