@@ -72,8 +72,9 @@ quieres conservar reuniones anteriores. El flujo esperado para enseñar es:
    quedan conectados por LiveKit.
 
 `pnpm demo:check` verifica admin/API, sidecar IA, Sentry local, prepara datos,
-corre el smoke de reunión, valida el contrato IA y vuelve a dejar una reunión
-demo limpia lista para enseñar.
+corre el smoke de reunión, valida contrato IA, procesadores gestionados y
+adaptadores por comando, y vuelve a dejar una reunión demo limpia lista para
+enseñar. Usa `--skip-ai-adapters` si solo necesitas validar el flujo base.
 
 `pnpm demo:ui` abre Chromium con cámara/micrófono falsos y recorre la UI real:
 invitado por enlace público, sala de espera, login de host, configuración de

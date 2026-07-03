@@ -4,6 +4,9 @@ import { existsSync, readFileSync } from "node:fs";
 const args = process.argv.slice(2);
 const skipSentry = args.includes("--skip-sentry");
 const skipAiContract = args.includes("--skip-ai-contract");
+const skipAiAdapters = args.includes("--skip-ai-adapters");
+const skipAiManaged = skipAiAdapters || args.includes("--skip-ai-managed");
+const skipAiCommand = skipAiAdapters || args.includes("--skip-ai-command");
 const apiUrl = (
   envOrFile(
     "SHAPE_DEMO_API_URL",
@@ -44,6 +47,12 @@ async function main() {
 
   if (!skipAiContract) {
     runPnpm("smoke:ai-contract");
+  }
+  if (!skipAiManaged) {
+    runPnpm("smoke:ai-managed");
+  }
+  if (!skipAiCommand) {
+    runPnpm("smoke:ai-command");
   }
 
   runPnpm("demo:prepare");
