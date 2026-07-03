@@ -251,14 +251,6 @@ function initials(value: string) {
   return letters || "SM";
 }
 
-function formatCaptureTime(value: string) {
-  return new Intl.DateTimeFormat("es-CO", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Bogota"
-  }).format(new Date(value));
-}
-
 function meetingHostName(meeting: Meeting) {
   return meeting.participants.find((participant) => participant.role === "host")?.displayName ?? "Host";
 }
@@ -1151,7 +1143,7 @@ export default function App() {
           host={host}
           identities={identities}
           backgroundCalibration={backgroundCalibration}
-          selectedIdentityId={selectedIdentity?.id ?? null}
+          selectedIdentityId={selectedIdentityId}
           onIdentityChange={setSelectedIdentityId}
           onDeviceChange={updateDeviceSelection}
           onToggleFace={() => setFaceEnabled((value) => !value)}
@@ -1854,11 +1846,18 @@ function HostSettingsScreen({
   const pushedIdentities = identities.filter((identity) => identity.status === "AVAILABLE" && identity.deliveryStatus === "PUSHED");
   const identityOptions = pushedIdentities.length > 0 ? pushedIdentities : identities;
   const hostIdentity = identityOptions.find((identity) => identity.id === selectedIdentityId) ?? identityOptions[0] ?? null;
+  const [lightingEnhanced, setLightingEnhanced] = useState(true);
+
+  function handleIdentitySelect(identityId: string) {
+    onIdentityChange(identityId || null);
+    if (identityId && !faceEnabled) onToggleFace();
+    if (!identityId && faceEnabled) onToggleFace();
+  }
 
   return (
-    <ScreenFrame title="Ajustes del host" right={<Button variant="outline" icon={<LogIn />} onClick={onSkip}>Omitir y entrar</Button>} onBack={onBack}>
+    <ScreenFrame title="Ajustes del host" right={<Button variant="outline" icon={<LogIn />} onClick={onSkip}>Omitir y entrar</Button>}>
       <div className="workbench">
-        <section className="preview-column">
+        <section className="preview-column host-preview-column">
           <div className="section-header compact">
             <h1>Ajustes de cámara e identidad</h1>
           </div>
@@ -1873,38 +1872,27 @@ function HostSettingsScreen({
               options={deviceOptions(deviceChoices.videoinput, "Sin cámara")}
               disabled={deviceChoices.videoinput.length === 0}
             />
-            <ToggleRow label="Mejorar iluminación" checked />
-          </Panel>
-          <Panel title="Fondo">
-            <StatusRow
-              label="Clean plate"
-              value={backgroundCalibration ? `${backgroundCalibration.width}x${backgroundCalibration.height}` : "Pendiente"}
-              tone={backgroundCalibration ? "ok" : "warning"}
-            />
-            <StatusRow label="Captura" value={backgroundCalibration ? formatCaptureTime(backgroundCalibration.capturedAt) : "Sin captura"} tone={backgroundCalibration ? "ok" : "idle"} />
-            <Button variant="outline" icon={<Camera />} onClick={onOpenBackgroundCalibration}>
-              Calibrar fondo
-            </Button>
+            <ToggleRow label="Fondo limpio listo" checked={Boolean(backgroundCalibration)} onClick={onOpenBackgroundCalibration} />
+            <ToggleRow label="Mejorar iluminación" checked={lightingEnhanced} onClick={() => setLightingEnhanced((current) => !current)} />
           </Panel>
           <Panel title="Rostro aprobado">
             <SelectField
               label="Identidad"
-              value={hostIdentity?.id ?? ""}
-              onChange={(value) => onIdentityChange(value || null)}
-              options={
-                identityOptions.length > 0
-                  ? identityOptions.map((identity) => ({
-                      value: identity.id,
-                      label: `${identity.name} · ${identity.version}`
-                    }))
-                  : [{ value: "", label: "Sin identidad" }]
-              }
+              value={faceEnabled && hostIdentity ? hostIdentity.id : ""}
+              onChange={handleIdentitySelect}
+              options={[
+                { value: "", label: "Sin cambio de rostro" },
+                ...identityOptions.map((identity) => ({
+                  value: identity.id,
+                  label: identity.name
+                }))
+              ]}
             />
             <ToggleRow label="Activar rostro aprobado" checked={faceEnabled} onClick={onToggleFace} />
             <ToggleRow label="Activar fondo personalizado" checked={backgroundEnabled} onClick={onToggleBackground} />
             <ToggleRow label="Activar voz configurada" checked={voiceEnabled} onClick={onToggleVoice} />
           </Panel>
-          <div className="stacked-actions">
+          <div className="stacked-actions host-actions">
             <Button icon={<LogIn />} onClick={onContinue}>
               Entrar a la reunión
             </Button>

@@ -963,6 +963,11 @@ svg {
   min-height: clamp(360px, calc(100vh - 390px), 510px);
 }
 
+.host-preview-column .video-preview {
+  flex: 0 0 clamp(360px, calc(100vh - 380px), 520px);
+  min-height: clamp(360px, calc(100vh - 380px), 520px);
+}
+
 .avatar-preview {
   position: absolute;
   inset: 0;
@@ -1094,6 +1099,14 @@ svg {
 }
 
 .device-actions .button:first-child {
+  grid-column: auto;
+}
+
+.host-actions {
+  grid-template-columns: 1fr;
+}
+
+.host-actions .button:first-child {
   grid-column: auto;
 }
 
