@@ -344,6 +344,11 @@ svg {
   background: #fef3c7;
 }
 
+.status-icon.success {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
 .status-icon svg {
   width: 26px;
   height: 26px;

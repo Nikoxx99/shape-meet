@@ -199,6 +199,35 @@ function canUseDemoRuntimeFallback(error: unknown) {
   return error.status >= 500;
 }
 
+function createDemoMeeting(input: MeetingCreateInput, host: ShapeUser | null): Meeting {
+  const now = Date.now();
+  const suffix = String(now % 1000000).padStart(6, "0");
+  const hostUser = host ?? mockUsers.find((user) => user.rank === "HOST") ?? mockUsers[0]!;
+
+  return {
+    id: `meet_demo_${now}`,
+    title: input.title,
+    code: `SM-${suffix.slice(0, 3)}-${suffix.slice(3)}`,
+    startsAt: input.startsAt,
+    hostId: hostUser.id,
+    access: input.access,
+    status: "SCHEDULED",
+    maxParticipants: input.maxParticipants,
+    invitedEmails: input.invitedEmails ?? [],
+    participants: [
+      {
+        id: `p_${hostUser.id}`,
+        displayName: hostUser.username,
+        email: hostUser.email,
+        role: "host",
+        mic: "on",
+        camera: "on",
+        aiEffects: { faceSwap: false, background: true, voice: false }
+      }
+    ]
+  };
+}
+
 function formatMeetingTime(value: string) {
   if (!value.includes("T")) return value;
 
@@ -760,6 +789,15 @@ export default function App() {
       setJoinCode(meeting.code);
       navigate("created");
     } catch (error) {
+      if (canUseDemoRuntimeFallback(error)) {
+        const meeting = createDemoMeeting(input, host);
+        setMeetings((current) => [meeting, ...current]);
+        setCurrentMeeting(meeting);
+        setJoinCode(meeting.code);
+        navigate("created");
+        return;
+      }
+
       setApiMessage(error instanceof Error ? error.message : "No se pudo crear la reunión.");
     }
   }
@@ -1059,9 +1097,7 @@ export default function App() {
       {route === "created" && (
         currentMeeting ? (
           <MeetingCreatedScreen
-            meeting={currentMeeting}
             shareUrl={meetingShareUrl(currentMeeting.code)}
-            onBack={() => navigate("scheduled")}
             onCopy={() => void navigator.clipboard?.writeText(meetingShareUrl(currentMeeting.code))}
             onContinue={() => navigate("device-test")}
           />
@@ -1643,32 +1679,28 @@ function CreateMeetingScreen({
 }
 
 function MeetingCreatedScreen({
-  meeting,
   shareUrl,
-  onBack,
   onCopy,
   onContinue
 }: {
-  meeting: Meeting;
   shareUrl: string;
-  onBack: () => void;
   onCopy: () => void;
   onContinue: () => void;
 }) {
   return (
-    <ScreenFrame title="Crear reunión" onBack={onBack}>
+    <ScreenFrame title="Crear reunión">
       <CenteredPanel width={620}>
-        <StatusIcon icon={<Check />} />
+        <StatusIcon tone="success" icon={<Check />} />
         <h1>Reunión creada</h1>
         <button className="copy-box" onClick={onCopy}>
           <span>{shareUrl}</span>
           <Copy />
         </button>
         <div className="button-row">
-          <Button icon={<Copy />} onClick={onCopy}>
+          <Button variant="outline" icon={<Copy />} onClick={onCopy}>
             Copiar enlace
           </Button>
-          <Button variant="outline" icon={<ArrowRight />} onClick={onContinue}>
+          <Button icon={<ArrowRight />} onClick={onContinue}>
             Probar equipo
           </Button>
         </div>
@@ -3014,7 +3046,7 @@ function AuthCard({ children, height = 480 }: { children: React.ReactNode; heigh
   );
 }
 
-function StatusIcon({ icon, tone = "primary" }: { icon: React.ReactNode; tone?: "primary" | "warning" }) {
+function StatusIcon({ icon, tone = "primary" }: { icon: React.ReactNode; tone?: "primary" | "success" | "warning" }) {
   return <span className={`status-icon ${tone}`}>{icon}</span>;
 }
 
