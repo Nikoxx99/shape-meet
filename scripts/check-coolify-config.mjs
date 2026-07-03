@@ -177,6 +177,9 @@ if (compose.error?.code === "ENOENT") {
   if (!rendered.includes("--use-auth-secret") || !rendered.includes("--static-auth-secret")) {
     issues.push("rendered coturn command is missing shared-secret authentication");
   }
+  if (!rendered.includes("turnutils_uclient")) {
+    issues.push("rendered coturn service is missing TURN healthcheck");
+  }
   if (!rendered.includes("SHAPE_DEBUG_ERRORS:")) {
     issues.push("rendered admin environment is missing SHAPE_DEBUG_ERRORS");
   }

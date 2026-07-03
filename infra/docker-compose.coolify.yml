@@ -112,6 +112,12 @@ services:
       - "${LIVEKIT_TURN_TLS_PORT:-5349}:${LIVEKIT_TURN_TLS_PORT:-5349}/tcp"
       - "${LIVEKIT_TURN_TLS_PORT:-5349}:${LIVEKIT_TURN_TLS_PORT:-5349}/udp"
       - "${LIVEKIT_TURN_RELAY_RANGE_START:-30000}-${LIVEKIT_TURN_RELAY_RANGE_END:-30100}:${LIVEKIT_TURN_RELAY_RANGE_START:-30000}-${LIVEKIT_TURN_RELAY_RANGE_END:-30100}/udp"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 turnutils_uclient -t -W ${LIVEKIT_TURN_SHARED_SECRET:-shape-turn-dev-secret} -n 1 -m 1 -y -p ${LIVEKIT_TURN_UDP_PORT:-3478} 127.0.0.1 >/tmp/shape-turn-health.log 2>&1 || true; grep -q 'Total connect time' /tmp/shape-turn-health.log"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 10s
     networks:
       - shape-meet
 

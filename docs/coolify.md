@@ -162,6 +162,11 @@ LiveKit. LiveKit anuncia el TURN externo a clientes usando `rtc.turn_servers` y
 genera credenciales temporales con `LIVEKIT_TURN_SHARED_SECRET`; coturn debe usar
 ese mismo valor como `--static-auth-secret`.
 
+`shape-turn` incluye un healthcheck con `turnutils_uclient` contra `127.0.0.1`
+en el puerto `LIVEKIT_TURN_UDP_PORT`, usando el mismo secreto compartido. El
+check verifica que coturn acepte una conexión TURN TCP local; para validar ICE
+end-to-end igualmente debes probar una reunión desde dos redes distintas.
+
 Para máxima cobertura en redes corporativas, publica TURN/TLS en `443/tcp` con
 un balanceador L4/SNI o una IP dedicada para `turn.tudominio.com`. Si el mismo
 servidor Coolify ya usa `443/tcp` para el proxy HTTP, deja `5349/tcp` para
