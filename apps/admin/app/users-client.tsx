@@ -275,7 +275,11 @@ export function UsersClient() {
     setMessage(null);
 
     try {
-      const data = await postJson<{ user: ShapeUser }>("/api/users", userForm);
+      const data = await postJson<{ user: ShapeUser }>("/api/users", {
+        ...userForm,
+        username: userForm.username.trim(),
+        email: userForm.email.trim(),
+      });
       setUsers((current) => [data.user, ...current]);
       setUserForm(initialUserForm);
       setUserDialogOpen(false);
@@ -1027,6 +1031,11 @@ function UserForm({
   onChange: (form: typeof initialUserForm) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const canCreateUser =
+    form.username.trim().length >= 3 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()) &&
+    form.password.length >= 8;
+
   return (
     <form className="modal-form" onSubmit={onSubmit}>
       <Field label="Usuario" icon={<UserPlus />}>
@@ -1069,7 +1078,11 @@ function UserForm({
           <option value="USER">Usuario</option>
         </select>
       </Field>
-      <button className="primary-button full" disabled={saving}>
+      <button
+        className="primary-button full"
+        disabled={saving || !canCreateUser}
+        type="submit"
+      >
         <Plus /> {saving ? "Creando" : "Crear usuario"}
       </button>
     </form>
