@@ -150,11 +150,13 @@ interface BackgroundCalibration {
   cameraDeviceId: string;
 }
 
-const DEMO_DATA_ENABLED = import.meta.env.DEV && (import.meta.env.VITE_SHAPE_DEMO_DATA as string | undefined) !== "false";
+const DEMO_DATA_ENABLED = import.meta.env.DEV && (import.meta.env.VITE_SHAPE_DEMO_DATA as string | undefined) === "true";
 const initialMeetings = DEMO_DATA_ENABLED ? mockMeetings : [];
 const initialIdentities = DEMO_DATA_ENABLED ? mockIdentities : [];
 const initialDeepLinkCode = readMeetingCodeFromLocation();
-const initialMeeting = initialMeetings.find((meeting) => meeting.code === initialDeepLinkCode) ?? initialMeetings[0] ?? null;
+const initialMeeting = initialDeepLinkCode
+  ? initialMeetings.find((meeting) => meeting.code === initialDeepLinkCode) ?? null
+  : initialMeetings[0] ?? null;
 const initialIdentity = initialIdentities.find((identity) => identity.deliveryStatus === "PUSHED") ?? initialIdentities[0] ?? null;
 const configuredHostIdentifier = (import.meta.env.VITE_SHAPE_HOST_IDENTIFIER as string | undefined)?.trim();
 const initialHostIdentifier = configuredHostIdentifier || (DEMO_DATA_ENABLED ? "nicolas@luxora.co" : "");
@@ -637,6 +639,8 @@ export default function App() {
   }, [mediaDevices, route]);
 
   useEffect(() => {
+    if (initialDeepLinkCode) return;
+
     const token = getStoredHostToken();
     if (!token) return;
 
@@ -1190,9 +1194,11 @@ export default function App() {
         currentMeeting ? (
           <MeetingFoundScreen
             meeting={currentMeeting}
+            name={guestName}
             email={guestEmail}
             error={apiMessage}
             onBack={() => navigate("join")}
+            onNameChange={setGuestName}
             onEmailChange={setGuestEmail}
             onContinue={() => {
               setIsHostFlow(false);
@@ -1413,21 +1419,25 @@ function JoinScreen({
 
 function MeetingFoundScreen({
   meeting,
+  name,
   email,
   error,
   onBack,
+  onNameChange,
   onEmailChange,
   onContinue
 }: {
   meeting: Meeting;
+  name: string;
   email: string;
   error: string | null;
   onBack: () => void;
+  onNameChange: (value: string) => void;
   onEmailChange: (value: string) => void;
   onContinue: () => void;
 }) {
   const inviteOnly = meeting.access === "INVITE_ONLY";
-  const canContinue = !inviteOnly || isLikelyEmail(email);
+  const canContinue = Boolean(name.trim()) && (!inviteOnly || isLikelyEmail(email));
 
   return (
     <ScreenFrame title="Unirse a reunión" onBack={onBack}>
@@ -1440,6 +1450,7 @@ function MeetingFoundScreen({
           <DetailRow label="Acceso" value="Sala de espera" />
           <DetailRow label="Código" value={meeting.code} />
         </div>
+        <TextField label="Nombre visible" icon={<UserRound />} value={name} onChange={onNameChange} autoComplete="name" />
         {inviteOnly ? (
           <TextField label="Correo invitado" icon={<Mail />} value={email} onChange={onEmailChange} type="email" autoComplete="email" />
         ) : null}
