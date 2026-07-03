@@ -167,7 +167,7 @@ fn get_observability_status() -> ObservabilityStatus {
         environment: sentry_environment(),
         release: sentry_release(),
         traces_sample_rate: sentry_traces_sample_rate(),
-        debug: env_bool("SENTRY_DEBUG", false),
+        debug: sentry_debug(),
     }
 }
 
@@ -336,7 +336,7 @@ fn init_sentry() -> Option<sentry::ClientInitGuard> {
             release: Some(release.clone().into()),
             environment: Some(environment.clone().into()),
             traces_sample_rate: sentry_traces_sample_rate(),
-            debug: env_bool("SENTRY_DEBUG", false),
+            debug: sentry_debug(),
             ..Default::default()
         },
     ));
@@ -1822,38 +1822,127 @@ fn redacted_environment() -> Value {
 }
 
 fn sentry_dsn() -> Option<String> {
-    env::var("SENTRY_DSN")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    local_config_value(&["SENTRY_DSN", "VITE_SENTRY_DSN", "NEXT_PUBLIC_SENTRY_DSN"])
 }
 
 fn sentry_environment() -> String {
-    env::var("SENTRY_ENVIRONMENT").unwrap_or_else(|_| "development".to_string())
+    local_config_value(&[
+        "SENTRY_ENVIRONMENT",
+        "VITE_SENTRY_ENVIRONMENT",
+        "NEXT_PUBLIC_SENTRY_ENVIRONMENT",
+    ])
+    .unwrap_or_else(|| "development".to_string())
 }
 
 fn sentry_release() -> String {
-    env::var("SENTRY_RELEASE")
-        .unwrap_or_else(|_| format!("shape-meet-desktop@{}", env!("CARGO_PKG_VERSION")))
+    local_config_value(&[
+        "SENTRY_RELEASE",
+        "VITE_SENTRY_RELEASE",
+        "NEXT_PUBLIC_SENTRY_RELEASE",
+    ])
+    .unwrap_or_else(|| format!("shape-meet-desktop@{}", env!("CARGO_PKG_VERSION")))
 }
 
 fn sentry_traces_sample_rate() -> f32 {
-    env::var("SENTRY_TRACES_SAMPLE_RATE")
-        .ok()
-        .and_then(|value| value.parse::<f32>().ok())
-        .filter(|value| (0.0..=1.0).contains(value))
-        .unwrap_or(1.0)
+    local_config_value(&[
+        "SENTRY_TRACES_SAMPLE_RATE",
+        "VITE_SENTRY_TRACES_SAMPLE_RATE",
+        "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE",
+    ])
+    .and_then(|value| value.parse::<f32>().ok())
+    .filter(|value| (0.0..=1.0).contains(value))
+    .unwrap_or(1.0)
+}
+
+fn sentry_debug() -> bool {
+    local_config_value(&[
+        "SENTRY_DEBUG",
+        "VITE_SENTRY_DEBUG",
+        "NEXT_PUBLIC_SENTRY_DEBUG",
+    ])
+    .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+    .unwrap_or(false)
+}
+
+fn local_config_value(keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = env_non_empty(key) {
+            return Some(value);
+        }
+    }
+
+    for path in local_env_file_candidates() {
+        let Ok(content) = fs::read_to_string(path) else {
+            continue;
+        };
+
+        if let Some(value) = parse_local_env_value(&content, keys) {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
+fn local_env_file_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(current_dir) = env::current_dir() {
+        push_env_file_candidates(&mut candidates, &current_dir);
+    }
+
+    if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
+        push_env_file_candidates(&mut candidates, &PathBuf::from(manifest_dir));
+    }
+
+    let mut deduped = Vec::new();
+    for path in candidates {
+        if !deduped.iter().any(|existing| existing == &path) {
+            deduped.push(path);
+        }
+    }
+
+    deduped
+}
+
+fn push_env_file_candidates(candidates: &mut Vec<PathBuf>, start: &Path) {
+    let mut current = Some(start);
+    for _ in 0..4 {
+        let Some(dir) = current else {
+            break;
+        };
+        candidates.push(dir.join(".env.local"));
+        current = dir.parent();
+    }
+}
+
+fn parse_local_env_value(content: &str, keys: &[&str]) -> Option<String> {
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let Some((raw_key, raw_value)) = line.split_once('=') else {
+            continue;
+        };
+
+        let key = raw_key.trim();
+        if !keys.iter().any(|candidate| *candidate == key) {
+            continue;
+        }
+
+        let value = unquote_env_value(raw_value.trim());
+        if !value.is_empty() {
+            return Some(value);
+        }
+    }
+
+    None
 }
 
 fn ai_endpoint() -> String {
     env::var("SHAPE_AI_SERVICE_URL").unwrap_or_else(|_| DEFAULT_AI_ENDPOINT.to_string())
-}
-
-fn env_bool(name: &str, default_value: bool) -> bool {
-    env::var(name)
-        .ok()
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(default_value)
 }
 
 fn env_non_empty(name: &str) -> Option<String> {

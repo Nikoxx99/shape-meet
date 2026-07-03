@@ -14,6 +14,7 @@
     "build:admin": "pnpm --filter @shape-meet/admin build",
     "check:native": "pnpm --filter @shape-meet/desktop check:native",
     "check:coolify": "node scripts/check-coolify-config.mjs",
+    "check:sentry": "node scripts/check-sentry-config.mjs",
     "smoke:admin": "node scripts/smoke-admin-api.mjs",
     "smoke:launcher": "node scripts/smoke-public-launcher.mjs",
     "smoke:meeting-flow": "node scripts/smoke-meeting-flow.mjs",

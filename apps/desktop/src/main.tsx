@@ -5,6 +5,9 @@ import "./styles.css";
 
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 const sentryTracesSampleRate = Number(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE ?? "1");
+const sentryDebug = ["1", "true", "yes"].includes(
+  String(import.meta.env.VITE_SENTRY_DEBUG ?? "").toLowerCase()
+);
 
 if (sentryDsn) {
   Sentry.init({
@@ -12,6 +15,8 @@ if (sentryDsn) {
     environment: (import.meta.env.VITE_SENTRY_ENVIRONMENT as string | undefined) ?? import.meta.env.MODE,
     release: import.meta.env.VITE_SENTRY_RELEASE as string | undefined,
     tracesSampleRate: Number.isFinite(sentryTracesSampleRate) ? sentryTracesSampleRate : 1,
+    debug: sentryDebug,
+    sendDefaultPii: false,
     initialScope: {
       tags: {
         "app.surface": "desktop-webview"

@@ -16,6 +16,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
@@ -1079,6 +1080,13 @@ def safe_float(value, default):
         return default
 
 
+def env_bool(key, default):
+    value = os.environ.get(key)
+    if value is None:
+        return default
+    return value in ("1", "true", "TRUE", "yes", "YES")
+
+
 def unique_warnings(values):
     unique = []
     for value in values:
@@ -1097,7 +1105,17 @@ def now_iso():
 def init_sentry():
     global SENTRY
 
-    dsn = env_non_empty("SENTRY_DSN")
+    sentry_explicitly_disabled = "SENTRY_DSN" in os.environ and not env_non_empty("SENTRY_DSN")
+    load_local_env_files()
+
+    if sentry_explicitly_disabled:
+        return
+
+    dsn = (
+        env_non_empty("SENTRY_DSN")
+        or env_non_empty("VITE_SENTRY_DSN")
+        or env_non_empty("NEXT_PUBLIC_SENTRY_DSN")
+    )
     if not dsn:
         return
 
@@ -1111,11 +1129,17 @@ def init_sentry():
     traces_sample_rate = safe_float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE"), 1.0)
     sentry_sdk.init(
         dsn=dsn,
-        environment=os.environ.get("SENTRY_ENVIRONMENT", "development"),
+        environment=(
+            os.environ.get("SENTRY_ENVIRONMENT")
+            or os.environ.get("VITE_SENTRY_ENVIRONMENT")
+            or os.environ.get("NEXT_PUBLIC_SENTRY_ENVIRONMENT")
+            or "development"
+        ),
         release=os.environ.get("SENTRY_RELEASE", "shape-ai-sidecar@0.1.0"),
         traces_sample_rate=max(0.0, min(1.0, traces_sample_rate)),
         send_default_pii=False,
         integrations=[LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)],
+        debug=env_bool("SENTRY_DEBUG", False),
     )
     sentry_sdk.set_tag("app.surface", "ai-sidecar")
     sentry_sdk.set_tag("ai.mode", ai_mode())
@@ -1129,6 +1153,49 @@ def init_sentry():
         },
     )
     SENTRY = sentry_sdk
+
+
+def load_local_env_files():
+    for path in local_env_file_candidates():
+        if not path.exists():
+            continue
+        try:
+            for raw_line in path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = unquote_env_value(value.strip())
+                if key and value and key not in os.environ:
+                    os.environ[key] = value
+        except OSError as error:
+            print(f"[shape-ai-sidecar] no se pudo leer env local {path}: {error}")
+
+
+def local_env_file_candidates():
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        Path.cwd() / ".env.local",
+        repo_root / ".env.local",
+        repo_root / "apps" / "desktop" / ".env.local",
+        repo_root / "apps" / "admin" / ".env.local",
+    ]
+
+    unique = []
+    for path in candidates:
+        if path not in unique:
+            unique.append(path)
+    return unique
+
+
+def unquote_env_value(value):
+    if len(value) >= 2 and (
+        (value.startswith('"') and value.endswith('"'))
+        or (value.startswith("'") and value.endswith("'"))
+    ):
+        return value[1:-1]
+    return value
 
 
 def capture_sidecar_exception(error, context=None):
