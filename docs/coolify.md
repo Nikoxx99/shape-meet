@@ -98,11 +98,19 @@ El panel web y las APIs admin requieren sesión con rango `ADMIN`.
 Secuencia recomendada para el primer deploy:
 
 1. Crear el recurso Docker Compose con las variables completas.
-2. Usar `RUN_SEED=true` solo en el primer arranque.
-3. Confirmar `/api/health` en `https://admin.tudominio.com/api/health`.
-4. Entrar al panel admin con el bootstrap y crear los hosts reales.
-5. Cambiar `RUN_SEED=false` y redeploy.
-6. Probar una reunión 1:1 desde dos redes distintas para validar ICE/TURN.
+2. Validar el env y el compose antes de desplegar:
+
+   ```bash
+   pnpm check:coolify ruta/a/tu.env --strict
+   ```
+
+   Sin `--strict`, el comando permite placeholders y sirve para validar ejemplos
+   locales. Con `--strict`, falla si detecta secretos de ejemplo o placeholders.
+3. Usar `RUN_SEED=true` solo en el primer arranque.
+4. Confirmar `/api/health` en `https://admin.tudominio.com/api/health`.
+5. Entrar al panel admin con el bootstrap y crear los hosts reales.
+6. Cambiar `RUN_SEED=false` y redeploy.
+7. Probar una reunión 1:1 desde dos redes distintas para validar ICE/TURN.
 
 Durante las primeras pruebas deja `SHAPE_DEBUG_ERRORS=true` para que las APIs
 devuelvan `requestId`, `code` y detalle técnico controlado cuando fallen. Antes

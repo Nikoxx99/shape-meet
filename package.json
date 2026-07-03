@@ -12,6 +12,7 @@
     "build": "pnpm -r build",
     "build:desktop": "pnpm --filter @shape-meet/desktop tauri:build",
     "build:admin": "pnpm --filter @shape-meet/admin build",
+    "check:coolify": "node scripts/check-coolify-config.mjs",
     "smoke:admin": "node scripts/smoke-admin-api.mjs",
     "smoke:meeting-flow": "node scripts/smoke-meeting-flow.mjs",
     "smoke:ai-contract": "node scripts/smoke-ai-sidecar-contract.mjs",

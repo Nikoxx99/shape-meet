@@ -18,6 +18,7 @@ source infra/env.local.example
 set +a
 # macOS + Docker Desktop: publica candidatos ICE con la IP LAN real del host.
 export LIVEKIT_NODE_IP="$(ipconfig getifaddr "$(route get default | awk '/interface:/ {print $2}')")"
+pnpm check:coolify infra/env.local.example
 docker compose -p shape-meet-local -f infra/docker-compose.coolify.yml up -d --build
 
 SHAPE_SMOKE_API_URL=http://127.0.0.1:13000 \
@@ -81,6 +82,16 @@ El TURN embebido también necesita exponer su rango relay UDP. En local usamos
 `LIVEKIT_TURN_RELAY_RANGE_START=30000` y `LIVEKIT_TURN_RELAY_RANGE_END=30100`
 para evitar abrir el rango completo; en producción ajusta ese rango al volumen
 esperado y ábrelo en firewall/Coolify.
+
+Antes de crear o redesplegar el recurso en Coolify, valida el archivo de entorno
+real con:
+
+```bash
+pnpm check:coolify ruta/a/produccion.env --strict
+```
+
+El modo estricto falla si quedan placeholders de secretos y avisa cuando
+TURN/TLS necesita un balanceador L4 o un puerto `443/tcp` dedicado.
 
 ## Build desktop con sidecar
 
