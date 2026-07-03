@@ -5,6 +5,7 @@ const args = new Set(process.argv.slice(2));
 const doctorOnly = args.has("--doctor");
 const noDocker = args.has("--no-docker");
 const noPrepare = args.has("--no-prepare");
+const replaceAi = args.has("--replace-ai") || args.has("--restart-ai");
 const strict = args.has("--strict");
 const verifyUi = args.has("--verify-ui");
 const env = {
@@ -52,29 +53,35 @@ async function main() {
   console.log(`IA local: ${aiUrl}`);
   console.log("");
 
-  const initial = await inspectServices();
-  printServiceReport(initial);
+  let services = await inspectServices();
+  printServiceReport(services);
 
   if (doctorOnly) {
-    if (strict && !demoReady(initial)) process.exit(1);
+    if (strict && !demoReady(services)) process.exit(1);
     return;
   }
 
-  if (!initial.admin.ok && !noDocker) {
+  if (!services.admin.ok && !noDocker) {
     runDockerCompose();
   }
 
-  if (initial.ai.ok && !initial.ai.demoReady) {
-    throw new Error(
-      "IA local ya está activa pero no en modo demo visible. Detén ese proceso y vuelve a correr `pnpm demo:up`, o inicia manualmente `pnpm dev:ai:demo`.",
-    );
+  if (services.ai.ok && !services.ai.demoReady) {
+    if (!replaceAi) {
+      throw new Error(
+        "IA local ya está activa pero no en modo demo visible. Vuelve a correr con `pnpm demo:up -- --replace-ai` para reemplazar el sidecar local si pertenece a Shape Meet.",
+      );
+    }
+
+    await replaceExistingAiSidecar();
+    services = await inspectServices();
+    printServiceReport(services);
   }
 
-  if (!initial.ai.ok) {
+  if (!services.ai.ok) {
     startProcess("IA demo", ["dev:ai:demo"]);
   }
 
-  if (!initial.desktop.ok) {
+  if (!services.desktop.ok) {
     startProcess("Desktop web", [
       "--filter",
       "@shape-meet/desktop",
@@ -298,6 +305,211 @@ function runPnpmCapture(pnpmArgs) {
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
   };
+}
+
+async function replaceExistingAiSidecar() {
+  const target = serviceTarget(aiUrl);
+  const listeners = findListeningProcesses(target.port);
+
+  if (listeners.length === 0) {
+    console.log(
+      `No encontré un proceso escuchando en el puerto IA ${target.port}; arrancaré el demo.`,
+    );
+    return;
+  }
+
+  const inspected = listeners.map((listener) => ({
+    ...listener,
+    ...inspectProcess(listener.pid),
+  }));
+  const safeTargets = inspected.filter(isShapeMeetAiSidecarProcess);
+
+  if (safeTargets.length === 0) {
+    const detail = inspected
+      .map(
+        (processInfo) =>
+          `PID ${processInfo.pid}: ${processInfo.commandLine || "sin comando visible"}`,
+      )
+      .join("\n");
+    throw new Error(
+      [
+        `El puerto IA ${target.port} está ocupado, pero no parece ser un sidecar de Shape Meet.`,
+        "No lo voy a detener automáticamente.",
+        detail,
+      ].join("\n"),
+    );
+  }
+
+  for (const processInfo of safeTargets) {
+    console.log(
+      `> reemplazando sidecar IA local PID ${processInfo.pid}: ${processInfo.commandLine}`,
+    );
+    terminateProcess(processInfo.pid);
+  }
+
+  await waitForListenersToClose(target.port, safeTargets);
+}
+
+function serviceTarget(rawUrl) {
+  const parsed = new URL(rawUrl);
+  const port = Number(parsed.port) || (parsed.protocol === "https:" ? 443 : 80);
+  return { host: parsed.hostname, port };
+}
+
+function findListeningProcesses(port) {
+  if (process.platform === "win32") return findWindowsListeners(port);
+  return findUnixListeners(port);
+}
+
+function findUnixListeners(port) {
+  const result = spawnSync(
+    "lsof",
+    ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
+    {
+      encoding: "utf8",
+    },
+  );
+
+  if (result.status !== 0 || !result.stdout.trim()) return [];
+
+  return [...new Set(result.stdout.split(/\s+/).filter(Boolean))]
+    .map((pid) => Number(pid))
+    .filter(Number.isInteger)
+    .map((pid) => ({ pid }));
+}
+
+function findWindowsListeners(port) {
+  const result = spawnSync("netstat", ["-ano", "-p", "tcp"], {
+    encoding: "utf8",
+  });
+
+  if (result.status !== 0 || !result.stdout.trim()) return [];
+
+  const listeners = [];
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5 || parts[0].toUpperCase() !== "TCP") continue;
+    const [localAddress, state, pid] = [parts[1], parts[3], parts[4]];
+    if (state.toUpperCase() !== "LISTENING") continue;
+    if (!localAddress.endsWith(`:${port}`)) continue;
+    const numericPid = Number(pid);
+    if (Number.isInteger(numericPid)) listeners.push({ pid: numericPid });
+  }
+
+  return [
+    ...new Map(listeners.map((listener) => [listener.pid, listener])).values(),
+  ];
+}
+
+function inspectProcess(pid) {
+  if (process.platform === "win32") return inspectWindowsProcess(pid);
+  return inspectUnixProcess(pid);
+}
+
+function inspectUnixProcess(pid) {
+  const result = spawnSync(
+    "ps",
+    ["-p", String(pid), "-o", "pid=", "-o", "command="],
+    {
+      encoding: "utf8",
+    },
+  );
+
+  return {
+    commandLine: result.stdout.trim().replace(/^\d+\s+/, ""),
+  };
+}
+
+function inspectWindowsProcess(pid) {
+  const command = [
+    '$p = Get-CimInstance Win32_Process -Filter "ProcessId = ' +
+      Number(pid) +
+      '";',
+    "if ($p) {",
+    "$p | Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress",
+    "}",
+  ].join(" ");
+  const result = spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", command],
+    {
+      encoding: "utf8",
+    },
+  );
+
+  try {
+    const payload = JSON.parse(result.stdout.trim());
+    return {
+      commandLine:
+        payload.CommandLine || payload.ExecutablePath || `Proceso ${pid}`,
+    };
+  } catch {
+    return { commandLine: `Proceso ${pid}` };
+  }
+}
+
+function isShapeMeetAiSidecarProcess(processInfo) {
+  const commandLine = (processInfo.commandLine ?? "")
+    .replaceAll("\\", "/")
+    .toLowerCase();
+
+  return (
+    commandLine.includes("apps/ai-sidecar/server.py") ||
+    commandLine.includes("shape-ai-sidecar") ||
+    (commandLine.includes("shape-meet") && commandLine.includes("ai-sidecar"))
+  );
+}
+
+function terminateProcess(pid) {
+  if (process.platform === "win32") {
+    const result = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      throw new Error(`No pude detener el sidecar IA PID ${pid}.`);
+    }
+    return;
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+  }
+}
+
+async function waitForListenersToClose(port, expectedProcesses) {
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    const listeners = findListeningProcesses(port);
+    const expectedPids = new Set(expectedProcesses.map((item) => item.pid));
+    const stillExpected = listeners.some((listener) =>
+      expectedPids.has(listener.pid),
+    );
+    if (!stillExpected) return;
+    await sleep(250);
+  }
+
+  if (process.platform !== "win32") {
+    for (const processInfo of expectedProcesses) {
+      try {
+        process.kill(processInfo.pid, "SIGKILL");
+      } catch (error) {
+        if (error?.code !== "ESRCH") throw error;
+      }
+    }
+  }
+
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    const listeners = findListeningProcesses(port);
+    const expectedPids = new Set(expectedProcesses.map((item) => item.pid));
+    const stillExpected = listeners.some((listener) =>
+      expectedPids.has(listener.pid),
+    );
+    if (!stillExpected) return;
+    await sleep(250);
+  }
+
+  throw new Error("No pude liberar el puerto IA para arrancar el demo.");
 }
 
 function readEnvFile(path) {

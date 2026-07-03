@@ -62,7 +62,8 @@ pnpm demo:doctor
 ```
 
 Si `demo:doctor` muestra `IA local: online sin demo`, detén el sidecar actual y
-vuelve a correr `pnpm demo:up` o arranca `pnpm dev:ai:demo`.
+vuelve a correr `pnpm demo:up -- --replace-ai`. Ese flag solo reemplaza el
+proceso si el puerto IA está ocupado por un sidecar local de Shape Meet.
 
 Prepara datos y valida el demo:
 
