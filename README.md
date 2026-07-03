@@ -38,6 +38,7 @@ Prepara datos y valida el demo:
 
 ```bash
 pnpm demo:prepare
+pnpm demo:check
 pnpm check:sentry
 
 SHAPE_SMOKE_API_URL=http://127.0.0.1:13000 \
@@ -67,6 +68,10 @@ quieres conservar reuniones anteriores. El flujo esperado para enseñar es:
    espera.
 4. Host admite al invitado; el invitado pulsa `Entrar a la reunión` y ambos
    quedan conectados por LiveKit.
+
+`pnpm demo:check` verifica admin/API, sidecar IA, Sentry local, prepara datos,
+corre el smoke de reunión, valida el contrato IA y vuelve a dejar una reunión
+demo limpia lista para enseñar.
 
 Para desarrollo rápido por procesos locales:
 
