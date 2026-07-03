@@ -397,11 +397,14 @@ frames/audio inyectables para la desktop. El payload de video incluye la
 calibracion de fondo limpia que requiere BackgroundMattingV2.
 
 El cliente desktop publica tracks `shape-processed-video` y
-`shape-processed-audio` en LiveKit. Cuando hay sesión IA, envía frames locales a
-`POST /sessions/{id}/frames` y PCM mono `pcm_f32le` a
-`POST /sessions/{id}/audio`; por defecto `SHAPE_AI_MODE=development-passthrough`
-devuelve el mismo frame/audio y mide el transporte. Si el sidecar o vcclient000
-no responden, la desktop cae a cámara o micrófono local sin cambiar la sala.
+`shape-processed-audio` en LiveKit. Si LiveKit todavía no está configurado o la
+conexión falla, la pantalla de llamada usa el mismo pipeline como preview local
+para poder validar cámara, sidecar y modelos antes de tener SFU/TURN listo.
+Cuando hay sesión IA, envía frames locales a `POST /sessions/{id}/frames` y PCM
+mono `pcm_f32le` a `POST /sessions/{id}/audio`; por defecto
+`SHAPE_AI_MODE=development-passthrough` devuelve el mismo frame/audio y mide el
+transporte. Si el sidecar o vcclient000 no responden, la desktop cae a cámara o
+micrófono local sin cambiar la sala.
 Los motores reales se activan detrás de `SHAPE_FACE_ENGINE`,
 `SHAPE_BACKGROUND_ENGINE` y `SHAPE_VOICE_ENGINE` sin cambiar la UI ni el punto
 de publicación WebRTC. Al iniciar sesión IA, la desktop envía al sidecar el

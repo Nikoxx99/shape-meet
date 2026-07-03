@@ -47,6 +47,7 @@ import {
   type ShapeUser,
 } from "@shape-meet/shared";
 import {
+  LocalVideoTrack,
   RoomEvent,
   Track,
   type AudioCaptureOptions,
@@ -3490,6 +3491,8 @@ function ActiveCallScreen({
   >("idle");
   const [processedAudioRuntimeStatus, setProcessedAudioRuntimeStatus] =
     useState<ProcessedAudioRuntimeStatus | null>(null);
+  const [localPreviewVideoTrack, setLocalPreviewVideoTrack] =
+    useState<LiveKitVideoTrack | null>(null);
   const [roomMediaVersion, setRoomMediaVersion] = useState(0);
   const [screenShareEnabled, setScreenShareEnabled] = useState(false);
   const [screenShareState, setScreenShareState] = useState<
@@ -3544,6 +3547,9 @@ function ActiveCallScreen({
   const liveKitUrl = liveKitConnection?.url ?? null;
   const liveKitToken = liveKitConnection?.token ?? null;
   const liveKitWarning = liveKitConnection?.warning ?? null;
+  const liveKitCredentialsConfigured = Boolean(liveKitUrl && liveKitToken);
+  const localMediaPreviewEnabled =
+    !room && (!liveKitCredentialsConfigured || liveKitState === "error");
 
   useEffect(() => {
     if (!liveKitUrl || !liveKitToken) {
@@ -3668,9 +3674,10 @@ function ActiveCallScreen({
   }, [room]);
 
   useEffect(() => {
-    if (!room) return;
-
     const activeRoom = room;
+    const localPreview = localMediaPreviewEnabled;
+    if (!activeRoom && !localPreview) return;
+
     let cancelled = false;
     let publishedTrack: MediaStreamTrack | null = null;
     const shouldProcessAudio = hostMode && micEnabled && voiceEnabled;
@@ -3682,7 +3689,9 @@ function ActiveCallScreen({
       if (!micEnabled) {
         setProcessedAudioState("idle");
         setProcessedAudioRuntimeStatus(null);
-        await activeRoom.localParticipant.setMicrophoneEnabled(false);
+        if (activeRoom) {
+          await activeRoom.localParticipant.setMicrophoneEnabled(false);
+        }
         setCallActionError(null);
         return;
       }
@@ -3690,16 +3699,20 @@ function ActiveCallScreen({
       if (!shouldProcessAudio) {
         setProcessedAudioState("idle");
         setProcessedAudioRuntimeStatus(null);
-        await activeRoom.localParticipant.setMicrophoneEnabled(
-          true,
-          audioCaptureOptions(deviceSelection.microphoneId),
-        );
+        if (activeRoom) {
+          await activeRoom.localParticipant.setMicrophoneEnabled(
+            true,
+            audioCaptureOptions(deviceSelection.microphoneId),
+          );
+        }
         setCallActionError(null);
         return;
       }
 
       setProcessedAudioState("publishing");
-      await activeRoom.localParticipant.setMicrophoneEnabled(false);
+      if (activeRoom) {
+        await activeRoom.localParticipant.setMicrophoneEnabled(false);
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: mediaTrackAudioConstraints(deviceSelection.microphoneId),
         video: false,
@@ -3723,11 +3736,13 @@ function ActiveCallScreen({
 
       processedAudioRef.current = pipeline;
       publishedTrack = pipeline.track;
-      await activeRoom.localParticipant.publishTrack(pipeline.track, {
-        name: "shape-processed-audio",
-        source: Track.Source.Microphone,
-        stream: "shape-processed",
-      });
+      if (activeRoom) {
+        await activeRoom.localParticipant.publishTrack(pipeline.track, {
+          name: "shape-processed-audio",
+          source: Track.Source.Microphone,
+          stream: "shape-processed",
+        });
+      }
       setProcessedAudioState("published");
       setCallActionError(null);
     }
@@ -3741,15 +3756,17 @@ function ActiveCallScreen({
           ? error.message
           : "No se pudo publicar voz procesada.",
       );
-      void activeRoom.localParticipant.setMicrophoneEnabled(
-        micEnabled,
-        audioCaptureOptions(deviceSelection.microphoneId),
-      );
+      if (activeRoom) {
+        void activeRoom.localParticipant.setMicrophoneEnabled(
+          micEnabled,
+          audioCaptureOptions(deviceSelection.microphoneId),
+        );
+      }
     });
 
     return () => {
       cancelled = true;
-      if (publishedTrack) {
+      if (activeRoom && publishedTrack) {
         void activeRoom.localParticipant.unpublishTrack(publishedTrack, true);
       }
       processedAudioRef.current?.stop();
@@ -3759,27 +3776,34 @@ function ActiveCallScreen({
     aiSession?.id,
     deviceSelection.microphoneId,
     hostMode,
+    localMediaPreviewEnabled,
     micEnabled,
     room,
     voiceEnabled,
   ]);
 
   useEffect(() => {
-    if (!room) return;
+    const activeRoom = room;
+    const localPreview = localMediaPreviewEnabled;
+    if (!activeRoom && !localPreview) return;
 
     let cancelled = false;
     let publishedTrack: MediaStreamTrack | null = null;
+    let localTrack: LocalVideoTrack | null = null;
     const shouldProcessVideo =
       hostMode && cameraEnabled && (faceEnabled || backgroundEnabled);
 
     async function publishVideo() {
       processedVideoRef.current?.stop();
       processedVideoRef.current = null;
+      setLocalPreviewVideoTrack(null);
 
       if (!cameraEnabled) {
         setProcessedVideoState("idle");
         setProcessedRuntimeStatus(null);
-        await room?.localParticipant.setCameraEnabled(false);
+        if (activeRoom) {
+          await activeRoom.localParticipant.setCameraEnabled(false);
+        }
         setCallActionError(null);
         return;
       }
@@ -3787,16 +3811,44 @@ function ActiveCallScreen({
       if (!shouldProcessVideo) {
         setProcessedVideoState("idle");
         setProcessedRuntimeStatus(null);
-        await room?.localParticipant.setCameraEnabled(
-          true,
-          videoCaptureOptions(deviceSelection.cameraId),
+        if (activeRoom) {
+          await activeRoom.localParticipant.setCameraEnabled(
+            true,
+            videoCaptureOptions(deviceSelection.cameraId),
+          );
+          setCallActionError(null);
+          return;
+        }
+
+        const constraints = mediaTrackVideoConstraints(
+          deviceSelection.cameraId,
         );
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: constraints,
+          audio: false,
+        });
+        const [cameraTrack] = stream.getVideoTracks();
+
+        if (!cameraTrack) {
+          throw new Error("No se pudo abrir cámara para el preview local.");
+        }
+
+        localTrack = new LocalVideoTrack(cameraTrack, constraints, true);
+
+        if (cancelled) {
+          localTrack.stop();
+          return;
+        }
+
+        setLocalPreviewVideoTrack(localTrack);
         setCallActionError(null);
         return;
       }
 
       setProcessedVideoState("publishing");
-      await room?.localParticipant.setCameraEnabled(false);
+      if (activeRoom) {
+        await activeRoom.localParticipant.setCameraEnabled(false);
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: mediaTrackVideoConstraints(deviceSelection.cameraId),
         audio: false,
@@ -3824,11 +3876,16 @@ function ActiveCallScreen({
 
       processedVideoRef.current = pipeline;
       publishedTrack = pipeline.track;
-      await room?.localParticipant.publishTrack(pipeline.track, {
-        name: "shape-processed-video",
-        source: Track.Source.Camera,
-        stream: "shape-processed",
-      });
+      if (activeRoom) {
+        await activeRoom.localParticipant.publishTrack(pipeline.track, {
+          name: "shape-processed-video",
+          source: Track.Source.Camera,
+          stream: "shape-processed",
+        });
+      } else {
+        localTrack = new LocalVideoTrack(pipeline.track, undefined, true);
+        setLocalPreviewVideoTrack(localTrack);
+      }
       setProcessedVideoState("published");
       setCallActionError(null);
     }
@@ -3840,16 +3897,20 @@ function ActiveCallScreen({
           ? error.message
           : "No se pudo publicar video procesado.",
       );
-      void room.localParticipant.setCameraEnabled(cameraEnabled);
+      if (activeRoom) {
+        void activeRoom.localParticipant.setCameraEnabled(cameraEnabled);
+      }
     });
 
     return () => {
       cancelled = true;
-      if (publishedTrack) {
-        void room.localParticipant.unpublishTrack(publishedTrack, true);
+      setLocalPreviewVideoTrack(null);
+      if (activeRoom && publishedTrack) {
+        void activeRoom.localParticipant.unpublishTrack(publishedTrack, true);
       }
       processedVideoRef.current?.stop();
       processedVideoRef.current = null;
+      localTrack?.stop();
     };
   }, [
     aiSession?.id,
@@ -3859,6 +3920,7 @@ function ActiveCallScreen({
     faceEnabled,
     hostDisplayName,
     hostMode,
+    localMediaPreviewEnabled,
     room,
     voiceEnabled,
   ]);
@@ -4110,23 +4172,60 @@ function ActiveCallScreen({
       voiceEnabled,
     ],
   );
-  const fallbackTiles = useMemo(
-    () =>
-      fallbackParticipants.map((participant) =>
-        fallbackTileFromMeetingParticipant(
-          participant,
-          liveKitConnection?.identity ?? null,
-          { faceEnabled, backgroundEnabled, voiceEnabled },
-        ),
+  const fallbackTiles = useMemo(() => {
+    const effects = { faceEnabled, backgroundEnabled, voiceEnabled };
+    const tiles = fallbackParticipants.map((participant) =>
+      fallbackTileFromMeetingParticipant(
+        participant,
+        liveKitConnection?.identity ?? null,
+        effects,
       ),
-    [
-      backgroundEnabled,
-      faceEnabled,
-      fallbackParticipants,
-      liveKitConnection?.identity,
-      voiceEnabled,
-    ],
-  );
+    );
+
+    if (!localPreviewVideoTrack) return tiles;
+
+    const localIdentity = liveKitConnection?.identity ?? "local-preview";
+    const localIndex = tiles.findIndex(
+      (tile) => tile.isLocal || tile.identity === localIdentity,
+    );
+    const localTile: CallTile = {
+      id: localIdentity,
+      identity: localIdentity,
+      label: localDisplayName,
+      role: hostMode ? "host" : "guest",
+      isLocal: true,
+      source: "camera",
+      cameraOn: cameraEnabled,
+      micOn: micEnabled,
+      videoTrack: localPreviewVideoTrack,
+      effects: hostMode ? effects : undefined,
+    };
+
+    if (localIndex === -1) return [localTile, ...tiles];
+
+    return tiles.map((tile, index) =>
+      index === localIndex
+        ? {
+            ...tile,
+            cameraOn: cameraEnabled,
+            micOn: micEnabled,
+            videoTrack: localPreviewVideoTrack,
+            effects: hostMode ? effects : tile.effects,
+          }
+        : tile,
+    );
+  }, [
+    backgroundEnabled,
+    cameraEnabled,
+    faceEnabled,
+    fallbackParticipants,
+    hostMode,
+    liveKitConnection?.identity,
+    localDisplayName,
+    localPreviewVideoTrack,
+    micEnabled,
+    voiceEnabled,
+  ]);
   const liveKitTiles = useMemo(
     () =>
       room
