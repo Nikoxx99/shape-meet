@@ -1216,6 +1216,22 @@ export default function App() {
     navigate("home");
   }
 
+  function enterHostCallFromSettings() {
+    if (backgroundEnabled && !backgroundCalibration) {
+      navigate("background-calibration");
+      return;
+    }
+
+    void handleEnterCall();
+  }
+
+  function skipHostEffectsAndEnter() {
+    setFaceEnabled(false);
+    setBackgroundEnabled(false);
+    setVoiceEnabled(false);
+    void handleEnterCall();
+  }
+
   async function refreshCurrentMeeting() {
     if (!currentMeeting) {
       throw new Error("No hay reunión seleccionada.");
@@ -1658,8 +1674,8 @@ export default function App() {
           onOpenAiRuntime={() => navigate("ai-runtime")}
           onOpenBackgroundCalibration={() => navigate("background-calibration")}
           onBack={() => navigate("device-test")}
-          onSkip={() => void handleEnterCall()}
-          onContinue={() => void handleEnterCall()}
+          onSkip={skipHostEffectsAndEnter}
+          onContinue={enterHostCallFromSettings}
         />
       )}
       {route === "ai-runtime" && (

@@ -135,6 +135,11 @@ async function enterDemoHostCall(page) {
   await expectVisibleText(page, "Ajustes de cámara e identidad");
   await clickByRole(page, "button", "Activar voz configurada");
   await clickByRole(page, "button", "Entrar a la reunión");
+  await expectVisibleText(page, "Captura fondo limpio", 15_000);
+  await clickByRole(page, "button", "Capturar fondo", 15_000);
+  await clickByRole(page, "button", "Continuar", 15_000);
+  await expectVisibleText(page, "Ajustes de cámara e identidad", 15_000);
+  await clickByRole(page, "button", "Entrar a la reunión");
   await expectVisibleText(page, "1 participante", 15_000);
 }
 
