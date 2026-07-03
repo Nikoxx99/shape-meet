@@ -156,6 +156,7 @@ function writeTauriSidecarConfig() {
 function copyWrapperResources() {
   rmSync(wrappersResourceDir, { recursive: true, force: true });
   mkdirSync(wrappersResourceDir, { recursive: true });
+  writeFileSync(join(wrappersResourceDir, ".gitkeep"), "\n");
 
   for (const file of wrapperFiles) {
     copyFileSync(

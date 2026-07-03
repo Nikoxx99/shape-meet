@@ -15,6 +15,7 @@
     "build:desktop": "pnpm --filter @shape-meet/desktop tauri:build",
     "build:admin": "pnpm --filter @shape-meet/admin build",
     "check:native": "pnpm --filter @shape-meet/desktop check:native",
+    "desktop:ready": "pnpm build:ai-sidecar && node scripts/check-desktop-release.mjs --strict",
     "desktop:doctor": "node scripts/check-desktop-release.mjs",
     "desktop:bundle:check": "node scripts/check-desktop-bundle.mjs",
     "check:coolify": "node scripts/check-coolify-config.mjs",
