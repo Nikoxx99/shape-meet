@@ -19,6 +19,7 @@
     "desktop:bundle:check": "node scripts/check-desktop-bundle.mjs",
     "check:coolify": "node scripts/check-coolify-config.mjs",
     "check:sentry": "node scripts/check-sentry-config.mjs",
+    "check:sentry:live": "node scripts/check-sentry-config.mjs --live",
     "coolify:env": "node scripts/render-coolify-env.mjs",
     "demo:check": "node scripts/smoke-local-demo.mjs",
     "demo:debug": "node scripts/export-demo-debug-bundle.mjs",

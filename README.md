@@ -108,6 +108,7 @@ pnpm demo:ui:install
 pnpm demo:ui
 pnpm demo:local-preview
 pnpm check:sentry
+pnpm check:sentry:live
 
 SHAPE_SMOKE_API_URL=http://127.0.0.1:13000 \
 SHAPE_SMOKE_HOST_IDENTIFIER=admin@shape.test \
@@ -187,6 +188,10 @@ Postgres ni LiveKit: levanta Vite y el sidecar IA demo en puertos libres, usa
 datos mock del cliente, abre Chromium con cámara/micrófono falsos y confirma que
 la llamada muestre video `1280x720` y bridge de voz procesados por el pipeline
 local de IA.
+
+`pnpm check:sentry` valida formato y consistencia básica de DSNs locales.
+`pnpm check:sentry:live` envía un evento mínimo de prueba por DSN único para
+confirmar que Sentry acepta la clave pública y el proyecto configurados.
 
 Para desarrollo rápido por procesos locales:
 

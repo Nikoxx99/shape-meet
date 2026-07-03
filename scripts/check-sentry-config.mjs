@@ -1,6 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+const args = new Set(process.argv.slice(2));
+const liveCheck = args.has("--live") || args.has("--send-test-event");
+const strict = args.has("--strict");
 const sources = [
   ".env.local",
   "apps/admin/.env.local",
@@ -11,6 +15,7 @@ const envByFile = new Map();
 const mergedEnv = { ...process.env };
 const issues = [];
 const warnings = [];
+const resolvedChecks = [];
 
 for (const source of sources) {
   const path = resolve(source);
@@ -51,50 +56,49 @@ const checks = [
   },
 ];
 
-for (const check of checks) {
-  const found = findValue(check);
-  if (!found.value) {
-    issues.push(`${check.label}: missing ${check.keys.join(" or ")} in ${sourceList(check)}`);
-    continue;
+await main();
+
+async function main() {
+  for (const check of checks) {
+    const found = findValue(check);
+    if (!found.value) {
+      issues.push(
+        `${check.label}: missing ${check.keys.join(" or ")} in ${sourceList(check)}`,
+      );
+      continue;
+    }
+
+    const parsed = validateDsn(`${check.label} (${found.key})`, found.value);
+    resolvedChecks.push({ ...found, label: check.label, parsed });
+    console.log(
+      `${check.label} ok: ${maskDsn(found.value)} via ${found.source}:${found.key}`,
+    );
   }
 
-  validateDsn(`${check.label} (${found.key})`, found.value);
-  console.log(`${check.label} ok: ${maskDsn(found.value)} via ${found.source}:${found.key}`);
-}
+  validateSampleRates();
+  validateDebugFlags();
+  warnOnProjectKeyDisagreement();
 
-for (const key of [
-  "SENTRY_TRACES_SAMPLE_RATE",
-  "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE",
-  "VITE_SENTRY_TRACES_SAMPLE_RATE",
-]) {
-  const value = mergedEnv[key];
-  if (!value) continue;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
-    issues.push(`${key} must be a number between 0 and 1`);
+  if (liveCheck && issues.length === 0) {
+    await validateLiveDsns();
   }
-}
 
-for (const key of ["SENTRY_DEBUG", "NEXT_PUBLIC_SENTRY_DEBUG", "VITE_SENTRY_DEBUG"]) {
-  const value = mergedEnv[key];
-  if (!value) continue;
-  if (!["0", "1", "true", "false", "yes", "no"].includes(value.toLowerCase())) {
-    warnings.push(`${key} should be boolean-like for predictable SDK debug logs`);
+  if (warnings.length > 0) {
+    console.warn("Sentry config warnings:");
+    for (const warning of warnings) console.warn(`- ${warning}`);
   }
-}
 
-if (warnings.length > 0) {
-  console.warn("Sentry config warnings:");
-  for (const warning of warnings) console.warn(`- ${warning}`);
-}
+  if (issues.length > 0 || (strict && warnings.length > 0)) {
+    console.error("Sentry config check failed:");
+    for (const issue of issues) console.error(`- ${issue}`);
+    if (strict) {
+      for (const warning of warnings) console.error(`- ${warning}`);
+    }
+    process.exit(1);
+  }
 
-if (issues.length > 0) {
-  console.error("Sentry config check failed:");
-  for (const issue of issues) console.error(`- ${issue}`);
-  process.exit(1);
+  console.log(liveCheck ? "Sentry config live ok" : "Sentry config ok");
 }
-
-console.log("Sentry config ok");
 
 function parseEnvFile(path) {
   const values = {};
@@ -141,7 +145,7 @@ function validateDsn(label, value) {
     url = new URL(value);
   } catch {
     issues.push(`${label}: invalid DSN URL`);
-    return;
+    return null;
   }
 
   if (url.protocol !== "https:") {
@@ -156,19 +160,166 @@ function validateDsn(label, value) {
   if (!/^\/\d+\/?$/.test(url.pathname)) {
     issues.push(`${label}: DSN path must contain the numeric project id`);
   }
+
+  return {
+    protocol: url.protocol,
+    host: url.host,
+    publicKey: url.username,
+    projectId: url.pathname.replace(/^\/+|\/+$/g, ""),
+    normalized: `${url.protocol}//${url.username}@${url.host}${url.pathname.replace(/\/$/, "")}`,
+  };
+}
+
+function validateSampleRates() {
+  for (const key of [
+    "SENTRY_TRACES_SAMPLE_RATE",
+    "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE",
+    "VITE_SENTRY_TRACES_SAMPLE_RATE",
+  ]) {
+    const value = mergedEnv[key];
+    if (!value) continue;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      issues.push(`${key} must be a number between 0 and 1`);
+    }
+  }
+}
+
+function validateDebugFlags() {
+  for (const key of [
+    "SENTRY_DEBUG",
+    "NEXT_PUBLIC_SENTRY_DEBUG",
+    "VITE_SENTRY_DEBUG",
+  ]) {
+    const value = mergedEnv[key];
+    if (!value) continue;
+    if (
+      !["0", "1", "true", "false", "yes", "no"].includes(value.toLowerCase())
+    ) {
+      warnings.push(
+        `${key} should be boolean-like for predictable SDK debug logs`,
+      );
+    }
+  }
+}
+
+function warnOnProjectKeyDisagreement() {
+  const groups = new Map();
+
+  for (const check of resolvedChecks) {
+    if (!check.parsed) continue;
+    const groupKey = `${check.parsed.host}/${check.parsed.projectId}`;
+    const group = groups.get(groupKey) ?? new Map();
+    const labels = group.get(check.parsed.publicKey) ?? [];
+    labels.push(`${check.label} via ${check.source}:${check.key}`);
+    group.set(check.parsed.publicKey, labels);
+    groups.set(groupKey, group);
+  }
+
+  for (const [project, keys] of groups) {
+    if (keys.size <= 1) continue;
+    const maskedKeys = [...keys.keys()].map(maskKey).join(", ");
+    warnings.push(
+      `multiple Sentry public keys found for ${project}: ${maskedKeys}. Run check:sentry:live to verify each key.`,
+    );
+  }
+}
+
+async function validateLiveDsns() {
+  const unique = new Map();
+
+  for (const check of resolvedChecks) {
+    if (!check.parsed) continue;
+    const item = unique.get(check.parsed.normalized) ?? {
+      parsed: check.parsed,
+      labels: [],
+    };
+    item.labels.push(`${check.label} via ${check.source}:${check.key}`);
+    unique.set(check.parsed.normalized, item);
+  }
+
+  for (const item of unique.values()) {
+    const label = item.labels.join(", ");
+    const result = await sendSentryProbe(item.parsed);
+    if (result.ok) {
+      console.log(`sentry live ok: ${maskParsedDsn(item.parsed)} (${label})`);
+      continue;
+    }
+    issues.push(
+      `live check failed for ${maskParsedDsn(item.parsed)} (${label}): ${result.message}`,
+    );
+  }
+}
+
+async function sendSentryProbe(dsn) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  const endpoint = `${dsn.protocol}//${dsn.host}/api/${dsn.projectId}/store/?sentry_key=${encodeURIComponent(
+    dsn.publicKey,
+  )}&sentry_version=7&sentry_client=shape-meet-check/0.1`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        event_id: randomUUID().replaceAll("-", ""),
+        timestamp: new Date().toISOString(),
+        platform: "javascript",
+        logger: "shape-meet.check-sentry",
+        level: "info",
+        message: "Shape Meet Sentry live config check",
+        environment:
+          mergedEnv.SENTRY_ENVIRONMENT ??
+          mergedEnv.NEXT_PUBLIC_SENTRY_ENVIRONMENT ??
+          mergedEnv.VITE_SENTRY_ENVIRONMENT ??
+          "development",
+        tags: {
+          "app.surface": "config-check",
+          "shape.check": "sentry-live",
+        },
+      }),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      message: response.ok
+        ? "ok"
+        : `HTTP ${response.status}: ${text.slice(0, 240)}`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function maskDsn(value) {
   try {
     const url = new URL(value);
     const key = url.username;
-    url.username = key.length > 10 ? `${key.slice(0, 6)}...${key.slice(-4)}` : "***";
+    url.username =
+      key.length > 10 ? `${key.slice(0, 6)}...${key.slice(-4)}` : "***";
     return url.toString();
   } catch {
     return "<invalid>";
   }
 }
 
+function maskParsedDsn(dsn) {
+  return `${dsn.protocol}//${maskKey(dsn.publicKey)}@${dsn.host}/${dsn.projectId}`;
+}
+
+function maskKey(key) {
+  return key.length > 10 ? `${key.slice(0, 6)}...${key.slice(-4)}` : "***";
+}
+
 function sourceList(check) {
-  return [check.source, ...(check.fallbackSources ?? []), "process.env"].join(", ");
+  return [check.source, ...(check.fallbackSources ?? []), "process.env"].join(
+    ", ",
+  );
 }
