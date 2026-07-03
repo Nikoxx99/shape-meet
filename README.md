@@ -71,6 +71,7 @@ pnpm demo:prepare
 pnpm demo:check
 pnpm demo:verify
 pnpm demo:ai-runtime
+pnpm models:runtime -- --face-command "python wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}"
 pnpm demo:ui:install
 pnpm demo:ui
 pnpm check:sentry
@@ -118,6 +119,12 @@ usa el script Python fuente cuando el binario empaquetado está desactualizado;
 usa `--prefer-bundled` para forzar el binario local.
 `pnpm dev:ai:demo` levanta el sidecar en ese mismo modo demo sin depender de
 Tauri ni de `shape-ai-runtime.env`.
+
+`pnpm models:runtime` escribe `shape-ai-runtime.env` para wrappers reales. Acepta
+`--video-frame-command` para un wrapper combinado o `--face-command`,
+`--background-command` y `--voice-command` para comandos separados. Los comandos
+reciben placeholders como `{input}`, `{output}`, `{identity}`, `{clean_plate}`,
+`{sample_rate}` y `{session_id}`.
 
 Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`
 y volver a la llamada. Esa ruta escribe el mismo archivo runtime desde la app y

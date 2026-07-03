@@ -139,6 +139,18 @@ pnpm demo:ai-runtime
 Ese modo prueba sidecar, procesos gestionados, endpoints y publicación WebRTC;
 no reemplaza la integración final de modelos.
 
+Para wrappers reales, genera el mismo archivo runtime con:
+
+```bash
+pnpm models:runtime -- \
+  --face-command "python wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}" \
+  --background-command "python wrappers/backgroundmattingv2_frame.py --input {input} --output {output} --clean-plate {clean_plate}" \
+  --voice-command "python wrappers/vcclient000_chunk.py --input {input} --output {output} --sample-rate {sample_rate}"
+```
+
+Usa `--video-frame-command` si prefieres un solo wrapper combinado para rostro y
+fondo, y `--audio-chunk-command` si prefieres un wrapper combinado para voz.
+
 El adaptador escribe archivos temporales y ejecuta el comando sin shell. Tambien
 inyecta variables como `SHAPE_FRAME_INPUT_PATH`, `SHAPE_FRAME_OUTPUT_PATH`,
 `SHAPE_IDENTITY_PATH`, `SHAPE_CLEAN_PLATE_PATH`, `SHAPE_AUDIO_INPUT_PATH`,
@@ -188,6 +200,7 @@ Smoke automatizado del contrato de adaptadores:
 pnpm smoke:ai-contract
 pnpm smoke:ai-demo
 pnpm smoke:ai-runtime
+pnpm smoke:ai-model-runtime
 pnpm smoke:ai-demo-sidecar
 pnpm smoke:ai-managed
 pnpm smoke:ai-command
