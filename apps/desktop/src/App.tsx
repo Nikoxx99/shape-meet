@@ -1004,6 +1004,7 @@ export default function App() {
       }
 
       setApiMessage(error instanceof Error ? error.message : "No se pudo solicitar acceso.");
+      if (currentMeeting) setRoute("found");
     }
   }
 
