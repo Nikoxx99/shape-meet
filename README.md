@@ -62,6 +62,12 @@ hacen falta, corre `demo:prepare` y deja vivos los procesos iniciados:
 pnpm demo:up
 ```
 
+Para validar que el stack queda listo y salir sin dejar procesos locales vivos:
+
+```bash
+pnpm demo:ready
+```
+
 Para levantar/verificar servicios y recorrer la UI real con Playwright:
 
 ```bash

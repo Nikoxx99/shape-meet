@@ -984,6 +984,7 @@ def start_managed_processors():
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                **managed_processor_popen_options(),
             )
         except Exception as error:
             print(f"[shape-ai-sidecar] no se pudo iniciar {config['id']} processor: {error}")
@@ -1026,14 +1027,49 @@ def stop_managed_processors():
         if process.poll() is not None:
             continue
 
-        process.terminate()
+        terminate_managed_process(process)
         try:
             process.wait(timeout=4)
         except subprocess.TimeoutExpired:
-            process.kill()
+            kill_managed_process(process)
             process.wait(timeout=2)
 
         print(f"[shape-ai-sidecar] {processor_id} processor detenido")
+
+
+def managed_processor_popen_options():
+    if platform.system() == "Windows":
+        return {
+            "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        }
+
+    return {"start_new_session": True}
+
+
+def terminate_managed_process(process):
+    if platform.system() == "Windows":
+        process.terminate()
+        return
+
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except Exception:
+        process.terminate()
+
+
+def kill_managed_process(process):
+    if platform.system() == "Windows":
+        process.kill()
+        return
+
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except Exception:
+        process.kill()
 
 
 def install_shutdown_hooks():

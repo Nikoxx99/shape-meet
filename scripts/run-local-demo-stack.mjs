@@ -8,6 +8,7 @@ const noPrepare = args.has("--no-prepare");
 const replaceAi = args.has("--replace-ai") || args.has("--restart-ai");
 const strict = args.has("--strict");
 const verifyUi = args.has("--verify-ui");
+const exitAfterReady = args.has("--exit-after-ready") || args.has("--once");
 const infraEnv = readEnvFile("infra/env.local.example");
 const rootEnv = readEnvFile(".env.local");
 const appEnv = {
@@ -168,6 +169,15 @@ async function main() {
     console.log(
       "Servicios ya estaban activos. No hay procesos nuevos que mantener.",
     );
+    return;
+  }
+
+  if (exitAfterReady) {
+    console.log("");
+    console.log(
+      "Demo verificado. Detendré los procesos locales iniciados por este comando.",
+    );
+    await stopStartedProcesses();
     return;
   }
 
@@ -946,9 +956,35 @@ async function waitForExitSignal() {
     process.once("SIGTERM", stop);
   });
 
+  await stopStartedProcesses();
+}
+
+async function stopStartedProcesses() {
   for (const { child } of children) {
     if (child.exitCode === null) child.kill("SIGTERM");
   }
+
+  await Promise.all(
+    children.map(
+      ({ child }) =>
+        new Promise((resolve) => {
+          if (child.exitCode !== null) {
+            resolve();
+            return;
+          }
+
+          const timeout = setTimeout(() => {
+            if (child.exitCode === null) child.kill("SIGKILL");
+            resolve();
+          }, 5000);
+
+          child.once("exit", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        }),
+    ),
+  );
 }
 
 function pnpmCommand() {
