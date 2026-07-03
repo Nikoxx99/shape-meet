@@ -6,6 +6,7 @@ const skipSentry = args.includes("--skip-sentry");
 const skipAiContract = args.includes("--skip-ai-contract");
 const skipAiAdapters = args.includes("--skip-ai-adapters");
 const skipAiDemo = skipAiAdapters || args.includes("--skip-ai-demo");
+const skipAiRuntime = skipAiAdapters || args.includes("--skip-ai-runtime");
 const skipAiManaged = skipAiAdapters || args.includes("--skip-ai-managed");
 const skipAiCommand = skipAiAdapters || args.includes("--skip-ai-command");
 const apiUrl = (
@@ -51,6 +52,9 @@ async function main() {
   }
   if (!skipAiDemo) {
     runPnpm("smoke:ai-demo");
+  }
+  if (!skipAiRuntime) {
+    runPnpm("smoke:ai-runtime");
   }
   if (!skipAiManaged) {
     runPnpm("smoke:ai-managed");

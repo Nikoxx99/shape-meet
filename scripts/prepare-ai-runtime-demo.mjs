@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -8,6 +14,19 @@ const repoRoot = resolve(scriptDir, "..");
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const printOnly = args.includes("--print");
+const preferBundled = args.includes("--prefer-bundled");
+const processorHost =
+  argValue("--processor-host") ??
+  process.env.SHAPE_DEMO_PROCESSOR_HOST ??
+  "127.0.0.1";
+const videoPort =
+  argValue("--video-port") ??
+  process.env.SHAPE_DEMO_VIDEO_PROCESSOR_PORT ??
+  "7860";
+const audioPort =
+  argValue("--audio-port") ??
+  process.env.SHAPE_DEMO_AUDIO_PROCESSOR_PORT ??
+  "7861";
 const outputPath =
   argValue("--out") ??
   process.env.SHAPE_AI_RUNTIME_ENV_FILE ??
@@ -38,12 +57,12 @@ function renderRuntimeEnv(command) {
     "SHAPE_VOICE_ENGINE=shape-demo-vcclient000",
     "SHAPE_PROCESSOR_DEMO_EFFECTS=true",
     "SHAPE_PROCESSOR_TIMEOUT_SECS=2",
-    `SHAPE_VIDEO_PROCESSOR_COMMAND=${command} --kind video --host 127.0.0.1 --port 7860`,
-    "SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame",
-    "SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7860/health",
-    `SHAPE_AUDIO_PROCESSOR_COMMAND=${command} --kind audio --host 127.0.0.1 --port 7861`,
-    "SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio",
-    "SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health",
+    `SHAPE_VIDEO_PROCESSOR_COMMAND=${command} --kind video --host ${processorHost} --port ${videoPort}`,
+    `SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://${processorHost}:${videoPort}/process-frame`,
+    `SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://${processorHost}:${videoPort}/health`,
+    `SHAPE_AUDIO_PROCESSOR_COMMAND=${command} --kind audio --host ${processorHost} --port ${audioPort}`,
+    `SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://${processorHost}:${audioPort}/process-audio`,
+    `SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://${processorHost}:${audioPort}/health`,
     "",
   ].join("\n");
 }
@@ -54,19 +73,12 @@ function resolveProcessorCommand() {
   if (explicit) return explicit;
 
   const binary = findBundledProcessorBinary();
-  if (binary) return shellQuote(binary);
+  const sourceCommand = sourceProcessorCommand();
+  if (binary && (preferBundled || bundledProcessorIsFresh(binary))) {
+    return shellQuote(binary);
+  }
 
-  const python =
-    process.env.SHAPE_AI_PYTHON ||
-    (process.platform === "win32" ? "python" : "python3");
-  const script = join(
-    repoRoot,
-    "apps",
-    "ai-sidecar",
-    "processors",
-    "shape_processor_command.py",
-  );
-  return `${shellQuote(python)} ${shellQuote(script)}`;
+  return sourceCommand;
 }
 
 function findBundledProcessorBinary() {
@@ -95,6 +107,31 @@ function currentPlatformHint() {
   if (process.platform === "win32") return "pc-windows-msvc";
   if (process.platform === "linux") return "unknown-linux";
   return process.platform;
+}
+
+function bundledProcessorIsFresh(binary) {
+  try {
+    return statSync(binary).mtimeMs >= statSync(processorSourcePath()).mtimeMs;
+  } catch {
+    return false;
+  }
+}
+
+function sourceProcessorCommand() {
+  const python =
+    process.env.SHAPE_AI_PYTHON ||
+    (process.platform === "win32" ? "python" : "python3");
+  return `${shellQuote(python)} ${shellQuote(processorSourcePath())}`;
+}
+
+function processorSourcePath() {
+  return join(
+    repoRoot,
+    "apps",
+    "ai-sidecar",
+    "processors",
+    "shape_processor_command.py",
+  );
 }
 
 function defaultRuntimeEnvPath() {

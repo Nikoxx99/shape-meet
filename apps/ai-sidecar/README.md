@@ -159,6 +159,7 @@ Smoke automatizado del contrato de adaptadores:
 ```bash
 pnpm smoke:ai-contract
 pnpm smoke:ai-demo
+pnpm smoke:ai-runtime
 pnpm smoke:ai-managed
 pnpm smoke:ai-command
 ```

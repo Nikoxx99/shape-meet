@@ -26,6 +26,7 @@
     "smoke:meeting-flow": "node scripts/smoke-meeting-flow.mjs",
     "smoke:ai-contract": "node scripts/smoke-ai-sidecar-contract.mjs",
     "smoke:ai-demo": "node scripts/smoke-ai-demo-processor.mjs",
+    "smoke:ai-runtime": "node scripts/smoke-ai-runtime-env.mjs",
     "smoke:ai-managed": "node scripts/smoke-ai-managed-processors.mjs",
     "smoke:ai-command": "node scripts/smoke-ai-command-adapters.mjs",
     "lint": "pnpm -r lint",

@@ -73,16 +73,18 @@ quieres conservar reuniones anteriores. El flujo esperado para enseñar es:
    quedan conectados por LiveKit.
 
 `pnpm demo:check` verifica admin/API, sidecar IA, Sentry local, prepara datos,
-corre el smoke de reunión, valida contrato IA, procesador demo, procesadores
-gestionados y adaptadores por comando, y vuelve a dejar una reunión demo limpia
-lista para enseñar. Usa `--skip-ai-adapters` si solo necesitas validar el flujo
-base.
+corre el smoke de reunión, valida contrato IA, procesador demo, runtime env
+generado, procesadores gestionados y adaptadores por comando, y vuelve a dejar
+una reunión demo limpia lista para enseñar. Usa `--skip-ai-adapters` si solo
+necesitas validar el flujo base.
 
 `pnpm demo:ai-runtime` escribe `shape-ai-runtime.env` con procesadores demo para
 Tauri. Esos procesadores marcan el track de video con una capa visible de IA y
 publican audio passthrough como procesado, sin usar modelos reales. Sirve para
 probar sidecar/procesadores antes de conectar FaceFusion, BackgroundMattingV2 o
-vcclient000. Usa `--dry-run` para ver el archivo sin escribirlo.
+vcclient000. Usa `--dry-run` para ver el archivo sin escribirlo. En desarrollo
+usa el script Python fuente cuando el binario empaquetado está desactualizado;
+usa `--prefer-bundled` para forzar el binario local.
 
 `pnpm demo:ui` abre Chromium con cámara/micrófono falsos y recorre la UI real:
 invitado por enlace público, sala de espera, login de host, configuración de
