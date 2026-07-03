@@ -20,11 +20,15 @@ for (const key of [
   "POSTGRES_PASSWORD",
   "REDIS_PASSWORD",
   "AUTH_SESSION_SECRET",
+  "CORS_ORIGIN",
+  "RUN_SEED",
+  "SHAPE_DEBUG_ERRORS",
   "HOST_BOOTSTRAP_EMAIL",
   "HOST_BOOTSTRAP_PASSWORD",
   "LIVEKIT_URL",
   "LIVEKIT_API_KEY",
   "LIVEKIT_API_SECRET",
+  "LIVEKIT_USE_EXTERNAL_IP",
   "LIVEKIT_TURN_DOMAIN",
   "LIVEKIT_TURN_REALM",
   "LIVEKIT_TURN_SHARED_SECRET",
@@ -39,6 +43,12 @@ for (const key of [
   "LIVEKIT_TURN_RELAY_RANGE_END",
   "NEXT_PUBLIC_APP_URL",
   "ADMIN_HTTP_PORT",
+  "VITE_SHAPE_API_URL",
+  "VITE_SHAPE_APP_URL",
+  "VITE_SHAPE_MEETING_URL",
+  "VITE_SHAPE_DEMO_DATA",
+  "SHAPE_ARTIFACT_STORAGE_DIR",
+  "SHAPE_ARTIFACT_MAX_BYTES",
 ]) {
   requireEnv(key);
 }
@@ -62,6 +72,9 @@ for (const key of [
 
 const appUrl = parseUrl("NEXT_PUBLIC_APP_URL");
 const livekitUrl = parseUrl("LIVEKIT_URL");
+const desktopApiUrl = parseUrl("VITE_SHAPE_API_URL");
+const desktopAppUrl = parseUrl("VITE_SHAPE_APP_URL");
+const meetingUrl = parseUrl("VITE_SHAPE_MEETING_URL");
 const turnDomain = env.LIVEKIT_TURN_DOMAIN;
 const turnExternalIp = env.LIVEKIT_TURN_EXTERNAL_IP;
 const rtcTcpPort = parsePort("LIVEKIT_RTC_TCP_PORT");
@@ -72,9 +85,24 @@ const relayStart = parsePort("LIVEKIT_TURN_RELAY_RANGE_START");
 const relayEnd = parsePort("LIVEKIT_TURN_RELAY_RANGE_END");
 const turnTtlSeconds = parsePositiveInteger("LIVEKIT_TURN_TTL_SECONDS");
 parsePort("ADMIN_HTTP_PORT");
+parsePositiveInteger("SHAPE_ARTIFACT_MAX_BYTES");
+parseBoolean("RUN_SEED");
+parseBoolean("SHAPE_DEBUG_ERRORS");
+parseBoolean("LIVEKIT_USE_EXTERNAL_IP");
+parseBoolean("VITE_SHAPE_DEMO_DATA");
 
 if (appUrl?.protocol === "https:" && livekitUrl?.protocol !== "wss:") {
   issues.push("LIVEKIT_URL must use wss:// when NEXT_PUBLIC_APP_URL uses https://");
+}
+
+for (const [key, url] of [
+  ["VITE_SHAPE_API_URL", desktopApiUrl],
+  ["VITE_SHAPE_APP_URL", desktopAppUrl],
+  ["VITE_SHAPE_MEETING_URL", meetingUrl],
+]) {
+  if (appUrl?.protocol === "https:" && url?.protocol !== "https:") {
+    issues.push(`${key} must use https:// when NEXT_PUBLIC_APP_URL uses https://`);
+  }
 }
 
 if (livekitUrl?.hostname && livekitUrl.hostname === turnDomain) {
@@ -136,6 +164,9 @@ if (compose.error?.code === "ENOENT") {
   }
   if (!rendered.includes("--use-auth-secret") || !rendered.includes("--static-auth-secret")) {
     issues.push("rendered coturn command is missing shared-secret authentication");
+  }
+  if (!rendered.includes("SHAPE_DEBUG_ERRORS:")) {
+    issues.push("rendered admin environment is missing SHAPE_DEBUG_ERRORS");
   }
 }
 
@@ -204,6 +235,14 @@ function parsePositiveInteger(key) {
     return null;
   }
   return value;
+}
+
+function parseBoolean(key) {
+  if (!env[key]) return null;
+  if (!["true", "false"].includes(env[key].toLowerCase())) {
+    issues.push(`${key} must be true or false`);
+  }
+  return env[key].toLowerCase() === "true";
 }
 
 function isPlaceholder(value) {
