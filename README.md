@@ -61,6 +61,13 @@ Para diagnosticar sin levantar procesos:
 pnpm demo:doctor
 ```
 
+Para exportar un reporte local de soporte con servicios, Docker, Sentry,
+hardware y runtime de modelos, sin incluir secretos:
+
+```bash
+pnpm demo:debug
+```
+
 Si `demo:doctor` muestra `IA local: online sin demo`, detén el sidecar actual y
 vuelve a correr `pnpm demo:up -- --replace-ai`. Ese flag solo reemplaza el
 proceso si el puerto IA está ocupado por un sidecar local de Shape Meet.
