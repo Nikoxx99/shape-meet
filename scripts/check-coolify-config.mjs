@@ -49,6 +49,15 @@ for (const key of [
   "VITE_SHAPE_DEMO_DATA",
   "SHAPE_ARTIFACT_STORAGE_DIR",
   "SHAPE_ARTIFACT_MAX_BYTES",
+  "SENTRY_ENVIRONMENT",
+  "NEXT_PUBLIC_SENTRY_ENVIRONMENT",
+  "SENTRY_RELEASE",
+  "NEXT_PUBLIC_SENTRY_RELEASE",
+  "SENTRY_TRACES_SAMPLE_RATE",
+  "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE",
+  "VITE_SENTRY_ENVIRONMENT",
+  "VITE_SENTRY_RELEASE",
+  "VITE_SENTRY_TRACES_SAMPLE_RATE",
 ]) {
   requireEnv(key);
 }
@@ -90,6 +99,9 @@ parseBoolean("RUN_SEED");
 parseBoolean("SHAPE_DEBUG_ERRORS");
 parseBoolean("LIVEKIT_USE_EXTERNAL_IP");
 parseBoolean("VITE_SHAPE_DEMO_DATA");
+parseSampleRate("SENTRY_TRACES_SAMPLE_RATE");
+parseSampleRate("NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE");
+parseSampleRate("VITE_SENTRY_TRACES_SAMPLE_RATE");
 
 if (appUrl?.protocol === "https:" && livekitUrl?.protocol !== "wss:") {
   issues.push("LIVEKIT_URL must use wss:// when NEXT_PUBLIC_APP_URL uses https://");
@@ -168,6 +180,20 @@ if (compose.error?.code === "ENOENT") {
   if (!rendered.includes("SHAPE_DEBUG_ERRORS:")) {
     issues.push("rendered admin environment is missing SHAPE_DEBUG_ERRORS");
   }
+  for (const expected of [
+    "SENTRY_DSN:",
+    "NEXT_PUBLIC_SENTRY_DSN:",
+    "SENTRY_ENVIRONMENT:",
+    "NEXT_PUBLIC_SENTRY_ENVIRONMENT:",
+    "SENTRY_RELEASE:",
+    "NEXT_PUBLIC_SENTRY_RELEASE:",
+    "SENTRY_TRACES_SAMPLE_RATE:",
+    "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE:",
+  ]) {
+    if (!rendered.includes(expected)) {
+      issues.push(`rendered admin environment is missing ${expected.slice(0, -1)}`);
+    }
+  }
 }
 
 if (warnings.length > 0) {
@@ -243,6 +269,16 @@ function parseBoolean(key) {
     issues.push(`${key} must be true or false`);
   }
   return env[key].toLowerCase() === "true";
+}
+
+function parseSampleRate(key) {
+  if (!env[key]) return null;
+  const value = Number(env[key]);
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    issues.push(`${key} must be a number between 0 and 1`);
+    return null;
+  }
+  return value;
 }
 
 function isPlaceholder(value) {
