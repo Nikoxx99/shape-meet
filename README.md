@@ -20,6 +20,25 @@ set +a
 export LIVEKIT_NODE_IP="$(ipconfig getifaddr "$(route get default | awk '/interface:/ {print $2}')")"
 pnpm check:coolify infra/env.local.example
 docker compose -p shape-meet-local -f infra/docker-compose.coolify.yml up -d --build
+```
+
+En otra terminal, deja vivo el sidecar:
+
+```bash
+python3 apps/ai-sidecar/server.py --port 7851
+```
+
+En una tercera terminal, deja viva la desktop web:
+
+```bash
+pnpm --filter @shape-meet/desktop dev:vite
+```
+
+Prepara datos y valida el demo:
+
+```bash
+pnpm demo:prepare
+pnpm check:sentry
 
 SHAPE_SMOKE_API_URL=http://127.0.0.1:13000 \
 SHAPE_SMOKE_HOST_IDENTIFIER=admin@shape.test \
@@ -33,6 +52,21 @@ SHAPE_SMOKE_GUEST_NAME="Smoke Guest" \
 SHAPE_SMOKE_GUEST_EMAIL=smoke@example.com \
 pnpm smoke:meeting-flow
 ```
+
+`pnpm demo:prepare` deja el demo local en un estado presentable: limpia datos
+locales conocidos de smoke/demo en el contenedor `shape-meet-local`, crea o
+publica la identidad `Rostro demo aprobado`, crea una reunión pública
+`Demo Shape Meet` y muestra el código/enlace para entrar. Usa `--no-reset` si
+quieres conservar reuniones anteriores. El flujo esperado para enseñar es:
+
+1. Host entra en [http://localhost:1420](http://localhost:1420) con
+   `admin@shape.test` / `ChangeMe123!`.
+2. Host abre la reunión `Demo Shape Meet`, prueba equipo, configura identidad y
+   entra.
+3. Invitado abre el enlace `/r/SM-...`, escribe nombre visible, entra a sala de
+   espera.
+4. Host admite al invitado; el invitado pulsa `Entrar a la reunión` y ambos
+   quedan conectados por LiveKit.
 
 Para desarrollo rápido por procesos locales:
 
@@ -127,8 +161,8 @@ Copia `.env.example` a los entornos de Coolify o a los `.env` locales de cada ap
 El admin actúa como backend de control para la desktop: autentica hosts, guarda
 reuniones, emite tokens LiveKit y expone identidades aprobadas.
 
-La desktop solo precarga usuarios/reuniones/rostros de demo cuando corre en
-modo desarrollo y `VITE_SHAPE_DEMO_DATA` no es `"false"`. En producción debe
+La desktop solo precarga usuarios/reuniones/rostros mock cuando corre en modo
+desarrollo y `VITE_SHAPE_DEMO_DATA=true`. Para el demo real y producción debe
 usar `VITE_SHAPE_DEMO_DATA=false`, `VITE_SHAPE_API_URL` apuntando al admin y
 `VITE_SHAPE_MEETING_URL` con el dominio público para copiar enlaces de reunión.
 Los enlaces públicos usan `/r/{codigo}`, por ejemplo
