@@ -238,6 +238,13 @@ fn prepare_demo_ai_runtime_env() -> Result<AiRuntimeEnvFile, String> {
 }
 
 #[tauri::command]
+fn prepare_model_ai_runtime_env() -> Result<AiRuntimeEnvFile, String> {
+    let content = model_ai_runtime_env_content(&processor_command_for_demo()?)?;
+    write_ai_runtime_env_file(&content)?;
+    read_ai_runtime_env_file()
+}
+
+#[tauri::command]
 fn cache_identity_artifact(
     input: CacheIdentityArtifactInput,
 ) -> Result<IdentityArtifactCacheResult, String> {
@@ -322,6 +329,7 @@ pub fn run() {
             get_ai_runtime_env,
             save_ai_runtime_env,
             prepare_demo_ai_runtime_env,
+            prepare_model_ai_runtime_env,
             cache_identity_artifact,
             evict_identity_artifact,
             export_debug_bundle
@@ -1358,6 +1366,9 @@ fn valid_env_key(key: &str) -> bool {
 
 fn allowed_ai_runtime_env_key(key: &str) -> bool {
     key.starts_with("SHAPE_")
+        || key.starts_with("FACEFUSION_")
+        || key.starts_with("BMV2_")
+        || key.starts_with("VCCLIENT000_")
         || key == "CUDA_VISIBLE_DEVICES"
         || key == "NVIDIA_VISIBLE_DEVICES"
         || key == "NVIDIA_DRIVER_CAPABILITIES"
@@ -1386,6 +1397,7 @@ fn default_ai_runtime_env_template() -> String {
         "SHAPE_BACKGROUND_ENGINE=backgroundmattingv2",
         "SHAPE_VOICE_ENGINE=vcclient000",
         "# Demo sin modelos reales: pnpm demo:ai-runtime genera un archivo listo.",
+        "# Wrappers locales: pnpm models:runtime -- --preset local-wrappers --passthrough.",
         "# SHAPE_PROCESSOR_DEMO_EFFECTS=true",
         "# SHAPE_VIDEO_PROCESSOR_COMMAND=shape-ai-processor --kind video --port 7860",
         "# Comando combinado de video: recibe frame, identidad y clean plate.",
@@ -1396,6 +1408,10 @@ fn default_ai_runtime_env_template() -> String {
         "# SHAPE_AUDIO_PROCESSOR_COMMAND=shape-ai-processor --kind audio --port 7861",
         "# SHAPE_AUDIO_CHUNK_COMMAND=C:\\\\shape-models\\\\voice-wrapper.exe --input {input} --output {output} --sample-rate {sample_rate}",
         "# SHAPE_VOICE_COMMAND=C:\\\\shape-models\\\\vcclient000-wrapper.exe --input {input} --output {output} --sample-rate {sample_rate}",
+        "# FACEFUSION_DIR=C:\\\\models\\\\FaceFusion",
+        "# BMV2_REPO_DIR=C:\\\\models\\\\BackgroundMattingV2",
+        "# BMV2_MODEL_CHECKPOINT=C:\\\\models\\\\BackgroundMattingV2\\\\pytorch_resnet50.pth",
+        "# VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/convert",
         "",
     ]
     .join("\n")
@@ -1424,6 +1440,64 @@ fn demo_ai_runtime_env_content(processor_command: &str) -> String {
         "",
     ]
     .join("\n")
+}
+
+fn model_ai_runtime_env_content(processor_command: &str) -> Result<String, String> {
+    let python =
+        shell_quote(&env_non_empty("SHAPE_AI_PYTHON").unwrap_or_else(default_python_command));
+    let face_wrapper = wrapper_script_path("facefusion_frame.py").ok_or_else(|| {
+        "No se encontró wrapper FaceFusion. Define SHAPE_AI_WRAPPERS_DIR o ejecuta desde el repo."
+            .to_string()
+    })?;
+    let background_wrapper = wrapper_script_path("backgroundmattingv2_frame.py").ok_or_else(|| {
+        "No se encontró wrapper BackgroundMattingV2. Define SHAPE_AI_WRAPPERS_DIR o ejecuta desde el repo."
+            .to_string()
+    })?;
+    let voice_wrapper = wrapper_script_path("vcclient000_chunk.py").ok_or_else(|| {
+        "No se encontró wrapper vcclient000. Define SHAPE_AI_WRAPPERS_DIR o ejecuta desde el repo."
+            .to_string()
+    })?;
+
+    Ok([
+        "# Shape Meet model AI runtime",
+        "# Wrappers locales para validar FaceFusion, BackgroundMattingV2 y vcclient000.",
+        "SHAPE_AI_MODE=adapter-contract",
+        "SHAPE_FACE_ENGINE=facefusion",
+        "SHAPE_BACKGROUND_ENGINE=backgroundmattingv2",
+        "SHAPE_VOICE_ENGINE=vcclient000",
+        "SHAPE_PROCESSOR_TIMEOUT_SECS=10",
+        "SHAPE_MODEL_COMMAND_TIMEOUT_SECS=8",
+        &format!(
+            "SHAPE_VIDEO_PROCESSOR_COMMAND={processor_command} --kind video --host 127.0.0.1 --port 7860"
+        ),
+        "SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame",
+        "SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7860/health",
+        &format!(
+            "SHAPE_FACE_COMMAND={python} {} --input {{input}} --output {{output}} --identity {{identity}}",
+            shell_quote_path(&face_wrapper)
+        ),
+        &format!(
+            "SHAPE_BACKGROUND_COMMAND={python} {} --input {{input}} --output {{output}} --clean-plate {{clean_plate}}",
+            shell_quote_path(&background_wrapper)
+        ),
+        &format!(
+            "SHAPE_AUDIO_PROCESSOR_COMMAND={processor_command} --kind audio --host 127.0.0.1 --port 7861"
+        ),
+        "SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio",
+        "SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health",
+        &format!(
+            "SHAPE_VOICE_COMMAND={python} {} --input {{input}} --output {{output}} --sample-rate {{sample_rate}} --channels {{channels}} --format {{format}}",
+            shell_quote_path(&voice_wrapper)
+        ),
+        "SHAPE_WRAPPER_PASSTHROUGH=true",
+        "# Para activar modelos reales, configura estas variables y cambia SHAPE_WRAPPER_PASSTHROUGH=false.",
+        "# FACEFUSION_DIR=C:\\\\models\\\\FaceFusion",
+        "# BMV2_REPO_DIR=C:\\\\models\\\\BackgroundMattingV2",
+        "# BMV2_MODEL_CHECKPOINT=C:\\\\models\\\\BackgroundMattingV2\\\\pytorch_resnet50.pth",
+        "# VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/convert",
+        "",
+    ]
+    .join("\n"))
 }
 
 fn identity_artifact_result(
@@ -1748,6 +1822,29 @@ fn processor_script_path() -> Option<PathBuf> {
             .join("ai-sidecar")
             .join("processors")
             .join("shape_processor_command.py");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn wrapper_script_path(file_name: &str) -> Option<PathBuf> {
+    if let Some(dir) = env_non_empty("SHAPE_AI_WRAPPERS_DIR").map(PathBuf::from) {
+        let candidate = dir.join(file_name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    let current_dir = env::current_dir().ok()?;
+    for ancestor in current_dir.ancestors() {
+        let candidate = ancestor
+            .join("apps")
+            .join("ai-sidecar")
+            .join("wrappers")
+            .join(file_name);
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -2119,6 +2216,9 @@ mod tests {
             # comment
             SHAPE_AI_MODE=adapter-contract
             SHAPE_VIDEO_FRAME_COMMAND="C:\models\video.exe --input {input} --output {output}"
+            FACEFUSION_DIR=C:\models\FaceFusion
+            BMV2_MODEL_CHECKPOINT=C:\models\BackgroundMattingV2\pytorch_resnet50.pth
+            VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/convert
             CUDA_VISIBLE_DEVICES=0
             ORT_LOGGING_LEVEL=3
             "#,
@@ -2131,6 +2231,9 @@ mod tests {
             vec![
                 "SHAPE_AI_MODE",
                 "SHAPE_VIDEO_FRAME_COMMAND",
+                "FACEFUSION_DIR",
+                "BMV2_MODEL_CHECKPOINT",
+                "VCCLIENT000_HTTP_ENDPOINT",
                 "CUDA_VISIBLE_DEVICES",
                 "ORT_LOGGING_LEVEL"
             ]
@@ -2191,5 +2294,28 @@ mod tests {
                 && value.contains("--kind audio")
                 && value.contains("--port 7861")
         }));
+    }
+
+    #[test]
+    fn model_ai_runtime_env_is_parseable() {
+        let content = model_ai_runtime_env_content("python3 /tmp/shape_processor_command.py")
+            .expect("model runtime content should render from repo wrappers");
+        let parsed = parse_ai_runtime_env(&content);
+
+        assert!(parsed.errors.is_empty());
+        assert!(parsed.warnings.is_empty());
+        assert!(parsed.values.iter().any(|(key, value)| {
+            key == "SHAPE_FACE_COMMAND" && value.contains("facefusion_frame.py")
+        }));
+        assert!(parsed.values.iter().any(|(key, value)| {
+            key == "SHAPE_BACKGROUND_COMMAND" && value.contains("backgroundmattingv2_frame.py")
+        }));
+        assert!(parsed.values.iter().any(|(key, value)| {
+            key == "SHAPE_VOICE_COMMAND" && value.contains("vcclient000_chunk.py")
+        }));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_WRAPPER_PASSTHROUGH" && value == "true"));
     }
 }

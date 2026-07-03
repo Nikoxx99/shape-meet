@@ -235,6 +235,24 @@ export async function prepareDemoAiRuntimeEnv(): Promise<NativeAiRuntimeEnvFile>
   }
 }
 
+export async function prepareModelAiRuntimeEnv(): Promise<NativeAiRuntimeEnvFile> {
+  try {
+    return await invoke<NativeAiRuntimeEnvFile>("prepare_model_ai_runtime_env");
+  } catch (error) {
+    return {
+      path: "",
+      exists: false,
+      content: "",
+      configuredKeys: [],
+      warnings: [
+        error instanceof Error
+          ? error.message
+          : "Runtime de wrappers disponible solo dentro de Tauri.",
+      ],
+    };
+  }
+}
+
 export async function cacheIdentityArtifact(
   identity: Pick<
     HostIdentity,

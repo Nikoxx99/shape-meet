@@ -100,6 +100,7 @@ import {
   getGpuProfile,
   getObservabilityStatus,
   prepareDemoAiRuntimeEnv,
+  prepareModelAiRuntimeEnv,
   saveAiRuntimeEnv,
   startAiSidecar,
   stopAiSidecar,
@@ -2847,6 +2848,33 @@ function AiRuntimeScreen({
     }
   }
 
+  async function handlePrepareModelRuntime() {
+    setSaving(true);
+    setRuntimeMessage(null);
+    try {
+      const prepared = await prepareModelAiRuntimeEnv();
+      setEnvFile(prepared);
+      setContent(prepared.content);
+      setRuntimeError(null);
+      if (!prepared.exists) {
+        await onRefresh();
+        return;
+      }
+      await onStopSidecar();
+      await onStartSidecar();
+      await loadRuntimeState();
+      setRuntimeMessage("Wrappers IA cargados y sidecar reiniciado.");
+    } catch (error) {
+      setRuntimeError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo preparar runtime de wrappers.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleRefresh() {
     setRuntimeMessage(null);
     await loadRuntimeState();
@@ -3033,6 +3061,14 @@ function AiRuntimeScreen({
               disabled={saving}
             >
               Cargar demo
+            </Button>
+            <Button
+              variant="outline"
+              icon={<Settings />}
+              onClick={() => void handlePrepareModelRuntime()}
+              disabled={saving}
+            >
+              Cargar wrappers
             </Button>
             <Button
               variant="outline"

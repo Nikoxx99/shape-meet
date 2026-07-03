@@ -159,6 +159,9 @@ probar un runtime específico antes de copiarlo a la app.
 Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`
 y volver a la llamada. Esa ruta escribe el mismo archivo runtime desde la app y
 reinicia el sidecar gestionado para aplicar los procesadores demo.
+`Cargar wrappers` escribe el runtime `local-wrappers` con FaceFusion,
+BackgroundMattingV2 y vcclient000 en passthrough; sirve para validar la conexión
+real de wrappers en equipos sin GPU o sin modelos instalados.
 `Probar IA` ejecuta un preflight local con la identidad, fondo y voz activos
 antes de entrar a la reunión.
 

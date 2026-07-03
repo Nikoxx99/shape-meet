@@ -725,6 +725,7 @@ svg {
 }
 
 .runtime-actions {
+  flex-wrap: wrap;
   justify-content: flex-start;
 }
 
