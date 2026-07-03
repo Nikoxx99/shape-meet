@@ -42,6 +42,7 @@ sidecar.stderr.on("data", (chunk) => {
 
 try {
   await waitForSidecar();
+  await waitForManagedProcessors();
 
   const health = await request("/health");
   assert(health.status === 200, `health returned ${health.status}`);
@@ -150,6 +151,35 @@ async function waitForSidecar() {
   }
 
   fail("demo sidecar did not become ready");
+}
+
+async function waitForManagedProcessors() {
+  for (let attempt = 1; attempt <= 60; attempt += 1) {
+    try {
+      const [video, audio] = await Promise.all([
+        fetch(`http://127.0.0.1:${videoPort}/health`),
+        fetch(`http://127.0.0.1:${audioPort}/health`),
+      ]);
+      const [videoData, audioData] = await Promise.all([
+        video.json().catch(() => ({})),
+        audio.json().catch(() => ({})),
+      ]);
+      if (
+        video.ok &&
+        audio.ok &&
+        videoData.status === "ready" &&
+        audioData.status === "ready"
+      ) {
+        return;
+      }
+    } catch {
+      // keep waiting
+    }
+
+    await sleep(250);
+  }
+
+  fail("demo managed processors did not become ready");
 }
 
 async function getFreePort() {

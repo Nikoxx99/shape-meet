@@ -218,6 +218,7 @@ luego Tauri lo incluye como `externalBin`.
 
 ```bash
 pnpm build:ai-sidecar
+pnpm desktop:doctor
 pnpm build:desktop
 ```
 
@@ -231,6 +232,11 @@ PyInstaller no hace cross-compile real. Para Windows hay que ejecutar
 `pnpm build:desktop` en Windows o en un runner Windows; para macOS, en macOS. Si
 CI necesita fijar el nombre del target, puede definir `TAURI_TARGET_TRIPLE`, pero
 debe coincidir con la plataforma real del runner.
+
+`pnpm desktop:doctor` valida toolchain local, sintaxis Python, configuración
+Tauri y sidecars generados para el target actual. Usa
+`pnpm desktop:doctor -- --strict` después de `pnpm build:ai-sidecar` para fallar
+si falta algún binario empaquetado.
 
 Los workflows en `.github/workflows` validan el monorepo y permiten generar
 paquetes desktop por plataforma. Ver [desktop-release.md](docs/desktop-release.md).

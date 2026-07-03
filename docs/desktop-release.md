@@ -46,9 +46,21 @@ clientes. La validación técnica de empaquetado no depende de esas credenciales
 El paso `sidecar:build` genera:
 
 - `apps/desktop/src-tauri/binaries/shape-ai-sidecar-${targetTriple}`;
+- `apps/desktop/src-tauri/binaries/shape-ai-processor-${targetTriple}`;
 - `apps/desktop/src-tauri/tauri.sidecar.conf.json`.
 
 Ambos artefactos son locales al runner y están ignorados por git.
+
+Antes de empaquetar, valida el entorno local con:
+
+```bash
+pnpm build:ai-sidecar
+pnpm desktop:doctor -- --strict
+pnpm build:desktop
+```
+
+El modo estricto falla si los binarios esperados no existen o están
+desactualizados frente a `server.py` / `shape_processor_command.py`.
 
 ## Debug de hardware
 
