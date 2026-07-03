@@ -97,6 +97,27 @@ SENTRY_TRACES_SAMPLE_RATE=1.0
 NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=1.0
 ```
 
+Para generar un archivo real sin placeholders:
+
+```bash
+pnpm coolify:env -- \
+  --admin-domain admin.tudominio.com \
+  --meeting-domain meet.tudominio.com \
+  --livekit-domain livekit.tudominio.com \
+  --turn-domain turn.tudominio.com \
+  --public-ip IP_PUBLICA_DEL_SERVIDOR \
+  --bootstrap-email admin@tudominio.com \
+  --sentry-dsn "https://..." \
+  --out infra/shape-meet.production.env
+
+pnpm check:coolify infra/shape-meet.production.env --strict
+```
+
+El archivo generado contiene secretos reales y queda ignorado por git bajo
+`infra/*.env`. Copia esos valores al recurso Docker Compose de Coolify. El script
+imprime la contraseña bootstrap una sola vez; úsala para el primer login,
+crea los usuarios reales y luego vuelve a desplegar con `RUN_SEED=false`.
+
 Para el primer deploy contra una base vacía, usa `RUN_SEED=true` una sola vez.
 Eso crea el admin bootstrap con `HOST_BOOTSTRAP_EMAIL` y
 `HOST_BOOTSTRAP_PASSWORD`; después vuelve a `RUN_SEED=false`.
@@ -113,6 +134,7 @@ Secuencia recomendada para el primer deploy:
 
    Sin `--strict`, el comando permite placeholders y sirve para validar ejemplos
    locales. Con `--strict`, falla si detecta secretos de ejemplo o placeholders.
+
 3. Usar `RUN_SEED=true` solo en el primer arranque.
 4. Confirmar `/api/health` en `https://admin.tudominio.com/api/health`.
 5. Entrar al panel admin con el bootstrap y crear los hosts reales.

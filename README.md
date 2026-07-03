@@ -124,6 +124,15 @@ Antes de crear o redesplegar el recurso en Coolify, valida el archivo de entorno
 real con:
 
 ```bash
+pnpm coolify:env -- \
+  --admin-domain admin.tudominio.com \
+  --meeting-domain meet.tudominio.com \
+  --livekit-domain livekit.tudominio.com \
+  --turn-domain turn.tudominio.com \
+  --public-ip IP_PUBLICA_DEL_SERVIDOR \
+  --bootstrap-email admin@tudominio.com \
+  --out infra/shape-meet.production.env
+
 pnpm check:coolify ruta/a/produccion.env --strict
 ```
 

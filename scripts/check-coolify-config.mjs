@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 
 const args = process.argv.slice(2);
 const strict = args.includes("--strict");
-const envFileArg = args.find((arg) => !arg.startsWith("--")) ?? "infra/env.local.example";
+const envFileArg =
+  args.find((arg) => !arg.startsWith("--")) ?? "infra/env.local.example";
 const envFile = resolve(envFileArg);
 const composeFile = resolve("infra/docker-compose.coolify.yml");
 const issues = [];
@@ -47,6 +48,7 @@ for (const key of [
   "VITE_SHAPE_APP_URL",
   "VITE_SHAPE_MEETING_URL",
   "VITE_SHAPE_DEMO_DATA",
+  "VITE_SHAPE_HOST_IDENTIFIER",
   "SHAPE_ARTIFACT_STORAGE_DIR",
   "SHAPE_ARTIFACT_MAX_BYTES",
   "SENTRY_ENVIRONMENT",
@@ -55,9 +57,12 @@ for (const key of [
   "NEXT_PUBLIC_SENTRY_RELEASE",
   "SENTRY_TRACES_SAMPLE_RATE",
   "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE",
+  "SENTRY_DEBUG",
+  "NEXT_PUBLIC_SENTRY_DEBUG",
   "VITE_SENTRY_ENVIRONMENT",
   "VITE_SENTRY_RELEASE",
   "VITE_SENTRY_TRACES_SAMPLE_RATE",
+  "VITE_SENTRY_DEBUG",
 ]) {
   requireEnv(key);
 }
@@ -99,12 +104,17 @@ parseBoolean("RUN_SEED");
 parseBoolean("SHAPE_DEBUG_ERRORS");
 parseBoolean("LIVEKIT_USE_EXTERNAL_IP");
 parseBoolean("VITE_SHAPE_DEMO_DATA");
+parseBoolean("SENTRY_DEBUG");
+parseBoolean("NEXT_PUBLIC_SENTRY_DEBUG");
+parseBoolean("VITE_SENTRY_DEBUG");
 parseSampleRate("SENTRY_TRACES_SAMPLE_RATE");
 parseSampleRate("NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE");
 parseSampleRate("VITE_SENTRY_TRACES_SAMPLE_RATE");
 
 if (appUrl?.protocol === "https:" && livekitUrl?.protocol !== "wss:") {
-  issues.push("LIVEKIT_URL must use wss:// when NEXT_PUBLIC_APP_URL uses https://");
+  issues.push(
+    "LIVEKIT_URL must use wss:// when NEXT_PUBLIC_APP_URL uses https://",
+  );
 }
 
 for (const [key, url] of [
@@ -113,32 +123,46 @@ for (const [key, url] of [
   ["VITE_SHAPE_MEETING_URL", meetingUrl],
 ]) {
   if (appUrl?.protocol === "https:" && url?.protocol !== "https:") {
-    issues.push(`${key} must use https:// when NEXT_PUBLIC_APP_URL uses https://`);
+    issues.push(
+      `${key} must use https:// when NEXT_PUBLIC_APP_URL uses https://`,
+    );
   }
 }
 
 if (livekitUrl?.hostname && livekitUrl.hostname === turnDomain) {
-  issues.push("LIVEKIT_URL host and LIVEKIT_TURN_DOMAIN must be separate domains");
+  issues.push(
+    "LIVEKIT_URL host and LIVEKIT_TURN_DOMAIN must be separate domains",
+  );
 }
 
 if (appUrl?.hostname && appUrl.hostname === turnDomain) {
-  issues.push("NEXT_PUBLIC_APP_URL host and LIVEKIT_TURN_DOMAIN must be separate domains");
+  issues.push(
+    "NEXT_PUBLIC_APP_URL host and LIVEKIT_TURN_DOMAIN must be separate domains",
+  );
 }
 
-if (new Set([rtcTcpPort, rtcUdpPort, turnUdpPort, turnTlsPort].filter(Boolean)).size < 4) {
+if (
+  new Set([rtcTcpPort, rtcUdpPort, turnUdpPort, turnTlsPort].filter(Boolean))
+    .size < 4
+) {
   issues.push("LiveKit RTC/TURN ports must be distinct");
 }
 
 if (relayStart && relayEnd && relayEnd < relayStart) {
-  issues.push("LIVEKIT_TURN_RELAY_RANGE_END must be greater than or equal to START");
+  issues.push(
+    "LIVEKIT_TURN_RELAY_RANGE_END must be greater than or equal to START",
+  );
 }
 
 if (relayStart && relayEnd && relayEnd - relayStart < 100) {
-  warnings.push("TURN relay range is narrow; keep at least 100 UDP ports for multi-participant tests");
+  warnings.push(
+    "TURN relay range is narrow; keep at least 100 UDP ports for multi-participant tests",
+  );
 }
 
 if (turnExternalIp && isLocalAddress(turnExternalIp)) {
-  const message = "LIVEKIT_TURN_EXTERNAL_IP points to a local/private address; production TURN needs the public server IP";
+  const message =
+    "LIVEKIT_TURN_EXTERNAL_IP points to a local/private address; production TURN needs the public server IP";
   if (strict) issues.push(message);
   else warnings.push(message);
 }
@@ -150,7 +174,9 @@ if (turnTlsPort && turnTlsPort !== 443) {
 }
 
 if (turnTtlSeconds && turnTtlSeconds < 300) {
-  warnings.push("LIVEKIT_TURN_TTL_SECONDS is short; 300 seconds or more avoids credential churn during connection setup");
+  warnings.push(
+    "LIVEKIT_TURN_TTL_SECONDS is short; 300 seconds or more avoids credential churn during connection setup",
+  );
 }
 
 const compose = spawnSync(
@@ -160,22 +186,42 @@ const compose = spawnSync(
 );
 
 if (compose.error?.code === "ENOENT") {
-  warnings.push("docker compose not found; skipped rendered compose validation");
+  warnings.push(
+    "docker compose not found; skipped rendered compose validation",
+  );
 } else if (compose.status !== 0) {
-  issues.push(`docker compose config failed:\n${compose.stderr || compose.stdout}`);
+  issues.push(
+    `docker compose config failed:\n${compose.stderr || compose.stdout}`,
+  );
 } else {
   const rendered = compose.stdout;
-  for (const expected of ["shape-admin", "shape-livekit", "shape-postgres", "shape-redis", "shape-turn"]) {
-    if (!rendered.includes(expected)) issues.push(`rendered compose is missing ${expected}`);
+  for (const expected of [
+    "shape-admin",
+    "shape-livekit",
+    "shape-postgres",
+    "shape-redis",
+    "shape-turn",
+  ]) {
+    if (!rendered.includes(expected))
+      issues.push(`rendered compose is missing ${expected}`);
   }
   if (!rendered.includes("turn_servers:")) {
-    issues.push("rendered LiveKit config does not include external TURN servers");
+    issues.push(
+      "rendered LiveKit config does not include external TURN servers",
+    );
   }
   if (!rendered.includes("enabled: false")) {
-    issues.push("rendered LiveKit config should disable embedded TURN when shape-turn is present");
+    issues.push(
+      "rendered LiveKit config should disable embedded TURN when shape-turn is present",
+    );
   }
-  if (!rendered.includes("--use-auth-secret") || !rendered.includes("--static-auth-secret")) {
-    issues.push("rendered coturn command is missing shared-secret authentication");
+  if (
+    !rendered.includes("--use-auth-secret") ||
+    !rendered.includes("--static-auth-secret")
+  ) {
+    issues.push(
+      "rendered coturn command is missing shared-secret authentication",
+    );
   }
   if (!rendered.includes("turnutils_uclient")) {
     issues.push("rendered coturn service is missing TURN healthcheck");
@@ -192,9 +238,13 @@ if (compose.error?.code === "ENOENT") {
     "NEXT_PUBLIC_SENTRY_RELEASE:",
     "SENTRY_TRACES_SAMPLE_RATE:",
     "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE:",
+    "SENTRY_DEBUG:",
+    "NEXT_PUBLIC_SENTRY_DEBUG:",
   ]) {
     if (!rendered.includes(expected)) {
-      issues.push(`rendered admin environment is missing ${expected.slice(0, -1)}`);
+      issues.push(
+        `rendered admin environment is missing ${expected.slice(0, -1)}`,
+      );
     }
   }
 }

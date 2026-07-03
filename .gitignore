@@ -21,6 +21,7 @@ __pycache__
 .env
 .env.*
 !.env.example
+infra/*.env
 apps/admin/.env
 apps/desktop/.env
 shape-artifacts
