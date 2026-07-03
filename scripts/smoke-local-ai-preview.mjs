@@ -44,8 +44,10 @@ async function main() {
     const sample = await expectProcessedPrimaryVideo(page);
     await clickByRole(page, "button", "Más", 15_000);
     await expectVisibleText(page, "Track IA publicado", 30_000);
-    await expectVisibleText(page, "Bridge", 10_000);
-    console.log(`local AI preview smoke ok: ${JSON.stringify(sample)}`);
+    await expectVisibleText(page, "Bridge voz", 30_000);
+    console.log(
+      `local AI preview smoke ok: video=${JSON.stringify(sample)} voice=bridge`,
+    );
   } catch (error) {
     await captureFailure(page, "local-ai-preview");
     throw error;
@@ -127,8 +129,10 @@ async function enterDemoHostCall(page) {
   await expectVisibleText(page, "Copiar enlace");
   await clickByRole(page, "button", "Probar equipo");
   await expectVisibleText(page, "Revisa cámara y micrófono");
+  await clickByRole(page, "button", "Entrar con micrófono apagado");
   await clickByRole(page, "button", "Configurar como host");
   await expectVisibleText(page, "Ajustes de cámara e identidad");
+  await clickByRole(page, "button", "Activar voz configurada");
   await clickByRole(page, "button", "Entrar a la reunión");
   await expectVisibleText(page, "1 participante", 15_000);
 }

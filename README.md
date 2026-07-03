@@ -174,8 +174,9 @@ nueva corre primero `pnpm demo:ui:install`.
 
 `pnpm demo:local-preview` es el smoke más corto para máquinas sin Docker,
 Postgres ni LiveKit: levanta Vite y el sidecar IA demo en puertos libres, usa
-datos mock del cliente, abre Chromium con cámara falsa y confirma que la llamada
-muestre video `1280x720` procesado por el pipeline local de IA.
+datos mock del cliente, abre Chromium con cámara/micrófono falsos y confirma que
+la llamada muestre video `1280x720` y bridge de voz procesados por el pipeline
+local de IA.
 
 Para desarrollo rápido por procesos locales:
 
