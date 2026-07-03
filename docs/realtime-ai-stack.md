@@ -225,6 +225,11 @@ Implementacion actual:
 - `pnpm smoke:ai-contract` levanta procesadores mock y verifica que el sidecar
   delegue video/audio a `SHAPE_VIDEO_PROCESSOR_ENDPOINT` y
   `SHAPE_AUDIO_PROCESSOR_ENDPOINT` con el manifiesto de identidad y flags activos.
+- `pnpm smoke:ai-managed` verifica la ruta operativa siguiente: el sidecar
+  levanta procesadores locales por `SHAPE_VIDEO_PROCESSOR_COMMAND` y
+  `SHAPE_AUDIO_PROCESSOR_COMMAND`, los reporta en diagnostics y delega frame/audio
+  a esos procesos. Los wrappers reales de FaceFusion/BackgroundMattingV2 y
+  vcclient000 deben exponer el mismo contrato HTTP.
 
 Variables del supervisor nativo:
 
@@ -232,6 +237,12 @@ Variables del supervisor nativo:
 - `SHAPE_AI_SIDECAR_BIN`: binario empaquetado que acepte `--host` y `--port`.
 - `SHAPE_AI_SIDECAR_SCRIPT`: ruta explicita a `server.py`.
 - `SHAPE_AI_PYTHON`: interprete Python para desarrollo.
+- `SHAPE_VIDEO_PROCESSOR_COMMAND`: comando del wrapper local de video.
+- `SHAPE_VIDEO_PROCESSOR_ENDPOINT`: endpoint del wrapper de video; si falta, el
+  sidecar usa `http://127.0.0.1:7860/process-frame` cuando hay comando.
+- `SHAPE_AUDIO_PROCESSOR_COMMAND`: comando del wrapper local de voz.
+- `SHAPE_AUDIO_PROCESSOR_ENDPOINT`: endpoint del wrapper de voz; si falta, el
+  sidecar usa `http://127.0.0.1:7861/process-audio` cuando hay comando.
 
 Prioridad de arranque: comando explicito, binario explicito, sidecar empaquetado
 por Tauri y script de desarrollo.

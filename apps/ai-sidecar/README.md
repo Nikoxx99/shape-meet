@@ -61,14 +61,33 @@ SHAPE_AI_MODE=development-passthrough
 SHAPE_FACE_ENGINE=facefusion
 SHAPE_BACKGROUND_ENGINE=backgroundmattingv2
 SHAPE_VOICE_ENGINE=vcclient000
+SHAPE_VIDEO_PROCESSOR_COMMAND=
 SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame
+SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7860/health
+SHAPE_AUDIO_PROCESSOR_COMMAND=
 SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio
+SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health
 SHAPE_PROCESSOR_TIMEOUT_SECS=0.8
 ```
 
 `development-passthrough` valida el transporte de frames sin cargar modelos. Los
 adaptadores reales deben conservar el mismo contrato de entrada/salida para que
 la publicación LiveKit no cambie.
+
+Si `SHAPE_VIDEO_PROCESSOR_COMMAND` o `SHAPE_AUDIO_PROCESSOR_COMMAND` están
+configurados, el sidecar inicia esos procesos como hijos y les inyecta:
+
+- `SHAPE_PROCESSOR_KIND`: `video` o `audio`;
+- `SHAPE_PROCESSOR_ENDPOINT`: endpoint HTTP que debe exponer el proceso;
+- `SHAPE_PROCESSOR_PORT`: puerto derivado del endpoint;
+- la variable específica `SHAPE_VIDEO_PROCESSOR_PORT` o
+  `SHAPE_AUDIO_PROCESSOR_PORT`.
+
+Esto permite reemplazar los mocks por wrappers locales de
+FaceFusion/BackgroundMattingV2 y vcclient000 sin cambiar el contrato de la
+desktop. Si no defines endpoint, el sidecar usa
+`http://127.0.0.1:7860/process-frame` para video y
+`http://127.0.0.1:7861/process-audio` para audio.
 
 Si `SENTRY_DSN` está configurado y `sentry-sdk` está instalado, el sidecar envía
 errores de adaptadores externos con tags de runtime. No envía frames, audio,
@@ -93,12 +112,16 @@ Smoke automatizado del contrato de adaptadores:
 
 ```bash
 pnpm smoke:ai-contract
+pnpm smoke:ai-managed
 ```
 
 El script arranca el sidecar en un puerto libre, levanta mocks HTTP para video y
 audio, y valida que los payloads enviados a `SHAPE_VIDEO_PROCESSOR_ENDPOINT` y
 `SHAPE_AUDIO_PROCESSOR_ENDPOINT` incluyan sesión, identidad, clean plate de
 fondo, flags activos y datos procesables.
+
+`smoke:ai-managed` valida además que el sidecar pueda iniciar procesadores por
+comando, reportarlos en diagnostics y delegar frame/audio a esos procesos.
 
 Ejemplo:
 

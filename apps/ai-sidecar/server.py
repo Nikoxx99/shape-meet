@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 import argparse
+import atexit
 import json
 import logging
 import os
 import platform
 import re
+import signal
+import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -26,6 +30,7 @@ PIPELINE_CONFIGS = [
         "enabledEnv": "SHAPE_FACE_ENGINE",
         "commandEnv": "SHAPE_FACE_COMMAND",
         "endpointEnv": "SHAPE_VIDEO_PROCESSOR_ENDPOINT",
+        "processor": "video",
     },
     {
         "id": "background",
@@ -35,6 +40,7 @@ PIPELINE_CONFIGS = [
         "enabledEnv": "SHAPE_BACKGROUND_ENGINE",
         "commandEnv": "SHAPE_BACKGROUND_COMMAND",
         "endpointEnv": "SHAPE_VIDEO_PROCESSOR_ENDPOINT",
+        "processor": "video",
     },
     {
         "id": "voice",
@@ -44,6 +50,28 @@ PIPELINE_CONFIGS = [
         "enabledEnv": "SHAPE_VOICE_ENGINE",
         "commandEnv": "SHAPE_VOICE_COMMAND",
         "endpointEnv": "SHAPE_AUDIO_PROCESSOR_ENDPOINT",
+        "processor": "audio",
+    },
+]
+
+MANAGED_PROCESSOR_CONFIGS = [
+    {
+        "id": "video",
+        "label": "Video",
+        "commandEnv": "SHAPE_VIDEO_PROCESSOR_COMMAND",
+        "endpointEnv": "SHAPE_VIDEO_PROCESSOR_ENDPOINT",
+        "healthUrlEnv": "SHAPE_VIDEO_PROCESSOR_HEALTH_URL",
+        "portEnv": "SHAPE_VIDEO_PROCESSOR_PORT",
+        "defaultEndpoint": "http://127.0.0.1:7860/process-frame",
+    },
+    {
+        "id": "audio",
+        "label": "Audio",
+        "commandEnv": "SHAPE_AUDIO_PROCESSOR_COMMAND",
+        "endpointEnv": "SHAPE_AUDIO_PROCESSOR_ENDPOINT",
+        "healthUrlEnv": "SHAPE_AUDIO_PROCESSOR_HEALTH_URL",
+        "portEnv": "SHAPE_AUDIO_PROCESSOR_PORT",
+        "defaultEndpoint": "http://127.0.0.1:7861/process-audio",
     },
 ]
 
@@ -54,6 +82,8 @@ DEFAULT_FPS = 30
 MAX_FRAME_BYTES = 6 * 1024 * 1024
 MAX_AUDIO_BYTES = 2 * 1024 * 1024
 EXTERNAL_PROCESSOR_TIMEOUT_SECS = 0.8
+MANAGED_PROCESSORS = {}
+MANAGED_PROCESSOR_LOG_LIMIT = 60
 SENTRY = None
 
 
@@ -451,7 +481,7 @@ def pipelines_for_session(session=None):
 
 
 def proxy_video_frame(session, frame_payload, width, height):
-    endpoint = env_non_empty("SHAPE_VIDEO_PROCESSOR_ENDPOINT")
+    endpoint = processor_endpoint("video")
     if not endpoint or not (session["enabled"].get("face") or session["enabled"].get("background")):
         return None
 
@@ -495,7 +525,7 @@ def proxy_video_frame(session, frame_payload, width, height):
 
 
 def proxy_audio_chunk(session, audio_payload):
-    endpoint = env_non_empty("SHAPE_AUDIO_PROCESSOR_ENDPOINT")
+    endpoint = processor_endpoint("audio")
     if not endpoint or not session["enabled"].get("voice"):
         return None
 
@@ -623,10 +653,11 @@ def diagnostics_payload():
         "gpu": gpu_diagnostics(),
         "engines": [engine_diagnostic(config) for config in PIPELINE_CONFIGS],
         "externalProcessors": {
-            "video": bool(env_non_empty("SHAPE_VIDEO_PROCESSOR_ENDPOINT")),
-            "audio": bool(env_non_empty("SHAPE_AUDIO_PROCESSOR_ENDPOINT")),
+            "video": bool(processor_endpoint("video")),
+            "audio": bool(processor_endpoint("audio")),
             "timeoutSeconds": external_processor_timeout(),
         },
+        "managedProcessors": managed_processors_payload(),
         "limits": {
             "maxFrameBytes": MAX_FRAME_BYTES,
             "maxAudioBytes": MAX_AUDIO_BYTES,
@@ -643,6 +674,7 @@ def diagnostics_summary():
         "gpu": diagnostics["gpu"],
         "engines": diagnostics["engines"],
         "externalProcessors": diagnostics["externalProcessors"],
+        "managedProcessors": diagnostics["managedProcessors"],
     }
 
 
@@ -701,12 +733,192 @@ def gpu_diagnostics():
     }
 
 
+def managed_processor_config(processor_id):
+    return next((config for config in MANAGED_PROCESSOR_CONFIGS if config["id"] == processor_id), None)
+
+
+def processor_endpoint(processor_id):
+    config = managed_processor_config(processor_id)
+    if not config:
+        return None
+
+    explicit_endpoint = env_non_empty(config["endpointEnv"])
+    if explicit_endpoint:
+        return explicit_endpoint
+
+    if env_non_empty(config["commandEnv"]):
+        return config["defaultEndpoint"]
+
+    return None
+
+
+def managed_processor_state(processor_id):
+    state = MANAGED_PROCESSORS.get(processor_id)
+    if not state:
+        config = managed_processor_config(processor_id)
+        if not config:
+            return "unknown"
+        return "configured" if env_non_empty(config["commandEnv"]) else "not-configured"
+
+    process = state["process"]
+    return "running" if process.poll() is None else "exited"
+
+
+def managed_processors_payload():
+    return [managed_processor_payload(config) for config in MANAGED_PROCESSOR_CONFIGS]
+
+
+def managed_processor_payload(config):
+    processor_id = config["id"]
+    command = env_non_empty(config["commandEnv"])
+    endpoint = processor_endpoint(processor_id)
+    state = MANAGED_PROCESSORS.get(processor_id)
+
+    if not state:
+        return {
+            "id": processor_id,
+            "label": config["label"],
+            "status": "not-configured" if not command else "not-started",
+            "pid": None,
+            "exitCode": None,
+            "commandConfigured": bool(command),
+            "endpoint": endpoint,
+            "health": processor_health_status(config),
+            "startedAt": None,
+            "lastLogLine": None,
+        }
+
+    process = state["process"]
+    exit_code = process.poll()
+    logs = state.get("logs", [])
+
+    return {
+        "id": processor_id,
+        "label": config["label"],
+        "status": "running" if exit_code is None else "exited",
+        "pid": process.pid,
+        "exitCode": exit_code,
+        "commandConfigured": True,
+        "endpoint": state.get("endpoint") or endpoint,
+        "health": processor_health_status(config),
+        "startedAt": state.get("startedAt"),
+        "lastLogLine": logs[-1] if logs else None,
+    }
+
+
+def processor_health_status(config):
+    health_url = env_non_empty(config["healthUrlEnv"])
+    if not health_url:
+        return {"status": "not-configured"}
+
+    try:
+        request = urllib_request.Request(health_url, headers={"accept": "application/json"}, method="GET")
+        with urllib_request.urlopen(request, timeout=0.5) as response:
+            return {"status": "ready" if 200 <= response.status < 300 else "error", "code": response.status}
+    except Exception as error:
+        return {"status": "error", "message": str(error)[:180]}
+
+
+def start_managed_processors():
+    for config in MANAGED_PROCESSOR_CONFIGS:
+        command = env_non_empty(config["commandEnv"])
+        if not command:
+            continue
+
+        endpoint = processor_endpoint(config["id"])
+        process_env = os.environ.copy()
+        if endpoint:
+            process_env[config["endpointEnv"]] = endpoint
+            process_env["SHAPE_PROCESSOR_ENDPOINT"] = endpoint
+
+            parsed_endpoint = urllib_parse.urlparse(endpoint)
+            if parsed_endpoint.port:
+                process_env[config["portEnv"]] = str(parsed_endpoint.port)
+                process_env["SHAPE_PROCESSOR_PORT"] = str(parsed_endpoint.port)
+
+        process_env["SHAPE_PROCESSOR_KIND"] = config["id"]
+
+        try:
+            process = subprocess.Popen(
+                command,
+                env=process_env,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        except Exception as error:
+            print(f"[shape-ai-sidecar] no se pudo iniciar {config['id']} processor: {error}")
+            capture_sidecar_exception(error, {"processor": config["id"], "phase": "start"})
+            continue
+
+        MANAGED_PROCESSORS[config["id"]] = {
+            "process": process,
+            "endpoint": endpoint,
+            "startedAt": now_iso(),
+            "logs": [],
+        }
+        threading.Thread(target=drain_managed_processor_logs, args=(config["id"],), daemon=True).start()
+        print(f"[shape-ai-sidecar] {config['id']} processor iniciado pid={process.pid}")
+
+
+def drain_managed_processor_logs(processor_id):
+    state = MANAGED_PROCESSORS.get(processor_id)
+    if not state:
+        return
+
+    stream = state["process"].stdout
+    if not stream:
+        return
+
+    for line in stream:
+        line = line.strip()
+        if not line:
+            continue
+
+        logs = state.setdefault("logs", [])
+        logs.append(line[:240])
+        del logs[:-MANAGED_PROCESSOR_LOG_LIMIT]
+        print(f"[shape-ai-sidecar:{processor_id}] {line}")
+
+
+def stop_managed_processors():
+    for processor_id, state in list(MANAGED_PROCESSORS.items()):
+        process = state["process"]
+        if process.poll() is not None:
+            continue
+
+        process.terminate()
+        try:
+            process.wait(timeout=4)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2)
+
+        print(f"[shape-ai-sidecar] {processor_id} processor detenido")
+
+
+def install_shutdown_hooks():
+    atexit.register(stop_managed_processors)
+
+    def handle_shutdown(_signum, _frame):
+        stop_managed_processors()
+        raise SystemExit(0)
+
+    for signal_name in ("SIGTERM", "SIGINT"):
+        if hasattr(signal, signal_name):
+            signal.signal(getattr(signal, signal_name), handle_shutdown)
+
+
 def engine_diagnostic(config):
     mode = ai_mode()
     engine = env_non_empty(config["enabledEnv"])
     command = env_non_empty(config["commandEnv"])
-    endpoint = env_non_empty(config["endpointEnv"])
-    configured = bool(engine or command or endpoint)
+    endpoint = processor_endpoint(config["processor"])
+    managed_config = managed_processor_config(config["processor"])
+    managed_command = env_non_empty(managed_config["commandEnv"]) if managed_config else None
+    configured = bool(engine or command or endpoint or managed_command)
     command_available = command_available_status(command)
 
     if configured:
@@ -728,6 +940,8 @@ def engine_diagnostic(config):
         "commandConfigured": bool(command),
         "commandAvailable": command_available,
         "endpointConfigured": bool(endpoint),
+        "managedProcessorConfigured": bool(managed_command),
+        "managedProcessorStatus": managed_processor_state(config["processor"]),
         "mode": mode,
     }
 
@@ -736,11 +950,23 @@ def command_available_status(command):
     if not command:
         return "not-configured"
 
-    executable = command.split()[0]
+    executable = command_executable(command)
+    if not executable:
+        return "missing"
+
     if os.path.isabs(executable):
         return "available" if os.path.exists(executable) else "missing"
 
     return "available" if shutil.which(executable) else "missing"
+
+
+def command_executable(command):
+    try:
+        parts = shlex.split(command, posix=platform.system() != "Windows")
+    except ValueError:
+        parts = command.split()
+
+    return parts[0] if parts else ""
 
 
 def session_warnings(session):
@@ -757,10 +983,10 @@ def session_warnings(session):
     if enabled.get("background") and not clean_plate.get("dataUrl"):
         warnings.append("background_clean_plate_missing")
 
-    if mode != "development-passthrough" and (enabled.get("face") or enabled.get("background")) and not env_non_empty("SHAPE_VIDEO_PROCESSOR_ENDPOINT"):
+    if mode != "development-passthrough" and (enabled.get("face") or enabled.get("background")) and not processor_endpoint("video"):
         warnings.append("video_processor_endpoint_missing")
 
-    if mode != "development-passthrough" and enabled.get("voice") and not env_non_empty("SHAPE_AUDIO_PROCESSOR_ENDPOINT"):
+    if mode != "development-passthrough" and enabled.get("voice") and not processor_endpoint("audio"):
         warnings.append("audio_processor_endpoint_missing")
 
     for config in PIPELINE_CONFIGS:
@@ -924,6 +1150,8 @@ def main():
     parser.add_argument("--port", default=7851, type=int)
     args = parser.parse_args()
 
+    install_shutdown_hooks()
+    start_managed_processors()
     server = ThreadingHTTPServer((args.host, args.port), ShapeMeetHandler)
     print(f"[shape-ai-sidecar] listening on http://{args.host}:{args.port}")
     server.serve_forever()

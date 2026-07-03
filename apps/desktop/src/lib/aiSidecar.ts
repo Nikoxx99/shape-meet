@@ -165,6 +165,8 @@ export interface AiDiagnostics {
     commandConfigured: boolean;
     commandAvailable: string;
     endpointConfigured: boolean;
+    managedProcessorConfigured: boolean;
+    managedProcessorStatus: string;
     mode: string;
   }>;
   externalProcessors: {
@@ -172,6 +174,22 @@ export interface AiDiagnostics {
     audio: boolean;
     timeoutSeconds: number;
   };
+  managedProcessors: Array<{
+    id: string;
+    label: string;
+    status: string;
+    pid: number | null;
+    exitCode: number | null;
+    commandConfigured: boolean;
+    endpoint: string | null;
+    health: {
+      status: string;
+      code?: number;
+      message?: string;
+    };
+    startedAt: string | null;
+    lastLogLine: string | null;
+  }>;
   limits: {
     maxFrameBytes: number;
     maxAudioBytes: number;
