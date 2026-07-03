@@ -409,6 +409,30 @@ puede capturar un clean plate antes de entrar a la sala; la desktop lo envia al
 sidecar como metadata de sesion y el adaptador externo lo recibe junto a cada
 frame procesable.
 
+Para un demo funcional sin GPU/modelos instalados, genera el runtime con los
+wrappers versionados en modo passthrough:
+
+```bash
+pnpm models:runtime -- --preset local-wrappers --passthrough
+pnpm models:doctor -- --skip-hardware
+```
+
+Ese preset usa `apps/ai-sidecar/wrappers/facefusion_frame.py`,
+`backgroundmattingv2_frame.py` y `vcclient000_chunk.py`. En la máquina NVIDIA,
+usa el mismo preset sin `--passthrough` y agrega las rutas reales:
+
+```bash
+pnpm models:runtime -- --preset local-wrappers \
+  --facefusion-dir "C:\\models\\FaceFusion" \
+  --bmv2-repo-dir "C:\\models\\BackgroundMattingV2" \
+  --bmv2-checkpoint "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth" \
+  --vcclient000-http-endpoint "http://127.0.0.1:18888/convert"
+```
+
+También puedes usar `--vcclient000-command` si prefieres invocar vcclient000 por
+CLI. El archivo resultante `shape-ai-runtime.env` queda en la ruta local de la
+app y Tauri lo carga al iniciar el sidecar gestionado.
+
 Sentry nativo usa `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE` y
 `SENTRY_TRACES_SAMPLE_RATE`. El webview React/Vite usa las variables `VITE_*`
 equivalentes (`VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT`,

@@ -27,6 +27,12 @@ const outputPath =
   argValue("--out") ??
   process.env.SHAPE_AI_RUNTIME_ENV_FILE ??
   defaultRuntimeEnvPath();
+const preset = (
+  argValue("--preset") ??
+  process.env.SHAPE_MODEL_RUNTIME_PRESET ??
+  ""
+).toLowerCase();
+const passthrough = args.includes("--passthrough");
 const config = {
   processorCommand: resolveProcessorCommand(),
   faceEngine:
@@ -55,14 +61,18 @@ const config = {
     argValue("--processor-timeout") ??
     process.env.SHAPE_PROCESSOR_TIMEOUT_SECS ??
     "10",
+  modelEnv: resolveModelEnv(),
 };
+
+applyPreset(config);
 
 if (!hasAnyModelCommand(config)) {
   fail(
     [
       "Define al menos un comando de modelo:",
-      "--video-frame-command, --face-command, --background-command, --audio-chunk-command o --voice-command.",
+      "--preset local-wrappers, --video-frame-command, --face-command, --background-command, --audio-chunk-command o --voice-command.",
       "Ejemplo:",
+      "pnpm models:runtime -- --preset local-wrappers --passthrough",
       "pnpm models:runtime -- --face-command 'python wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}' --background-command 'python wrappers/bmv2_frame.py --input {input} --output {output} --clean-plate {clean_plate}'",
     ].join("\n"),
   );
@@ -104,6 +114,7 @@ function renderRuntimeEnv(input) {
     `SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://${processorHost}:${audioPort}/health`,
     ...optionalLine("SHAPE_AUDIO_CHUNK_COMMAND", input.audioChunkCommand),
     ...optionalLine("SHAPE_VOICE_COMMAND", input.voiceCommand),
+    ...Object.entries(input.modelEnv).map(([key, value]) => `${key}=${value}`),
     "",
   ].join("\n");
 }
@@ -119,6 +130,72 @@ function hasAnyModelCommand(input) {
     input.backgroundCommand ||
     input.audioChunkCommand ||
     input.voiceCommand,
+  );
+}
+
+function applyPreset(input) {
+  if (!preset) return;
+  if (!["local-wrappers", "repo-wrappers", "wrappers"].includes(preset)) {
+    fail(`Preset de modelos no soportado: ${preset}`);
+  }
+
+  input.faceCommand ??= `${pythonCommand()} ${shellQuote(wrapperPath("facefusion_frame.py"))} --input {input} --output {output} --identity {identity}`;
+  input.backgroundCommand ??= `${pythonCommand()} ${shellQuote(wrapperPath("backgroundmattingv2_frame.py"))} --input {input} --output {output} --clean-plate {clean_plate}`;
+  input.voiceCommand ??= `${pythonCommand()} ${shellQuote(wrapperPath("vcclient000_chunk.py"))} --input {input} --output {output} --sample-rate {sample_rate} --channels {channels} --format {format}`;
+}
+
+function resolveModelEnv() {
+  const values = {};
+  const mappedArgs = {
+    FACEFUSION_DIR: "--facefusion-dir",
+    FACEFUSION_ENTRYPOINT: "--facefusion-entrypoint",
+    FACEFUSION_PYTHON: "--facefusion-python",
+    FACEFUSION_PROCESSORS: "--facefusion-processors",
+    FACEFUSION_EXECUTION_PROVIDERS: "--facefusion-providers",
+    FACEFUSION_EXTRA_ARGS: "--facefusion-extra-args",
+    FACEFUSION_COMMAND_TEMPLATE: "--facefusion-command-template",
+    FACEFUSION_TIMEOUT_SECS: "--facefusion-timeout",
+    BMV2_REPO_DIR: "--bmv2-repo-dir",
+    BMV2_PYTHON: "--bmv2-python",
+    BMV2_MODEL_CHECKPOINT: "--bmv2-checkpoint",
+    BMV2_MODEL_TYPE: "--bmv2-model-type",
+    BMV2_MODEL_BACKBONE: "--bmv2-backbone",
+    BMV2_MODEL_BACKBONE_SCALE: "--bmv2-backbone-scale",
+    BMV2_MODEL_REFINE_MODE: "--bmv2-refine-mode",
+    BMV2_MODEL_REFINE_SAMPLE_PIXELS: "--bmv2-refine-sample-pixels",
+    BMV2_DEVICE: "--bmv2-device",
+    BMV2_EXTRA_ARGS: "--bmv2-extra-args",
+    BMV2_COMMAND_TEMPLATE: "--bmv2-command-template",
+    BMV2_TIMEOUT_SECS: "--bmv2-timeout",
+    VCCLIENT000_CHUNK_COMMAND: "--vcclient000-command",
+    VCCLIENT000_HTTP_ENDPOINT: "--vcclient000-http-endpoint",
+    VCCLIENT000_TIMEOUT_SECS: "--vcclient000-timeout",
+  };
+
+  for (const [key, argName] of Object.entries(mappedArgs)) {
+    const value = argValue(argName) ?? process.env[key];
+    if (value) values[key] = value;
+  }
+
+  const passthroughValue =
+    argValue("--wrapper-passthrough") ??
+    process.env.SHAPE_WRAPPER_PASSTHROUGH ??
+    (passthrough ? "true" : null);
+  if (passthroughValue) {
+    values.SHAPE_WRAPPER_PASSTHROUGH = passthroughValue;
+  }
+
+  return values;
+}
+
+function wrapperPath(file) {
+  return join(repoRoot, "apps", "ai-sidecar", "wrappers", file);
+}
+
+function pythonCommand() {
+  return shellQuote(
+    process.env.SHAPE_AI_PYTHON ||
+      (process.platform === "win32" ? "python" : "python3"),
   );
 }
 

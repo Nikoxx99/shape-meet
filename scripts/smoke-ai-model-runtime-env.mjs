@@ -21,9 +21,6 @@ const processorScript = fileURLToPath(
     import.meta.url,
   ),
 );
-const copyScript = fileURLToPath(
-  new URL("./copy-processor-io.mjs", import.meta.url),
-);
 const processorCommand = `${JSON.stringify(python)} ${JSON.stringify(processorScript)}`;
 
 let sidecar = null;
@@ -45,6 +42,24 @@ try {
   assert(
     runtimeEnv.SHAPE_VOICE_COMMAND,
     "model runtime env did not include voice command",
+  );
+  assert(
+    runtimeEnv.SHAPE_FACE_COMMAND.includes("facefusion_frame.py"),
+    "model runtime env did not use the FaceFusion repo wrapper",
+  );
+  assert(
+    runtimeEnv.SHAPE_BACKGROUND_COMMAND.includes(
+      "backgroundmattingv2_frame.py",
+    ),
+    "model runtime env did not use the BackgroundMattingV2 repo wrapper",
+  );
+  assert(
+    runtimeEnv.SHAPE_VOICE_COMMAND.includes("vcclient000_chunk.py"),
+    "model runtime env did not use the vcclient000 repo wrapper",
+  );
+  assert(
+    runtimeEnv.SHAPE_WRAPPER_PASSTHROUGH === "true",
+    "model runtime env did not enable wrapper passthrough",
   );
 
   sidecar = spawn(
@@ -145,12 +160,9 @@ function renderRuntimeEnv() {
       String(audioPort),
       "--processor-command",
       processorCommand,
-      "--face-command",
-      copyCommand("video"),
-      "--background-command",
-      copyCommand("video"),
-      "--voice-command",
-      copyCommand("audio"),
+      "--preset",
+      "local-wrappers",
+      "--passthrough",
       "--model-timeout",
       "3",
     ],
@@ -166,10 +178,6 @@ function renderRuntimeEnv() {
       `model runtime env generation failed:\n${result.stderr || result.stdout}`,
     );
   }
-}
-
-function copyCommand(kind) {
-  return `${JSON.stringify(process.execPath)} ${JSON.stringify(copyScript)} ${kind}`;
 }
 
 function readRuntimeEnv(path) {

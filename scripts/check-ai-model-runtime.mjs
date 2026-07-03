@@ -64,7 +64,7 @@ function checkRuntimeEnv() {
   warn(
     [
       `No existe runtime env de modelos: ${envFile}`,
-      "Generalo con `pnpm models:runtime -- --face-command ... --background-command ... --voice-command ...`.",
+      "Generalo con `pnpm models:runtime -- --preset local-wrappers --passthrough` o con comandos reales.",
     ].join(" "),
   );
 }
@@ -245,13 +245,27 @@ function checkFaceFusionWrapper() {
       : entrypoint;
 
   if (!facefusionDir) {
-    warn("FACEFUSION_DIR no configurado para el wrapper FaceFusion.");
+    warn(
+      wrapperPassthroughEnabled()
+        ? "FACEFUSION_DIR no configurado; passthrough de FaceFusion activo."
+        : "FACEFUSION_DIR no configurado para el wrapper FaceFusion.",
+    );
   } else if (!existsSync(facefusionDir)) {
-    issue(`FACEFUSION_DIR no existe: ${facefusionDir}`);
+    if (wrapperPassthroughEnabled()) {
+      warn(`FACEFUSION_DIR no existe: ${facefusionDir}; passthrough activo.`);
+    } else {
+      issue(`FACEFUSION_DIR no existe: ${facefusionDir}`);
+    }
   }
 
   if (!existsSync(resolvedEntrypoint)) {
-    issue(`FaceFusion entrypoint no existe: ${resolvedEntrypoint}`);
+    if (wrapperPassthroughEnabled()) {
+      warn(
+        `FaceFusion entrypoint no existe: ${resolvedEntrypoint}; passthrough activo.`,
+      );
+    } else {
+      issue(`FaceFusion entrypoint no existe: ${resolvedEntrypoint}`);
+    }
   } else {
     ok(`FaceFusion entrypoint listo: ${resolvedEntrypoint}`);
   }
@@ -287,17 +301,37 @@ function checkBackgroundMattingWrapper() {
   const checkpoint = pathValue("BMV2_MODEL_CHECKPOINT");
 
   if (!repoDir) {
-    warn("BMV2_REPO_DIR no configurado para BackgroundMattingV2.");
+    warn(
+      wrapperPassthroughEnabled()
+        ? "BMV2_REPO_DIR no configurado; passthrough de BackgroundMattingV2 activo."
+        : "BMV2_REPO_DIR no configurado para BackgroundMattingV2.",
+    );
   } else if (!existsSync(join(repoDir, "inference_images.py"))) {
-    issue(`BMV2_REPO_DIR no contiene inference_images.py: ${repoDir}`);
+    if (wrapperPassthroughEnabled()) {
+      warn(
+        `BMV2_REPO_DIR no contiene inference_images.py: ${repoDir}; passthrough activo.`,
+      );
+    } else {
+      issue(`BMV2_REPO_DIR no contiene inference_images.py: ${repoDir}`);
+    }
   } else {
     ok(`BackgroundMattingV2 repo listo: ${repoDir}`);
   }
 
   if (!checkpoint) {
-    warn("BMV2_MODEL_CHECKPOINT no configurado.");
+    warn(
+      wrapperPassthroughEnabled()
+        ? "BMV2_MODEL_CHECKPOINT no configurado; passthrough de BackgroundMattingV2 activo."
+        : "BMV2_MODEL_CHECKPOINT no configurado.",
+    );
   } else if (!existsSync(checkpoint) || statSync(checkpoint).size <= 0) {
-    issue(`BMV2_MODEL_CHECKPOINT no existe o está vacío: ${checkpoint}`);
+    if (wrapperPassthroughEnabled()) {
+      warn(
+        `BMV2_MODEL_CHECKPOINT no existe o está vacío: ${checkpoint}; passthrough activo.`,
+      );
+    } else {
+      issue(`BMV2_MODEL_CHECKPOINT no existe o está vacío: ${checkpoint}`);
+    }
   } else {
     ok(`BackgroundMattingV2 checkpoint listo: ${checkpoint}`);
   }
@@ -335,6 +369,10 @@ function checkVcClientWrapper() {
   warn(
     "vcclient000 wrapper requiere VCCLIENT000_CHUNK_COMMAND o VCCLIENT000_HTTP_ENDPOINT.",
   );
+}
+
+function wrapperPassthroughEnabled() {
+  return /^(1|true|yes|on)$/i.test(env.SHAPE_WRAPPER_PASSTHROUGH ?? "");
 }
 
 function checkModelCommand(command, label, placeholders) {

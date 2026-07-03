@@ -147,13 +147,24 @@ no reemplaza la integración final de modelos.
 Para wrappers reales, genera el mismo archivo runtime con:
 
 ```bash
-pnpm models:doctor
-pnpm models:runtime -- \
-  --face-command "python apps/ai-sidecar/wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}" \
-  --background-command "python apps/ai-sidecar/wrappers/backgroundmattingv2_frame.py --input {input} --output {output} --clean-plate {clean_plate}" \
-  --voice-command "python apps/ai-sidecar/wrappers/vcclient000_chunk.py --input {input} --output {output} --sample-rate {sample_rate} --channels {channels} --format {format}"
+pnpm models:runtime -- --preset local-wrappers --passthrough
+pnpm models:doctor -- --skip-hardware
 ```
 
+Ese modo valida el contrato completo en cualquier PC: levanta los procesadores
+locales, invoca los wrappers versionados y copia input a output cuando los
+modelos no están instalados. Para activar modelos reales, elimina
+`--passthrough` y agrega rutas/endpoints:
+
+```bash
+pnpm models:runtime -- --preset local-wrappers \
+  --facefusion-dir "C:\\models\\FaceFusion" \
+  --bmv2-repo-dir "C:\\models\\BackgroundMattingV2" \
+  --bmv2-checkpoint "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth" \
+  --vcclient000-http-endpoint "http://127.0.0.1:18888/convert"
+```
+
+También puedes usar `--vcclient000-command` para un comando local de vcclient000.
 Usa `--video-frame-command` si prefieres un solo wrapper combinado para rostro y
 fondo, y `--audio-chunk-command` si prefieres un wrapper combinado para voz.
 Los wrappers versionados están en `apps/ai-sidecar/wrappers`; aceptan variables

@@ -63,11 +63,19 @@ Configura una de estas rutas:
 ## Runtime
 
 ```bash
-pnpm models:runtime -- \
-  --face-command "python apps/ai-sidecar/wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}" \
-  --background-command "python apps/ai-sidecar/wrappers/backgroundmattingv2_frame.py --input {input} --output {output} --clean-plate {clean_plate}" \
-  --voice-command "python apps/ai-sidecar/wrappers/vcclient000_chunk.py --input {input} --output {output} --sample-rate {sample_rate} --channels {channels} --format {format}"
+pnpm models:runtime -- --preset local-wrappers --passthrough
+pnpm models:doctor -- --skip-hardware
 ```
 
 `SHAPE_WRAPPER_PASSTHROUGH=true` permite validar los wrappers sin instalar los
 modelos: copian input a output y emiten un warning controlado.
+
+Para usar modelos reales, elimina `--passthrough` y agrega rutas o endpoints:
+
+```bash
+pnpm models:runtime -- --preset local-wrappers \
+  --facefusion-dir "/models/FaceFusion" \
+  --bmv2-repo-dir "/models/BackgroundMattingV2" \
+  --bmv2-checkpoint "/models/BackgroundMattingV2/pytorch_resnet50.pth" \
+  --vcclient000-http-endpoint "http://127.0.0.1:18888/convert"
+```
