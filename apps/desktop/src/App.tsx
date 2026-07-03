@@ -3481,6 +3481,12 @@ function ActiveCallScreen({
   const [callActionError, setCallActionError] = useState<string | null>(null);
   const [aiSession, setAiSession] = useState<AiSession | null>(null);
   const [aiSessionError, setAiSessionError] = useState<string | null>(null);
+  const [aiRuntimeStartupState, setAiRuntimeStartupState] = useState<
+    "idle" | "starting" | "ready" | "error"
+  >("idle");
+  const [aiRuntimeStartupMessage, setAiRuntimeStartupMessage] = useState<
+    string | null
+  >(null);
   const [processedVideoState, setProcessedVideoState] = useState<
     "idle" | "publishing" | "published" | "error"
   >("idle");
@@ -3926,8 +3932,13 @@ function ActiveCallScreen({
   ]);
 
   useEffect(() => {
-    if (!hostMode || !liveKitConnection?.identity) {
+    const shouldUseAi = faceEnabled || backgroundEnabled || voiceEnabled;
+
+    if (!hostMode || !liveKitConnection?.identity || !shouldUseAi) {
       setAiSession(null);
+      setAiSessionError(null);
+      setAiRuntimeStartupState("idle");
+      setAiRuntimeStartupMessage(null);
       return;
     }
 
@@ -3937,6 +3948,11 @@ function ActiveCallScreen({
     setAiSessionError(null);
 
     async function startLocalAiSession() {
+      const runtime = await ensureLocalAiRuntime();
+      if (!runtime.running) {
+        throw new Error(runtime.message || "No se pudo iniciar el runtime IA.");
+      }
+
       const prepared = faceEnabled
         ? await prepareIdentityForAiSession(identity, hostToken)
         : { identity, cache: null };
@@ -4018,6 +4034,66 @@ function ActiveCallScreen({
     meeting.code,
     voiceEnabled,
   ]);
+
+  async function ensureLocalAiRuntime() {
+    setAiRuntimeStartupState("starting");
+    setAiRuntimeStartupMessage("Preparando runtime IA.");
+
+    try {
+      const currentRuntime = await getAiSidecarRuntime();
+      if (currentRuntime.running) {
+        setAiRuntimeStartupState("ready");
+        setAiRuntimeStartupMessage(currentRuntime.message);
+        return currentRuntime;
+      }
+
+      const envFile = await getAiRuntimeEnv().catch(() => null);
+      if (envFile && !envFile.exists) {
+        const prepared = await prepareDemoAiRuntimeEnv();
+        setAiRuntimeStartupMessage(
+          prepared.exists
+            ? "Runtime demo preparado."
+            : (prepared.warnings[0] ?? "Runtime IA pendiente."),
+        );
+      }
+
+      const startedRuntime = await startAiSidecar();
+      if (startedRuntime.running) {
+        setAiRuntimeStartupState("ready");
+        setAiRuntimeStartupMessage(startedRuntime.message);
+        return startedRuntime;
+      }
+
+      const service = await getAiServiceStatus();
+      if (service.online) {
+        setAiRuntimeStartupState("ready");
+        setAiRuntimeStartupMessage(service.message);
+        return {
+          endpoint: service.endpoint,
+          managed: false,
+          running: true,
+          pid: null,
+          command: null,
+          logPath: "",
+          message: service.message,
+          lastExit: null,
+        } satisfies NativeAiSidecarRuntime;
+      }
+
+      const message = startedRuntime.message || service.message;
+      setAiRuntimeStartupState("error");
+      setAiRuntimeStartupMessage(message);
+      return startedRuntime;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "No se pudo preparar el runtime IA.";
+      setAiRuntimeStartupState("error");
+      setAiRuntimeStartupMessage(message);
+      throw error;
+    }
+  }
 
   useEffect(() => {
     if (!aiSession?.id || aiSession.status !== "running") return;
@@ -4477,6 +4553,28 @@ function ActiveCallScreen({
                     }
                     tone={
                       aiSessionError ? "warning" : aiSession ? "ok" : "idle"
+                    }
+                  />
+                ) : null}
+                {hostMode && (faceEnabled || backgroundEnabled || voiceEnabled) ? (
+                  <StatusRow
+                    label="Runtime IA"
+                    value={
+                      aiRuntimeStartupMessage ??
+                      (aiRuntimeStartupState === "starting"
+                        ? "Preparando"
+                        : aiRuntimeStartupState === "ready"
+                          ? "Listo"
+                          : aiRuntimeStartupState === "error"
+                            ? "Error"
+                            : "Pendiente")
+                    }
+                    tone={
+                      aiRuntimeStartupState === "ready"
+                        ? "ok"
+                        : aiRuntimeStartupState === "error"
+                          ? "warning"
+                          : "idle"
                     }
                   />
                 ) : null}

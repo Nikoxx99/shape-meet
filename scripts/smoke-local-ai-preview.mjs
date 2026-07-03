@@ -44,6 +44,7 @@ async function main() {
     const sample = await expectProcessedPrimaryVideo(page);
     await clickByRole(page, "button", "Más", 15_000);
     await expectVisibleText(page, "Track IA publicado", 30_000);
+    await expectVisibleText(page, "Runtime IA", 30_000);
     await expectVisibleText(page, "Bridge voz", 30_000);
     console.log(
       `local AI preview smoke ok: video=${JSON.stringify(sample)} voice=bridge`,
