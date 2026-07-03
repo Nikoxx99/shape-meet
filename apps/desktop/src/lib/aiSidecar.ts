@@ -190,6 +190,17 @@ export interface AiDiagnostics {
     startedAt: string | null;
     lastLogLine: string | null;
   }>;
+  sentry: {
+    configured: boolean;
+    enabled: boolean;
+    sdkAvailable: boolean;
+    status: string;
+    message: string;
+    environment: string | null;
+    release: string | null;
+    tracesSampleRate: number | null;
+    debug: boolean;
+  };
   limits: {
     maxFrameBytes: number;
     maxAudioBytes: number;

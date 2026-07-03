@@ -87,6 +87,17 @@ EXTERNAL_PROCESSOR_TIMEOUT_SECS = 0.8
 MANAGED_PROCESSORS = {}
 MANAGED_PROCESSOR_LOG_LIMIT = 60
 SENTRY = None
+SENTRY_STATUS = {
+    "configured": False,
+    "enabled": False,
+    "sdkAvailable": False,
+    "status": "not_configured",
+    "message": "SENTRY_DSN no configurado.",
+    "environment": None,
+    "release": None,
+    "tracesSampleRate": None,
+    "debug": False,
+}
 PREFLIGHT_FRAME_DATA_URL = (
     "data:image/jpeg;base64,"
     "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////"
@@ -782,6 +793,7 @@ def diagnostics_payload():
             "timeoutSeconds": external_processor_timeout(),
         },
         "managedProcessors": managed_processors_payload(),
+        "sentry": SENTRY_STATUS,
         "limits": {
             "maxFrameBytes": MAX_FRAME_BYTES,
             "maxAudioBytes": MAX_AUDIO_BYTES,
@@ -799,6 +811,7 @@ def diagnostics_summary():
         "engines": diagnostics["engines"],
         "externalProcessors": diagnostics["externalProcessors"],
         "managedProcessors": diagnostics["managedProcessors"],
+        "sentry": diagnostics["sentry"],
     }
 
 
@@ -1230,12 +1243,19 @@ def now_iso():
 
 
 def init_sentry():
-    global SENTRY
+    global SENTRY, SENTRY_STATUS
 
     sentry_explicitly_disabled = "SENTRY_DSN" in os.environ and not env_non_empty("SENTRY_DSN")
     load_local_env_files()
 
     if sentry_explicitly_disabled:
+        SENTRY_STATUS = sentry_status(
+            configured=False,
+            enabled=False,
+            sdk_available=False,
+            status="disabled",
+            message="SENTRY_DSN está vacío explícitamente.",
+        )
         return
 
     dsn = (
@@ -1244,29 +1264,52 @@ def init_sentry():
         or env_non_empty("NEXT_PUBLIC_SENTRY_DSN")
     )
     if not dsn:
+        SENTRY_STATUS = sentry_status(
+            configured=False,
+            enabled=False,
+            sdk_available=False,
+            status="not_configured",
+            message="SENTRY_DSN no configurado.",
+        )
         return
+
+    environment = (
+        os.environ.get("SENTRY_ENVIRONMENT")
+        or os.environ.get("VITE_SENTRY_ENVIRONMENT")
+        or os.environ.get("NEXT_PUBLIC_SENTRY_ENVIRONMENT")
+        or "development"
+    )
+    release = os.environ.get("SENTRY_RELEASE", "shape-ai-sidecar@0.1.0")
+    traces_sample_rate = safe_float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE"), 1.0)
+    debug = env_bool("SENTRY_DEBUG", False)
 
     try:
         import sentry_sdk
         from sentry_sdk.integrations.logging import LoggingIntegration
     except Exception as error:
-        print(f"[shape-ai-sidecar] sentry-sdk no disponible: {error}")
+        message = f"sentry-sdk no disponible: {error}"
+        print(f"[shape-ai-sidecar] {message}")
+        SENTRY_STATUS = sentry_status(
+            configured=True,
+            enabled=False,
+            sdk_available=False,
+            status="missing_sdk",
+            message=message,
+            environment=environment,
+            release=release,
+            traces_sample_rate=traces_sample_rate,
+            debug=debug,
+        )
         return
 
-    traces_sample_rate = safe_float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE"), 1.0)
     sentry_sdk.init(
         dsn=dsn,
-        environment=(
-            os.environ.get("SENTRY_ENVIRONMENT")
-            or os.environ.get("VITE_SENTRY_ENVIRONMENT")
-            or os.environ.get("NEXT_PUBLIC_SENTRY_ENVIRONMENT")
-            or "development"
-        ),
-        release=os.environ.get("SENTRY_RELEASE", "shape-ai-sidecar@0.1.0"),
+        environment=environment,
+        release=release,
         traces_sample_rate=max(0.0, min(1.0, traces_sample_rate)),
         send_default_pii=False,
         integrations=[LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)],
-        debug=env_bool("SENTRY_DEBUG", False),
+        debug=debug,
     )
     sentry_sdk.set_tag("app.surface", "ai-sidecar")
     sentry_sdk.set_tag("ai.mode", ai_mode())
@@ -1280,6 +1323,41 @@ def init_sentry():
         },
     )
     SENTRY = sentry_sdk
+    SENTRY_STATUS = sentry_status(
+        configured=True,
+        enabled=True,
+        sdk_available=True,
+        status="ready",
+        message="Sentry activo para sidecar IA.",
+        environment=environment,
+        release=release,
+        traces_sample_rate=traces_sample_rate,
+        debug=debug,
+    )
+
+
+def sentry_status(
+    configured,
+    enabled,
+    sdk_available,
+    status,
+    message,
+    environment=None,
+    release=None,
+    traces_sample_rate=None,
+    debug=False,
+):
+    return {
+        "configured": configured,
+        "enabled": enabled,
+        "sdkAvailable": sdk_available,
+        "status": status,
+        "message": message,
+        "environment": environment,
+        "release": release,
+        "tracesSampleRate": traces_sample_rate,
+        "debug": debug,
+    }
 
 
 def load_local_env_files():

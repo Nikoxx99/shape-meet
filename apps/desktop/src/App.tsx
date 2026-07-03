@@ -3137,9 +3137,29 @@ function AiRuntimeScreen({
               tone={serviceTone(observabilityStatus?.nativeSentryEnabled)}
             />
             <StatusRow
-              label="Entorno"
-              value={observabilityStatus?.environment ?? "Detectando"}
+              label="Sentry IA"
+              value={
+                diagnostics?.sentry
+                  ? diagnostics.sentry.enabled
+                    ? "Activo"
+                    : diagnostics.sentry.status
+                  : "Detectando"
+              }
+              tone={serviceTone(diagnostics?.sentry?.enabled)}
             />
+            <StatusRow
+              label="Entorno"
+              value={
+                diagnostics?.sentry?.environment ??
+                observabilityStatus?.environment ??
+                "Detectando"
+              }
+            />
+            {diagnostics?.sentry && !diagnostics.sentry.enabled ? (
+              <InlineNotice icon={<ShieldAlert />}>
+                {diagnostics.sentry.message}
+              </InlineNotice>
+            ) : null}
             {debugMessage ? (
               <InlineNotice icon={<Check />}>{debugMessage}</InlineNotice>
             ) : null}
