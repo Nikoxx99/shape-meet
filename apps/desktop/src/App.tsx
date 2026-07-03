@@ -705,7 +705,7 @@ export default function App() {
       setHost(session.user);
       setIsHostFlow(true);
       await refreshHostData(session);
-      navigate("scheduled");
+      navigate("verify");
     } catch (error) {
       if (error instanceof ShapeApiError && error.code === "NOT_HOST") {
         navigate("denied");
@@ -723,7 +723,7 @@ export default function App() {
         setJoinCode(initialMeeting?.code ?? "");
         setIdentities(initialIdentities);
         setSelectedIdentityId(initialIdentity?.id ?? null);
-        navigate("scheduled");
+        navigate("verify");
         return;
       }
 
