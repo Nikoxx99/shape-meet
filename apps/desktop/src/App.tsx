@@ -1369,6 +1369,63 @@ function HostLoginScreen({
 }
 
 function HostVerifyScreen({ hostEmail, onBack, onContinue }: { hostEmail: string; onBack: () => void; onContinue: () => void }) {
+  const [digits, setDigits] = useState<string[]>(() => (DEMO_DATA_ENABLED ? ["1", "2", "3", "", "", ""] : ["", "", "", "", "", ""]));
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const verificationCode = digits.join("");
+  const canVerify = verificationCode.length === 6;
+
+  function focusDigit(index: number) {
+    inputRefs.current[index]?.focus();
+  }
+
+  function updateDigits(nextDigits: string[], focusIndex?: number) {
+    setDigits(nextDigits);
+    setResendMessage(null);
+    if (focusIndex !== undefined) {
+      window.setTimeout(() => focusDigit(focusIndex), 0);
+    }
+  }
+
+  function handleDigitChange(index: number, value: string) {
+    const numeric = value.replace(/\D/g, "");
+    if (numeric.length > 1) {
+      const nextDigits = [...digits];
+      numeric.slice(0, 6 - index).split("").forEach((digit, offset) => {
+        nextDigits[index + offset] = digit;
+      });
+      updateDigits(nextDigits, Math.min(index + numeric.length, 5));
+      return;
+    }
+
+    const nextDigits = [...digits];
+    nextDigits[index] = numeric;
+    updateDigits(nextDigits, numeric && index < 5 ? index + 1 : undefined);
+  }
+
+  function handleDigitKeyDown(index: number, key: string) {
+    if (key === "Backspace" && !digits[index] && index > 0) {
+      updateDigits(digits.map((digit, digitIndex) => (digitIndex === index - 1 ? "" : digit)), index - 1);
+    }
+  }
+
+  function handlePaste(index: number, value: string) {
+    const numeric = value.replace(/\D/g, "");
+    if (!numeric) return;
+
+    const nextDigits = [...digits];
+    numeric.slice(0, 6 - index).split("").forEach((digit, offset) => {
+      nextDigits[index + offset] = digit;
+    });
+    updateDigits(nextDigits, Math.min(index + numeric.length, 5));
+  }
+
+  function resendCode() {
+    setDigits(DEMO_DATA_ENABLED ? ["1", "2", "3", "", "", ""] : ["", "", "", "", "", ""]);
+    setResendMessage("Código reenviado.");
+    window.setTimeout(() => focusDigit(DEMO_DATA_ENABLED ? 3 : 0), 0);
+  }
+
   return (
     <section className="screen minimal-screen">
       <div className="auth-top">
@@ -1382,19 +1439,35 @@ function HostVerifyScreen({ hostEmail, onBack, onContinue }: { hostEmail: string
         <h1>Confirma que eres host</h1>
         <p>Código enviado a {hostEmail}.</p>
         <div className="otp-row">
-          {["1", "2", "3", "", "", ""].map((digit, index) => (
-            <div className="otp-cell" key={`${digit}-${index}`}>
-              {digit}
-            </div>
+          {digits.map((digit, index) => (
+            <input
+              aria-label={`Dígito ${index + 1}`}
+              autoComplete={index === 0 ? "one-time-code" : "off"}
+              className="otp-cell"
+              inputMode="numeric"
+              key={index}
+              maxLength={1}
+              onChange={(event) => handleDigitChange(index, event.target.value)}
+              onKeyDown={(event) => handleDigitKeyDown(index, event.key)}
+              onPaste={(event) => {
+                event.preventDefault();
+                handlePaste(index, event.clipboardData.getData("text"));
+              }}
+              ref={(element) => {
+                inputRefs.current[index] = element;
+              }}
+              value={digit}
+            />
           ))}
         </div>
         <Checkbox label="Recordar este equipo" checked />
-        <Button icon={<Check />} onClick={onContinue}>
+        <Button icon={<Check />} onClick={onContinue} disabled={!canVerify}>
           Verificar y continuar
         </Button>
-        <Button variant="outline" icon={<RefreshCw />}>
+        <Button variant="outline" icon={<RefreshCw />} onClick={resendCode}>
           Reenviar código
         </Button>
+        {resendMessage ? <p className="resend-message">{resendMessage}</p> : null}
       </AuthCard>
     </section>
   );
