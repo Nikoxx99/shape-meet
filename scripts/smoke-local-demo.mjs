@@ -61,6 +61,7 @@ async function main() {
   }
   if (!skipAiCommand) {
     runPnpm("smoke:ai-command");
+    runPnpm("smoke:ai-stage-command");
   }
 
   runPnpm("demo:prepare");

@@ -66,10 +66,13 @@ SHAPE_VIDEO_PROCESSOR_COMMAND=
 SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame
 SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7860/health
 SHAPE_VIDEO_FRAME_COMMAND=
+SHAPE_FACE_COMMAND=
+SHAPE_BACKGROUND_COMMAND=
 SHAPE_AUDIO_PROCESSOR_COMMAND=
 SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio
 SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health
 SHAPE_AUDIO_CHUNK_COMMAND=
+SHAPE_VOICE_COMMAND=
 SHAPE_PROCESSOR_DEMO_EFFECTS=false
 SHAPE_MODEL_COMMAND_TIMEOUT_SECS=2.0
 SHAPE_PROCESSOR_TIMEOUT_SECS=0.8
@@ -99,11 +102,23 @@ crear otro servidor:
 
 ```bash
 SHAPE_VIDEO_PROCESSOR_COMMAND="python3 apps/ai-sidecar/processors/shape_processor_command.py --kind video --port 7860"
+
+# Opcion A: wrapper combinado para face swap + fondo.
 SHAPE_VIDEO_FRAME_COMMAND="/path/to/video-wrapper --input {input} --output {output} --identity {identity} --clean-plate {clean_plate}"
+
+# Opcion B: wrappers separados, ejecutados en cadena segun efectos activos.
+SHAPE_FACE_COMMAND="/path/to/facefusion-wrapper --input {input} --output {output} --identity {identity}"
+SHAPE_BACKGROUND_COMMAND="/path/to/backgroundmattingv2-wrapper --input {input} --output {output} --clean-plate {clean_plate}"
 
 SHAPE_AUDIO_PROCESSOR_COMMAND="python3 apps/ai-sidecar/processors/shape_processor_command.py --kind audio --port 7861"
 SHAPE_AUDIO_CHUNK_COMMAND="/path/to/voice-wrapper --input {input} --output {output} --sample-rate {sample_rate}"
+SHAPE_VOICE_COMMAND="/path/to/vcclient000-wrapper --input {input} --output {output} --sample-rate {sample_rate}"
 ```
+
+`SHAPE_VIDEO_FRAME_COMMAND` y `SHAPE_AUDIO_CHUNK_COMMAND` tienen prioridad
+porque representan wrappers combinados. Si los dejas vacios, el adaptador usa
+`SHAPE_FACE_COMMAND`, `SHAPE_BACKGROUND_COMMAND` y `SHAPE_VOICE_COMMAND` segun
+los efectos activos en la reunion.
 
 Para demo sin modelos reales, `SHAPE_PROCESSOR_DEMO_EFFECTS=true` hace que el
 procesador empaquetable devuelva un SVG con una capa visible sobre el frame y
@@ -162,6 +177,7 @@ pnpm smoke:ai-demo
 pnpm smoke:ai-runtime
 pnpm smoke:ai-managed
 pnpm smoke:ai-command
+pnpm smoke:ai-stage-command
 ```
 
 El script arranca el sidecar en un puerto libre, levanta mocks HTTP para video y
@@ -173,6 +189,8 @@ fondo, flags activos y datos procesables.
 comando, reportarlos en diagnostics y delegar frame/audio a esos procesos.
 `smoke:ai-command` valida la ruta completa usando el adaptador de comandos:
 sidecar gestionado -> procesador HTTP -> comando de modelo -> output procesado.
+`smoke:ai-stage-command` valida la ruta de comandos separados para
+FaceFusion/BackgroundMattingV2/vcclient000.
 
 Ejemplo:
 

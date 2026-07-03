@@ -1388,9 +1388,14 @@ fn default_ai_runtime_env_template() -> String {
         "# Demo sin modelos reales: pnpm demo:ai-runtime genera un archivo listo.",
         "# SHAPE_PROCESSOR_DEMO_EFFECTS=true",
         "# SHAPE_VIDEO_PROCESSOR_COMMAND=shape-ai-processor --kind video --port 7860",
+        "# Comando combinado de video: recibe frame, identidad y clean plate.",
         "# SHAPE_VIDEO_FRAME_COMMAND=C:\\\\shape-models\\\\video-wrapper.exe --input {input} --output {output} --identity {identity} --clean-plate {clean_plate}",
+        "# O comandos separados por etapa; se ejecutan segun los efectos activos.",
+        "# SHAPE_FACE_COMMAND=C:\\\\shape-models\\\\facefusion-wrapper.exe --input {input} --output {output} --identity {identity}",
+        "# SHAPE_BACKGROUND_COMMAND=C:\\\\shape-models\\\\backgroundmattingv2-wrapper.exe --input {input} --output {output} --clean-plate {clean_plate}",
         "# SHAPE_AUDIO_PROCESSOR_COMMAND=shape-ai-processor --kind audio --port 7861",
         "# SHAPE_AUDIO_CHUNK_COMMAND=C:\\\\shape-models\\\\voice-wrapper.exe --input {input} --output {output} --sample-rate {sample_rate}",
+        "# SHAPE_VOICE_COMMAND=C:\\\\shape-models\\\\vcclient000-wrapper.exe --input {input} --output {output} --sample-rate {sample_rate}",
         "",
     ]
     .join("\n")

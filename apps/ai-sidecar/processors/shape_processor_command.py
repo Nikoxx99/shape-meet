@@ -37,7 +37,7 @@ class ShapeProcessorHandler(BaseHTTPRequestHandler):
             return
 
         kind = STATE["kind"]
-        command = model_command(kind)
+        command = any_model_command_configured(kind)
         demo_effects = demo_effects_enabled()
         self._json(
             {
@@ -115,6 +115,7 @@ def process_video(payload):
     target = payload.get("target") if isinstance(payload.get("target"), dict) else {}
     identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
     background = payload.get("background") if isinstance(payload.get("background"), dict) else {}
+    enabled = payload.get("enabled") if isinstance(payload.get("enabled"), dict) else {}
     width = safe_int(target.get("width")) or safe_int(frame.get("width")) or 1280
     height = safe_int(target.get("height")) or safe_int(frame.get("height")) or 720
     fps = safe_int(target.get("fps")) or 30
@@ -128,7 +129,8 @@ def process_video(payload):
     if not isinstance(input_data_url, str) or not input_data_url.startswith("data:image/"):
         warnings.append("invalid_frame_data_url")
     else:
-        command = model_command("video")
+        command = combined_model_command("video")
+        stage_commands = video_stage_commands(enabled) if not command else []
         if command:
             with tempfile.TemporaryDirectory(prefix="shape-video-") as workdir:
                 input_path = os.path.join(workdir, "input.jpg")
@@ -166,6 +168,55 @@ def process_video(payload):
                     status = "processed"
                 elif result["ok"]:
                     warnings.append("video_model_output_missing")
+        elif stage_commands:
+            with tempfile.TemporaryDirectory(prefix="shape-video-") as workdir:
+                input_path = os.path.join(workdir, "input.jpg")
+                clean_plate_path = write_clean_plate(background, workdir)
+                write_data_url(input_data_url, input_path)
+                current_input_path = input_path
+                completed_stages = []
+
+                for stage, stage_command in stage_commands:
+                    output_path = os.path.join(workdir, f"output-{stage}.jpg")
+                    result = run_model_command(
+                        stage_command,
+                        {
+                            "input": current_input_path,
+                            "output": output_path,
+                            "identity": identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
+                            "clean_plate": clean_plate_path or "",
+                            "width": str(width),
+                            "height": str(height),
+                            "fps": str(fps),
+                            "session_id": session_id(payload),
+                            "stage": stage,
+                        },
+                        {
+                            "SHAPE_FRAME_INPUT_PATH": current_input_path,
+                            "SHAPE_FRAME_OUTPUT_PATH": output_path,
+                            "SHAPE_VIDEO_STAGE": stage,
+                            "SHAPE_IDENTITY_PATH": identity.get("localArtifactPath") or "",
+                            "SHAPE_IDENTITY_URI": identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
+                            "SHAPE_CLEAN_PLATE_PATH": clean_plate_path or "",
+                            "SHAPE_TARGET_WIDTH": str(width),
+                            "SHAPE_TARGET_HEIGHT": str(height),
+                            "SHAPE_TARGET_FPS": str(fps),
+                        },
+                    )
+                    warnings.extend(prefix_warnings(stage, result["warnings"]))
+
+                    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                        current_input_path = output_path
+                        completed_stages.append(stage)
+                        continue
+
+                    if result["ok"]:
+                        warnings.append(f"{stage}_model_output_missing")
+
+                if completed_stages:
+                    output_data_url = file_to_data_url(current_input_path, "image/jpeg")
+                    status = "processed"
+                    processor = "shape-video-model-chain:" + "+".join(completed_stages)
         elif demo_effects_enabled():
             output_data_url = demo_video_data_url(payload, input_data_url, width, height, sequence)
             status = "processed"
@@ -204,6 +255,8 @@ def process_audio(payload):
     audio_format = str(audio.get("format") or "pcm_f32le")
     input_base64 = audio.get("audioDataBase64")
     output_base64 = input_base64 if isinstance(input_base64, str) else ""
+    identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
+    enabled = payload.get("enabled") if isinstance(payload.get("enabled"), dict) else {}
     warnings = []
     status = "passthrough"
     processor = "shape-audio-command-adapter"
@@ -211,7 +264,7 @@ def process_audio(payload):
     if not isinstance(input_base64, str) or not input_base64:
         warnings.append("invalid_audio_payload")
     else:
-        command = model_command("audio")
+        command = combined_model_command("audio") or voice_stage_command(enabled)
         if command:
             with tempfile.TemporaryDirectory(prefix="shape-audio-") as workdir:
                 input_path = os.path.join(workdir, f"input.{audio_extension(audio_format)}")
@@ -227,6 +280,7 @@ def process_audio(payload):
                         "channels": str(channels),
                         "format": audio_format,
                         "session_id": session_id(payload),
+                        "identity": identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
                     },
                     {
                         "SHAPE_AUDIO_INPUT_PATH": input_path,
@@ -234,6 +288,8 @@ def process_audio(payload):
                         "SHAPE_AUDIO_SAMPLE_RATE": str(sample_rate),
                         "SHAPE_AUDIO_CHANNELS": str(channels),
                         "SHAPE_AUDIO_FORMAT": audio_format,
+                        "SHAPE_IDENTITY_PATH": identity.get("localArtifactPath") or "",
+                        "SHAPE_IDENTITY_URI": identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
                     },
                 )
                 warnings.extend(result["warnings"])
@@ -241,6 +297,8 @@ def process_audio(payload):
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                     output_base64 = file_to_base64(output_path)
                     status = "processed"
+                    if not combined_model_command("audio"):
+                        processor = "shape-voice-command-adapter"
                 elif result["ok"]:
                     warnings.append("audio_model_output_missing")
         elif demo_effects_enabled():
@@ -321,10 +379,43 @@ def command_warnings(result):
     return warnings
 
 
-def model_command(kind):
+def combined_model_command(kind):
     if kind == "audio":
         return env_non_empty("SHAPE_AUDIO_CHUNK_COMMAND")
     return env_non_empty("SHAPE_VIDEO_FRAME_COMMAND")
+
+
+def any_model_command_configured(kind):
+    if combined_model_command(kind):
+        return True
+
+    if kind == "audio":
+        return bool(env_non_empty("SHAPE_VOICE_COMMAND"))
+
+    return bool(env_non_empty("SHAPE_FACE_COMMAND") or env_non_empty("SHAPE_BACKGROUND_COMMAND"))
+
+
+def video_stage_commands(enabled):
+    commands = []
+    if enabled.get("face"):
+        command = env_non_empty("SHAPE_FACE_COMMAND")
+        if command:
+            commands.append(("face", command))
+    if enabled.get("background"):
+        command = env_non_empty("SHAPE_BACKGROUND_COMMAND")
+        if command:
+            commands.append(("background", command))
+    return commands
+
+
+def voice_stage_command(enabled):
+    if not enabled.get("voice"):
+        return None
+    return env_non_empty("SHAPE_VOICE_COMMAND")
+
+
+def prefix_warnings(stage, warnings):
+    return [f"{stage}:{warning}" for warning in warnings]
 
 
 def demo_effects_enabled():

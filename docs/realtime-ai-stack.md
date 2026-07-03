@@ -252,10 +252,20 @@ Variables del supervisor nativo:
   `shape_processor_command.py --kind video`. Recibe placeholders `{input}`,
   `{output}`, `{identity}`, `{clean_plate}`, `{width}`, `{height}`, `{fps}` y
   `{session_id}`, ademas de variables `SHAPE_FRAME_*`.
+- `SHAPE_FACE_COMMAND`: comando local de face swap invocado por
+  `shape_processor_command.py --kind video` cuando el rostro esta activo y no
+  hay `SHAPE_VIDEO_FRAME_COMMAND`. Recibe los mismos placeholders de video y
+  variables `SHAPE_FRAME_*`.
+- `SHAPE_BACKGROUND_COMMAND`: comando local de matting/fondo invocado despues de
+  `SHAPE_FACE_COMMAND` cuando fondo esta activo y no hay
+  `SHAPE_VIDEO_FRAME_COMMAND`. Recibe los mismos placeholders de video.
 - `SHAPE_AUDIO_CHUNK_COMMAND`: comando local invocado por
   `shape_processor_command.py --kind audio`. Recibe placeholders `{input}`,
   `{output}`, `{sample_rate}`, `{channels}`, `{format}` y `{session_id}`, ademas
   de variables `SHAPE_AUDIO_*`.
+- `SHAPE_VOICE_COMMAND`: comando local de vcclient000 invocado cuando voz esta
+  activa y no hay `SHAPE_AUDIO_CHUNK_COMMAND`. Recibe los mismos placeholders de
+  audio y `{identity}`.
 - `shape-ai-runtime.env`: archivo local cargado por la app Tauri antes de iniciar
   el sidecar gestionado. Windows usa `%LOCALAPPDATA%\Shape Meet`, macOS usa
   `~/Library/Application Support/Shape Meet` y Linux usa XDG data dir. Puede
