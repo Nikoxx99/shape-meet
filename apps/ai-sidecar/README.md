@@ -14,6 +14,11 @@ Para enseñar el demo local con procesadores visuales sin modelos reales:
 pnpm dev:ai:demo
 ```
 
+Si hay `SENTRY_DSN` local y no defines `SHAPE_AI_PYTHON`, ese runner prepara un
+venv liviano en `output/ai-sidecar-dev/venv` con `sentry-sdk`. Usa
+`SHAPE_AI_DEV_VENV=false` para desactivarlo o `SHAPE_AI_PYTHON=/ruta/python`
+para forzar un entorno propio.
+
 Dentro de Tauri, la pantalla de prueba de equipo puede iniciar este proceso
 automáticamente. Define `SHAPE_AI_SIDECAR_COMMAND` para usar un comando completo,
 `SHAPE_AI_SIDECAR_BIN` para un binario empaquetado o `SHAPE_AI_SIDECAR_SCRIPT`

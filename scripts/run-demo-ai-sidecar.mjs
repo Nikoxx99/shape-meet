@@ -1,4 +1,10 @@
 import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(scriptDir, "..");
 
 const args = process.argv.slice(2);
 const host = argValue("--host") ?? process.env.SHAPE_AI_HOST ?? "127.0.0.1";
@@ -15,9 +21,7 @@ const audioPort =
   argValue("--audio-port") ??
   process.env.SHAPE_DEMO_AUDIO_PROCESSOR_PORT ??
   "7861";
-const python =
-  process.env.SHAPE_AI_PYTHON ||
-  (process.platform === "win32" ? "python" : "python3");
+const python = resolveSidecarPython();
 const runtimeEnv = readRuntimeEnv(renderRuntimeEnv());
 
 const sidecar = spawn(
@@ -28,6 +32,7 @@ const sidecar = spawn(
     env: {
       ...process.env,
       ...runtimeEnv,
+      SHAPE_AI_PYTHON: python,
     },
     stdio: "inherit",
   },
@@ -66,7 +71,7 @@ function renderRuntimeEnv() {
     {
       cwd: process.cwd(),
       encoding: "utf8",
-      env: process.env,
+      env: { ...process.env, SHAPE_AI_PYTHON: python },
     },
   );
 
@@ -98,6 +103,155 @@ function readRuntimeEnv(content) {
   }
 
   return env;
+}
+
+function resolveSidecarPython() {
+  const systemPython =
+    process.env.SHAPE_AI_PYTHON ||
+    (process.platform === "win32" ? "python" : "python3");
+
+  if (process.env.SHAPE_AI_PYTHON) return systemPython;
+  if (devVenvDisabled() || !sentryDsnConfigured()) return systemPython;
+
+  try {
+    ensureDevVenv(systemPython);
+    return devVenvPython();
+  } catch (error) {
+    console.warn(
+      [
+        "[shape-ai-sidecar] no se pudo preparar venv dev con sentry-sdk.",
+        error instanceof Error ? error.message : String(error),
+        `Usando ${systemPython}.`,
+      ].join(" "),
+    );
+    return systemPython;
+  }
+}
+
+function ensureDevVenv(systemPython) {
+  const python = devVenvPython();
+
+  if (!existsSync(python)) {
+    mkdirSync(devVenvParentDir(), { recursive: true });
+    runChecked(systemPython, ["-m", "venv", devVenvDir()], {
+      label: "crear venv dev del sidecar IA",
+    });
+  }
+
+  if (!pythonModuleAvailable(python, "sentry_sdk")) {
+    runChecked(python, ["-m", "pip", "install", "-r", devRequirementsFile()], {
+      label: "instalar dependencias dev del sidecar IA",
+    });
+  }
+
+  if (!pythonModuleAvailable(python, "sentry_sdk")) {
+    throw new Error("sentry-sdk no quedó disponible en el venv dev.");
+  }
+}
+
+function devVenvDisabled() {
+  const value = process.env.SHAPE_AI_DEV_VENV ?? "";
+  return ["0", "false", "no", "off"].includes(value.toLowerCase());
+}
+
+function sentryDsnConfigured() {
+  if ("SENTRY_DSN" in process.env && !process.env.SENTRY_DSN?.trim()) {
+    return false;
+  }
+
+  return Boolean(
+    process.env.SENTRY_DSN?.trim() ||
+    process.env.VITE_SENTRY_DSN?.trim() ||
+    process.env.NEXT_PUBLIC_SENTRY_DSN?.trim() ||
+    envFileValue(".env.local", [
+      "SENTRY_DSN",
+      "VITE_SENTRY_DSN",
+      "NEXT_PUBLIC_SENTRY_DSN",
+    ]) ||
+    envFileValue("apps/desktop/.env.local", [
+      "SENTRY_DSN",
+      "VITE_SENTRY_DSN",
+    ]) ||
+    envFileValue("apps/admin/.env.local", [
+      "SENTRY_DSN",
+      "NEXT_PUBLIC_SENTRY_DSN",
+    ]),
+  );
+}
+
+function envFileValue(path, keys) {
+  const values = readEnvFile(join(repoRoot, path));
+  for (const key of keys) {
+    const value = values[key]?.trim();
+    if (value) return value;
+  }
+  return null;
+}
+
+function readEnvFile(path) {
+  if (!existsSync(path)) return {};
+  const values = {};
+
+  for (const rawLine of readFileSync(path, "utf8").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const equalsIndex = line.indexOf("=");
+    if (equalsIndex === -1) continue;
+    const key = line.slice(0, equalsIndex).trim();
+    let value = line.slice(equalsIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    values[key] = value;
+  }
+
+  return values;
+}
+
+function pythonModuleAvailable(python, moduleName) {
+  const result = spawnSync(
+    python,
+    ["-c", `import ${moduleName}; print("ok")`],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+    },
+  );
+  return result.status === 0;
+}
+
+function runChecked(command, commandArgs, { label }) {
+  console.log(`> ${label}`);
+  const result = spawnSync(command, commandArgs, {
+    cwd: repoRoot,
+    env: process.env,
+    stdio: "inherit",
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`${label} falló con código ${result.status}.`);
+  }
+}
+
+function devVenvParentDir() {
+  return join(repoRoot, "output", "ai-sidecar-dev");
+}
+
+function devVenvDir() {
+  return process.env.SHAPE_AI_DEV_VENV_DIR || join(devVenvParentDir(), "venv");
+}
+
+function devVenvPython() {
+  return process.platform === "win32"
+    ? join(devVenvDir(), "Scripts", "python.exe")
+    : join(devVenvDir(), "bin", "python");
+}
+
+function devRequirementsFile() {
+  return join(repoRoot, "apps", "ai-sidecar", "requirements-dev.txt");
 }
 
 function argValue(name) {
