@@ -37,11 +37,6 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
     }
 
     const email = normalizeEmail(input.email);
-    const invitedEmails = meeting.invites.map((invite) => invite.email);
-
-    if (meeting.access === "INVITE_ONLY" && invitedEmails.length > 0 && (!email || !invitedEmails.includes(email))) {
-      return NextResponse.json({ error: "Este correo no está en la lista de invitados." }, { status: 403 });
-    }
 
     const existingParticipant = meeting.participants.find(
       (participant) =>

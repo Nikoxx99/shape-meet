@@ -142,8 +142,9 @@ público para abrir la app instalada o copiar el código.
 - El invitado busca una reunión pública por código o enlace.
 - Antes de recibir token LiveKit, crea una solicitud en
   `/api/meetings/[code]/waiting-room`.
-- Las reuniones `INVITE_ONLY` pueden guardar correos invitados. Si hay lista,
-  la sala de espera exige que el invitado use uno de esos correos.
+- Las reuniones `INVITE_ONLY` pueden guardar correos invitados para referencia
+  del host, pero la entrada pública sigue usando código y nombre; la admisión
+  del host es el control operativo antes de emitir token LiveKit.
 - El host entra autenticado, ve invitados pendientes en la sala activa y los
   admite con `/api/meetings/[code]/participants/[participantId]/admit`.
 - Solo después de `admittedAt` el invitado puede pedir

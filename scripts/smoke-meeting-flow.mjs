@@ -39,9 +39,9 @@ async function main() {
     body: JSON.stringify({
       title: `Smoke flow ${new Date().toISOString()}`,
       startsAt: new Date(Date.now() + 5 * 60_000).toISOString(),
-      access: "PUBLIC_LINK",
+      access: "INVITE_ONLY",
       maxParticipants: 4,
-      invitedEmails: []
+      invitedEmails: [guestEmail]
     })
   });
   assertOk("create meeting", created, 201);
@@ -54,7 +54,6 @@ async function main() {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       displayName: guestName,
-      email: guestEmail,
       camera: false,
       microphone: false
     })
