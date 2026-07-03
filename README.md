@@ -133,7 +133,8 @@ usar `VITE_SHAPE_DEMO_DATA=false`, `VITE_SHAPE_API_URL` apuntando al admin y
 `VITE_SHAPE_MEETING_URL` con el dominio público para copiar enlaces de reunión.
 Los enlaces públicos usan `/r/{codigo}`, por ejemplo
 `https://meet.tudominio.com/r/SM-123-456`; la desktop también acepta
-`?code=SM-123-456` y códigos pegados manualmente.
+`?code=SM-123-456`, `shapemeet://r/SM-123-456`, `shape-meet://r/SM-123-456`
+y códigos pegados manualmente.
 
 ## Flujo de reuniones
 

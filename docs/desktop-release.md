@@ -27,6 +27,14 @@ Desde GitHub Actions:
 3. Descargar los artifacts `shape-meet-windows-x64`,
    `shape-meet-macos-arm64` y `shape-meet-macos-x64`.
 
+## Enlaces de reunión
+
+El bundle desktop registra los esquemas `shapemeet://` y `shape-meet://`.
+La app resuelve códigos desde enlaces web `/r/SM-123-456`, query
+`?code=SM-123-456`, enlaces nativos `shapemeet://r/SM-123-456` y códigos
+pegados manualmente. En Windows/Linux, `single-instance` evita que un deep link
+abra una segunda ventana cuando la app ya está corriendo.
+
 ## Firma
 
 El workflow macOS usa `--no-sign` por ahora. Para distribución externa hay que

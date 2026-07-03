@@ -47,6 +47,7 @@ import {
   type ShapeUser
 } from "@shape-meet/shared";
 import { RoomEvent, Track, type AudioCaptureOptions, type Participant, type Room, type TrackPublication, type VideoCaptureOptions } from "livekit-client";
+import { getCurrent as getCurrentDeepLinks, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import {
   ShapeApiError,
   admitMeetingParticipant,
@@ -163,20 +164,49 @@ const CALL_CHAT_TOPIC = "shape-meet.chat.v1";
 function readMeetingCodeFromLocation() {
   if (typeof window === "undefined") return "";
 
-  const url = new URL(window.location.href);
-  const candidates = [
-    url.pathname,
-    url.hash,
-    url.searchParams.get("code") ?? "",
-    url.searchParams.get("meeting") ?? ""
-  ];
+  return readMeetingCodeFromUrl(window.location.href);
+}
+
+function readMeetingCodeFromUrl(rawUrl: string) {
+  const candidates = [rawUrl];
+
+  try {
+    const url = new URL(rawUrl);
+    candidates.push(
+      url.hostname,
+      url.pathname,
+      url.hash,
+      url.searchParams.get("code") ?? "",
+      url.searchParams.get("meeting") ?? ""
+    );
+  } catch {
+    // Plain pasted codes are still valid and handled below.
+  }
 
   for (const candidate of candidates) {
-    const code = extractMeetingCode(decodeURIComponent(candidate));
+    const decoded = decodeMeetingCandidate(candidate);
+    const code = extractMeetingCode(decoded);
     if (/^SM-\d{3}-\d{3}$/.test(code)) return code;
   }
 
   return "";
+}
+
+function readMeetingCodeFromUrls(urls: string[] | null | undefined) {
+  for (const url of urls ?? []) {
+    const code = readMeetingCodeFromUrl(url);
+    if (code) return code;
+  }
+
+  return "";
+}
+
+function decodeMeetingCandidate(candidate: string) {
+  try {
+    return decodeURIComponent(candidate);
+  } catch {
+    return candidate;
+  }
 }
 
 function findInitialMeeting(codeOrUrl: string) {
@@ -541,6 +571,43 @@ export default function App() {
     void getAiServiceStatus().then(setAiServiceStatus);
     void getAiSidecarRuntime().then(setAiSidecarRuntime);
     void getObservabilityStatus().then(setObservabilityStatus);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    function openDeepLink(urls: string[] | null) {
+      const meetingCode = readMeetingCodeFromUrls(urls);
+      if (!meetingCode || cancelled) return;
+
+      setApiMessage(null);
+      setWaitingParticipantId(null);
+      setLiveKitConnection(null);
+      setJoinCode(meetingCode);
+      setIsHostFlow(false);
+      setPendingDeepLinkCode(meetingCode);
+      setRoute("join");
+    }
+
+    void getCurrentDeepLinks()
+      .then(openDeepLink)
+      .catch(() => undefined);
+
+    void onOpenUrl(openDeepLink)
+      .then((listener) => {
+        if (cancelled) {
+          listener();
+          return;
+        }
+        unlisten = listener;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {

@@ -12,7 +12,7 @@ use std::{
     thread,
     time::Duration,
 };
-use tauri::State;
+use tauri::{Manager, State};
 
 const DEFAULT_AI_ENDPOINT: &str = "http://127.0.0.1:7851";
 const HTTP_TIMEOUT_MS: u64 = 1200;
@@ -259,9 +259,24 @@ fn export_debug_bundle() -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _sentry_guard = init_sentry();
+    let mut builder = tauri::Builder::default();
 
-    tauri::Builder::default()
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(
+            |app, argv, _cwd| {
+                println!("Shape Meet received a new app instance request: {argv:?}");
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            },
+        ));
+    }
+
+    builder
         .manage(SidecarState::default())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_log::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             get_gpu_profile,
