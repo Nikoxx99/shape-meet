@@ -70,7 +70,7 @@ function checkRequiredFiles() {
 }
 
 function checkToolchain() {
-  requireCommand("pnpm", ["--version"], "pnpm");
+  requireCommand(pnpmCommand(), ["--version"], "pnpm");
   requireCommand("cargo", ["--version"], "cargo");
   requireCommand("rustc", ["-Vv"], "rustc");
 
@@ -205,9 +205,9 @@ function requireCommand(command, commandArgs, label) {
     encoding: "utf8",
   });
   if (result.status !== 0) {
-    fail(
-      `${label} no disponible: ${(result.stderr || result.stdout || result.error?.message || "").trim()}`,
-    );
+    const details =
+      result.stderr || result.stdout || result.error?.message || "sin salida";
+    fail(`${label} no disponible: ${String(details).trim()}`);
     return null;
   }
   ok(`${label} disponible (${firstLine(result.stdout || result.stderr)})`);
