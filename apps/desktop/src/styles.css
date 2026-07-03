@@ -107,15 +107,19 @@ svg {
 
 .home-entry {
   width: 660px;
-  min-height: calc(100vh - 72px);
-  margin: 72px auto 0;
-  padding-bottom: 72px;
+  min-height: 590px;
+  margin: 150px auto 0;
+  padding-top: 12px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
-  gap: 16px;
+  gap: 24px;
   text-align: center;
+}
+
+.home-copy {
+  width: 620px;
 }
 
 .home-copy h1,
