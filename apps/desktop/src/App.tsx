@@ -1038,12 +1038,10 @@ export default function App() {
         <JoinScreen
           code={joinCode}
           name={guestName}
-          email={guestEmail}
           error={apiMessage}
           onBack={() => navigate("home")}
           onCodeChange={setJoinCode}
           onNameChange={setGuestName}
-          onEmailChange={setGuestEmail}
           onContinue={() => void handleFindMeeting()}
         />
       )}
@@ -1240,22 +1238,18 @@ function HomeScreen({ onJoin, onHost }: { onJoin: () => void; onHost: () => void
 function JoinScreen({
   code,
   name,
-  email,
   error,
   onBack,
   onCodeChange,
   onNameChange,
-  onEmailChange,
   onContinue
 }: {
   code: string;
   name: string;
-  email: string;
   error: string | null;
   onBack: () => void;
   onCodeChange: (value: string) => void;
   onNameChange: (value: string) => void;
-  onEmailChange: (value: string) => void;
   onContinue: () => void;
 }) {
   return (
@@ -1264,10 +1258,9 @@ function JoinScreen({
         <h1>Pega el enlace o código</h1>
         <TextField label="Enlace o código de reunión" icon={<LogIn />} value={code} onChange={onCodeChange} />
         <TextField label="Nombre visible" icon={<UserRound />} value={name} onChange={onNameChange} />
-        <TextField label="Correo" icon={<Mail />} value={email} onChange={onEmailChange} type="email" autoComplete="email" />
-        <Checkbox label="Recordar nombre" checked />
+        <Checkbox label="Recordar este nombre en esta app" checked />
         <Button icon={<ArrowRight />} onClick={onContinue}>
-          Continuar
+          Buscar reunión
         </Button>
         {error ? <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice> : null}
       </CenteredPanel>
