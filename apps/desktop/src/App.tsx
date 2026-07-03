@@ -1084,7 +1084,6 @@ export default function App() {
           meetings={meetings}
           onBack={() => navigate("home")}
           onCreate={() => navigate("create")}
-          onLogout={handleHostLogout}
           onOpen={(meeting) => {
             setCurrentMeeting(meeting);
             setJoinCode(meeting.code);
@@ -1513,13 +1512,11 @@ function ScheduledMeetingsScreen({
   meetings,
   onBack,
   onCreate,
-  onLogout,
   onOpen
 }: {
   meetings: Meeting[];
   onBack: () => void;
   onCreate: () => void;
-  onLogout: () => void;
   onOpen: (meeting: Meeting) => void;
 }) {
   const [filter, setFilter] = useState<AgendaFilter>("today");
@@ -1527,19 +1524,7 @@ function ScheduledMeetingsScreen({
   const activeFilter = agendaFilters.find((item) => item.id === filter) ?? agendaFilters[0]!;
 
   return (
-    <ScreenFrame
-      title="Reuniones agendadas"
-      right={
-        <div className="topbar-actions">
-          <Button variant="outline" icon={<ArrowLeft />} onClick={onBack}>
-            Inicio
-          </Button>
-          <Button variant="ghost" icon={<LogOut />} onClick={onLogout}>
-            Salir
-          </Button>
-        </div>
-      }
-    >
+    <ScreenFrame title="Reuniones agendadas" onBack={onBack}>
       <div className="content-stack">
         <div className="section-header">
           <div>
@@ -1572,9 +1557,11 @@ function ScheduledMeetingsScreen({
             ))}
             {visibleMeetings.length === 0 ? <div className="empty-state">No hay reuniones en este filtro.</div> : null}
           </div>
-          <aside className="side-panel">
-            <h2>{activeFilter.label}</h2>
-            <strong className="big-number">{visibleMeetings.length} {visibleMeetings.length === 1 ? "reunión" : "reuniones"}</strong>
+          <aside className="agenda-summary">
+            <section className="side-panel agenda-count">
+              <h2>{activeFilter.label}</h2>
+              <strong className="big-number">{visibleMeetings.length} {visibleMeetings.length === 1 ? "reunión" : "reuniones"}</strong>
+            </section>
             <Button icon={<Calendar />} onClick={onCreate}>
               Crear reunión
             </Button>
@@ -3008,7 +2995,7 @@ function ScreenFrame({
   return (
     <section className="screen" aria-label={title}>
       <header className="topbar">
-        <Brand />
+        <LogoMark />
         {rightContent}
       </header>
       {children}
