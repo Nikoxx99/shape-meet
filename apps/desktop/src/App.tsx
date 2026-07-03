@@ -1055,7 +1055,13 @@ export default function App() {
           onContinue={handleHostLogin}
         />
       )}
-      {route === "verify" && <HostVerifyScreen onBack={() => navigate("login")} onContinue={() => navigate("scheduled")} />}
+      {route === "verify" && (
+        <HostVerifyScreen
+          hostEmail={host?.email ?? hostSession?.user.email ?? initialHostIdentifier}
+          onBack={() => navigate("login")}
+          onContinue={() => navigate("scheduled")}
+        />
+      )}
       {route === "denied" && <HostDeniedScreen onPublicJoin={() => navigate("join")} onSwitchAccount={() => navigate("home")} />}
       {route === "scheduled" && (
         <ScheduledMeetingsScreen
@@ -1284,7 +1290,7 @@ function MeetingFoundScreen({
         <p>{formatMeetingTime(meeting.startsAt)} · Hasta {meeting.maxParticipants} participantes</p>
         <div className="detail-list">
           <DetailRow label="Organizador" value={meetingHostName(meeting)} />
-          <DetailRow label="Acceso" value={meeting.access === "INVITE_ONLY" ? "Solo invitados" : "Enlace público"} />
+          <DetailRow label="Acceso" value="Sala de espera" />
           <DetailRow label="Código" value={meeting.code} />
         </div>
         <Button icon={<ArrowRight />} onClick={onContinue}>
@@ -1362,7 +1368,7 @@ function HostLoginScreen({
   );
 }
 
-function HostVerifyScreen({ onBack, onContinue }: { onBack: () => void; onContinue: () => void }) {
+function HostVerifyScreen({ hostEmail, onBack, onContinue }: { hostEmail: string; onBack: () => void; onContinue: () => void }) {
   return (
     <section className="screen minimal-screen">
       <div className="auth-top">
@@ -1374,6 +1380,7 @@ function HostVerifyScreen({ onBack, onContinue }: { onBack: () => void; onContin
       <AuthCard height={560}>
         <StatusIcon icon={<ShieldCheck />} />
         <h1>Confirma que eres host</h1>
+        <p>Código enviado a {hostEmail}.</p>
         <div className="otp-row">
           {["1", "2", "3", "", "", ""].map((digit, index) => (
             <div className="otp-cell" key={`${digit}-${index}`}>

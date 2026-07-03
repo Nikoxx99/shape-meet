@@ -131,8 +131,12 @@ svg {
 }
 
 .home-copy h1 {
-  font-size: 22px;
-  font-weight: 800;
+  font-size: 40px;
+  font-weight: 700;
+}
+
+.auth-card h1 {
+  font-size: 26px;
 }
 
 .home-copy p,
@@ -168,14 +172,14 @@ svg {
 
 .brand strong,
 .breadcrumb strong {
-  font-size: 12px;
+  font-size: 16px;
   line-height: 1.35;
 }
 
 .logo-mark {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -184,19 +188,19 @@ svg {
 }
 
 .logo-mark svg {
-  width: 10px;
-  height: 10px;
+  width: 18px;
+  height: 18px;
 }
 
 .logo-mark.large {
-  width: 48px;
-  height: 48px;
-  border-radius: 10px;
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
 }
 
 .logo-mark.large svg {
-  width: 24px;
-  height: 24px;
+  width: 34px;
+  height: 34px;
 }
 
 .topbar,
@@ -223,7 +227,7 @@ svg {
 }
 
 .button {
-  min-height: 36px;
+  min-height: 40px;
   border: 0;
   border-radius: 6px;
   padding: 0 14px;
