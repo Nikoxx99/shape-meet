@@ -145,17 +145,12 @@ async function enterHostCall(page, meetingCode) {
 async function assertHostAiVideoBridge(page) {
   await clickByRole(page, "button", "Más", 20_000);
   await expectVisibleText(page, "Diagnóstico", 10_000);
+  await page.getByTestId("call-diagnostics").waitFor({
+    state: "visible",
+    timeout: 10_000,
+  });
   await expectVisibleText(page, "Track IA publicado", 30_000);
-  await expectAnyVisibleText(
-    page,
-    [
-      "shape-demo-video-processor",
-      "adapter-contract procesando frames",
-      "Sidecar conectado en modo passthrough",
-      "Frame validado sin modelo activo",
-    ],
-    30_000,
-  );
+  await expectProcessedPrimaryVideo(page);
 }
 
 async function admitGuest(hostPage, guestPage) {
@@ -198,6 +193,72 @@ async function expectAnyVisibleText(page, texts, timeout = 10_000) {
   }
 
   throw lastError ?? new Error(`Expected one of: ${texts.join(", ")}`);
+}
+
+async function expectProcessedPrimaryVideo(page, timeout = 30_000) {
+  const deadline = Date.now() + timeout;
+  let lastSample = null;
+
+  await page
+    .getByTestId("primary-video-element")
+    .waitFor({ state: "visible", timeout });
+
+  while (Date.now() < deadline) {
+    lastSample = await samplePrimaryVideo(page);
+    if (
+      lastSample.readyState >= 2 &&
+      lastSample.width > 0 &&
+      lastSample.height > 0 &&
+      lastSample.greenRatio >= 0.1
+    ) {
+      return;
+    }
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(
+    `El video primario no mostró frames procesados por IA. Última muestra: ${JSON.stringify(lastSample)}`,
+  );
+}
+
+async function samplePrimaryVideo(page) {
+  return page.getByTestId("primary-video-element").evaluate((video) => {
+    const width = 160;
+    const height = 90;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+
+    if (!context || video.readyState < 2 || !video.videoWidth) {
+      return {
+        readyState: video.readyState,
+        width: video.videoWidth,
+        height: video.videoHeight,
+        greenRatio: 0,
+      };
+    }
+
+    context.drawImage(video, 0, 0, width, height);
+    const pixels = context.getImageData(0, 0, width, height).data;
+    let greenPixels = 0;
+
+    for (let index = 0; index < pixels.length; index += 4) {
+      const red = pixels[index] ?? 0;
+      const green = pixels[index + 1] ?? 0;
+      const blue = pixels[index + 2] ?? 0;
+      if (green > 120 && green > red * 1.25 && green > blue * 1.25) {
+        greenPixels += 1;
+      }
+    }
+
+    return {
+      readyState: video.readyState,
+      width: video.videoWidth,
+      height: video.videoHeight,
+      greenRatio: greenPixels / (width * height),
+    };
+  });
 }
 
 async function assertReachableApp() {

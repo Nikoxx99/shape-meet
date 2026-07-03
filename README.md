@@ -29,6 +29,19 @@ usa:
 pnpm dev:ai:demo
 ```
 
+Para la ruta de demo local de videollamada, levanta LiveKit dev en `17880`.
+El script usa `livekit-server` nativo si está instalado; si no, levanta el
+compose dev con la imagen oficial:
+
+```bash
+pnpm dev:livekit
+```
+
+`infra/env.local.example` define `SHAPE_DEMO_LIVEKIT_URL=ws://localhost:17880`
+para que el admin Docker emita tokens hacia ese servidor dev durante demos
+locales. El LiveKit/TURN completo del compose Coolify sigue disponible en
+`LIVEKIT_URL=ws://localhost:17883` para validar configuración de infraestructura.
+
 Para desarrollo passthrough sin procesadores demo:
 
 ```bash
@@ -168,7 +181,7 @@ docker run -d --name shape-meet-postgres \
 DATABASE_URL="postgresql://shape_meet:shape_meet@localhost:55433/shape_meet?schema=public" pnpm --filter @shape-meet/admin prisma:migrate
 DATABASE_URL="postgresql://shape_meet:shape_meet@localhost:55433/shape_meet?schema=public" pnpm --filter @shape-meet/admin seed
 
-docker compose -f infra/docker-compose.livekit.dev.yml up -d
+pnpm dev:livekit
 
 DATABASE_URL="postgresql://shape_meet:shape_meet@localhost:55433/shape_meet?schema=public" pnpm dev:admin
 python3 apps/ai-sidecar/server.py --port 7851

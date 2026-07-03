@@ -5,6 +5,7 @@
   "packageManager": "pnpm@11.7.0",
   "scripts": {
     "dev": "pnpm --parallel --filter @shape-meet/desktop --filter @shape-meet/admin dev",
+    "dev:livekit": "node scripts/run-livekit-dev.mjs",
     "dev:ai": "python3 apps/ai-sidecar/server.py --port 7851",
     "dev:ai:demo": "node scripts/run-demo-ai-sidecar.mjs",
     "dev:desktop": "pnpm --filter @shape-meet/desktop tauri:dev",

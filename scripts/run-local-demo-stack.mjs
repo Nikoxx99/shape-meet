@@ -41,10 +41,7 @@ const aiUrl = (
   env.VITE_SHAPE_AI_SERVICE_URL ??
   "http://127.0.0.1:7851"
 ).replace(/\/$/, "");
-const liveKitUrl = (env.LIVEKIT_URL ?? "ws://localhost:17883").replace(
-  /\/$/,
-  "",
-);
+const liveKitUrl = resolveDemoLiveKitUrl();
 const children = [];
 
 try {
@@ -65,18 +62,27 @@ async function main() {
   console.log(`Admin/API: ${adminUrl}`);
   console.log(`Desktop: ${appUrl}`);
   console.log(`IA local: ${aiUrl}`);
+  console.log(`LiveKit: ${liveKitUrl}`);
   console.log("");
 
   let services = await inspectServices();
   printServiceReport(services);
   let liveKitRecreateReason = noDocker ? null : liveKitDemoRecreateReason();
+  let adminRecreateReason = noDocker ? null : adminDemoRecreateReason();
 
   if (doctorOnly) {
+    if (adminRecreateReason) {
+      console.log(`- Admin/API: ${adminRecreateReason}`);
+      console.log("");
+    }
     if (liveKitRecreateReason) {
       console.log(`- LiveKit RTC: ${liveKitRecreateReason}`);
       console.log("");
     }
-    if (strict && (!demoReady(services) || liveKitRecreateReason)) {
+    if (
+      strict &&
+      (!demoReady(services) || liveKitRecreateReason || adminRecreateReason)
+    ) {
       process.exit(1);
     }
     return;
@@ -87,11 +93,30 @@ async function main() {
     services = await inspectServices();
     printServiceReport(services);
     liveKitRecreateReason = liveKitDemoRecreateReason();
+    adminRecreateReason = adminDemoRecreateReason();
+  }
+
+  if (adminRecreateReason) {
+    console.log(`${adminRecreateReason}; recrearé el admin local.`);
+    recreateAdminCompose();
+    services = await inspectServices();
+    printServiceReport(services);
+    liveKitRecreateReason = liveKitDemoRecreateReason();
   }
 
   if (liveKitRecreateReason) {
     console.log(`${liveKitRecreateReason}; recrearé LiveKit local.`);
     recreateLiveKitCompose();
+    services = await inspectServices();
+    printServiceReport(services);
+  }
+
+  if (!services.livekit.ok && !noDocker && isLocalLiveKit(liveKitUrl)) {
+    if (isFullComposeLiveKitUrl(liveKitUrl)) {
+      recreateLiveKitCompose();
+    } else {
+      runLiveKitDevCompose();
+    }
     services = await inspectServices();
     printServiceReport(services);
   }
@@ -228,6 +253,20 @@ function printServiceReport(report) {
   console.log("");
 }
 
+function resolveDemoLiveKitUrl() {
+  const explicit = env.SHAPE_DEMO_LIVEKIT_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+
+  if (usesLocalComposeAdmin()) {
+    const runningUrl = runningComposeServiceEnv("shape-admin", "LIVEKIT_URL");
+    if (runningUrl) return runningUrl.replace(/\/$/, "");
+    if (composeEnv.LIVEKIT_URL)
+      return composeEnv.LIVEKIT_URL.replace(/\/$/, "");
+  }
+
+  return (env.LIVEKIT_URL ?? "ws://localhost:17883").replace(/\/$/, "");
+}
+
 async function inspectHttp(url) {
   try {
     const response = await fetch(url);
@@ -291,8 +330,27 @@ function liveKitHttpUrl(url) {
   }
 }
 
+function adminDemoRecreateReason() {
+  if (!usesLocalComposeAdmin()) return false;
+
+  const expectedUrl = normalizeUrl(composeEnv.LIVEKIT_URL);
+  if (!expectedUrl) return false;
+
+  const currentUrl = normalizeUrl(
+    runningComposeServiceEnv("shape-admin", "LIVEKIT_URL"),
+  );
+  if (!currentUrl) return false;
+
+  if (currentUrl !== expectedUrl) {
+    return `Admin local emite LIVEKIT_URL=${currentUrl}; se requiere ${expectedUrl}`;
+  }
+
+  return false;
+}
+
 function liveKitDemoRecreateReason() {
-  if (!isLocalLiveKit(composeEnv.LIVEKIT_URL)) return false;
+  if (!isFullComposeLiveKitUrl(liveKitUrl)) return false;
+  if (!isLocalLiveKit(liveKitUrl)) return false;
 
   const expectedNodeIp = composeEnv.LIVEKIT_NODE_IP;
   if (!expectedNodeIp || isLoopbackAddress(expectedNodeIp)) return false;
@@ -315,6 +373,10 @@ function liveKitDemoRecreateReason() {
 }
 
 function runningLiveKitConfig() {
+  return runningComposeServiceEnv("shape-livekit", "LIVEKIT_CONFIG");
+}
+
+function runningComposeServiceEnv(service, key) {
   const result = spawnSync(
     "docker",
     [
@@ -325,9 +387,9 @@ function runningLiveKitConfig() {
       "infra/docker-compose.coolify.yml",
       "exec",
       "-T",
-      "shape-livekit",
+      service,
       "printenv",
-      "LIVEKIT_CONFIG",
+      key,
     ],
     {
       cwd: process.cwd(),
@@ -337,7 +399,7 @@ function runningLiveKitConfig() {
   );
 
   if (result.status !== 0 || !result.stdout.trim()) return null;
-  return result.stdout;
+  return result.stdout.trim();
 }
 
 function runDockerCompose() {
@@ -396,6 +458,75 @@ function recreateLiveKitCompose() {
 
   if (result.status !== 0) {
     throw new Error("No se pudo recrear LiveKit para el demo.");
+  }
+}
+
+function recreateAdminCompose() {
+  console.log(
+    "> docker compose -p shape-meet-local -f infra/docker-compose.coolify.yml up -d --force-recreate shape-admin",
+  );
+  const result = spawnSync(
+    "docker",
+    [
+      "compose",
+      "-p",
+      "shape-meet-local",
+      "-f",
+      "infra/docker-compose.coolify.yml",
+      "up",
+      "-d",
+      "--force-recreate",
+      "shape-admin",
+    ],
+    {
+      cwd: process.cwd(),
+      env: composeEnv,
+      encoding: "utf8",
+      stdio: "inherit",
+    },
+  );
+
+  if (result.status !== 0) {
+    throw new Error("No se pudo recrear el admin para el demo.");
+  }
+}
+
+function runLiveKitDevCompose() {
+  const target = serviceTarget(liveKitUrl);
+  const httpPort = target.port || 17880;
+  const devEnv = {
+    ...composeEnv,
+    LIVEKIT_DEV_HTTP_PORT: String(httpPort),
+    LIVEKIT_DEV_RTC_TCP_PORT:
+      composeEnv.LIVEKIT_DEV_RTC_TCP_PORT ?? String(httpPort + 1),
+    LIVEKIT_DEV_RTC_UDP_PORT:
+      composeEnv.LIVEKIT_DEV_RTC_UDP_PORT ?? String(httpPort + 2),
+  };
+
+  console.log(
+    "> docker compose -p shape-meet-livekit-dev -f infra/docker-compose.livekit.dev.yml up -d",
+  );
+  const result = spawnSync(
+    "docker",
+    [
+      "compose",
+      "-p",
+      "shape-meet-livekit-dev",
+      "-f",
+      "infra/docker-compose.livekit.dev.yml",
+      "up",
+      "-d",
+    ],
+    {
+      cwd: process.cwd(),
+      env: devEnv,
+      encoding: "utf8",
+      stdio: "inherit",
+    },
+  );
+
+  if (result.status !== 0) {
+    throw new Error("No se pudo levantar LiveKit dev para el demo.");
   }
 }
 
@@ -669,6 +800,10 @@ function readEnvFile(path) {
 function resolveLocalComposeEnv(values) {
   const resolved = { ...values };
 
+  if (resolved.SHAPE_DEMO_LIVEKIT_URL) {
+    resolved.LIVEKIT_URL = resolved.SHAPE_DEMO_LIVEKIT_URL;
+  }
+
   if (
     isLocalLiveKit(resolved.LIVEKIT_URL) &&
     String(resolved.LIVEKIT_USE_EXTERNAL_IP ?? "false").toLowerCase() ===
@@ -689,6 +824,62 @@ function resolveLocalComposeEnv(values) {
   }
 
   return resolved;
+}
+
+function usesLocalComposeAdmin() {
+  const expectedPort = String(composeEnv.ADMIN_HTTP_PORT ?? "13000");
+
+  try {
+    const parsed = new URL(adminUrl);
+    return (
+      ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname) &&
+      (parsed.port || (parsed.protocol === "https:" ? "443" : "80")) ===
+        expectedPort
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isFullComposeLiveKitUrl(url) {
+  const expected = normalizeUrl(fullComposeLiveKitUrl());
+  const current = normalizeUrl(url);
+  return Boolean(expected && current && expected === current);
+}
+
+function fullComposeLiveKitUrl() {
+  const port = String(composeEnv.LIVEKIT_HTTP_PORT ?? "7880");
+
+  try {
+    const parsed = new URL(
+      infraEnv.LIVEKIT_URL ?? rootEnv.LIVEKIT_URL ?? "ws://localhost:7880",
+    );
+    if (isLocalLiveKit(parsed.toString())) {
+      parsed.protocol = parsed.protocol === "wss:" ? "wss:" : "ws:";
+      parsed.hostname = "localhost";
+      parsed.port = port;
+      parsed.pathname = "";
+      parsed.search = "";
+      parsed.hash = "";
+      return parsed.toString().replace(/\/$/, "");
+    }
+  } catch {
+    // Fall through to local default below.
+  }
+
+  return `ws://localhost:${port}`;
+}
+
+function normalizeUrl(value) {
+  if (!value) return null;
+
+  try {
+    const parsed = new URL(String(value).trim());
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return String(value).trim().replace(/\/$/, "") || null;
+  }
 }
 
 function isLocalLiveKit(url) {

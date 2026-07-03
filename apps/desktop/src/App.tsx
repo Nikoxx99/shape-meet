@@ -4295,6 +4295,7 @@ function ActiveCallScreen({
           {callDiagnosticsOpen ? (
             <details
               className="panel debug-details call-diagnostics"
+              data-testid="call-diagnostics"
               open={callDiagnosticsOpen}
               onToggle={(event) =>
                 setCallDiagnosticsOpen(event.currentTarget.open)
@@ -4996,9 +4997,16 @@ function VideoTile({ tile, primary }: { tile: CallTile; primary?: boolean }) {
   return (
     <div
       className={`${primary ? "video-tile primary" : "video-tile"} ${tile.isLocal && tile.source === "camera" ? "local" : ""} ${tile.source === "screen" ? "screen-share" : ""}`}
+      data-testid={primary ? "primary-video-tile" : "video-tile"}
     >
       {tile.videoTrack && tile.cameraOn ? (
-        <video className="tile-video" muted playsInline ref={videoRef} />
+        <video
+          className="tile-video"
+          data-testid={primary ? "primary-video-element" : undefined}
+          muted
+          playsInline
+          ref={videoRef}
+        />
       ) : tile.cameraOn ? (
         <div className="tile-avatar">{initials(tile.label)}</div>
       ) : (
