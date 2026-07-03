@@ -1,10 +1,11 @@
 # Coolify deployment
 
-Shape Meet usa tres superficies desplegables:
+Shape Meet usa estas superficies desplegables:
 
 - `shape-admin`: Next.js standalone, Dockerfile en `apps/admin/Dockerfile`, puerto `3000`.
 - `shape-postgres`: Postgres 17 para usuarios, hosts, reuniones e identidades.
-- `shape-livekit`: LiveKit server con TURN embebido.
+- `shape-livekit`: LiveKit server para señalización/SFU.
+- `shape-turn`: coturn externo para STUN/TURN anunciado por LiveKit.
 - `shape_artifacts_data`: volumen persistente para artefactos de rostros subidos desde el admin.
 
 ## Opción recomendada
@@ -23,14 +24,16 @@ No hace falta crear repos adicionales para el admin, Postgres o TURN: el compose
 levanta todo el stack en un solo recurso y conserva Postgres, Redis y artefactos
 en volumenes nombrados. Si mas adelante separas servicios en recursos Coolify
 independientes, mantén los mismos nombres internos (`shape-postgres`,
-`shape-redis`, `shape-livekit`) o actualiza `DATABASE_URL` y `LIVEKIT_URL`.
+`shape-redis`, `shape-livekit`, `shape-turn`) o actualiza `DATABASE_URL`,
+`LIVEKIT_URL` y la configuración `rtc.turn_servers`.
 
 Puertos que Coolify debe conocer:
 
 - `shape-admin`: expone `3000/tcp`.
 - `shape-livekit`: expone `7880/tcp` para API/WebSocket.
-- `shape-livekit`: publica directamente `7881/tcp`, `7882/udp`, `3478/udp` y
-  `5349/tcp` fuera del proxy HTTP.
+- `shape-livekit`: publica directamente `7881/tcp` y `7882/udp` fuera del proxy HTTP.
+- `shape-turn`: publica directamente `3478/udp`, `3478/tcp`, `5349/tcp`,
+  `5349/udp` y el rango UDP relay.
 
 No definas `NODE_ENV`, `HOST` ni `PORT` para `shape-admin` en Coolify. La imagen
 Next standalone ya escucha en `0.0.0.0:3000`; sobrescribir `PORT` puede causar
@@ -61,12 +64,16 @@ LIVEKIT_API_KEY=...
 LIVEKIT_API_SECRET=...
 LIVEKIT_HTTP_PORT=7880
 LIVEKIT_TURN_DOMAIN=turn.tudominio.com
+LIVEKIT_TURN_REALM=shape-meet
+LIVEKIT_TURN_SHARED_SECRET=...
+LIVEKIT_TURN_TTL_SECONDS=14400
+LIVEKIT_TURN_EXTERNAL_IP=IP_PUBLICA_DEL_SERVIDOR
+LIVEKIT_STUN_SERVER=stun.l.google.com:19302
 LIVEKIT_USE_EXTERNAL_IP=true
 LIVEKIT_RTC_TCP_PORT=7881
 LIVEKIT_RTC_UDP_PORT=7882
 LIVEKIT_TURN_UDP_PORT=3478
 LIVEKIT_TURN_TLS_PORT=5349
-LIVEKIT_TURN_EXTERNAL_TLS=true
 LIVEKIT_TURN_RELAY_RANGE_START=30000
 LIVEKIT_TURN_RELAY_RANGE_END=30100
 
@@ -141,45 +148,40 @@ una URL `https://...` o `s3://...` y registrar checksum/tamaño manualmente.
 
 ## Puertos LiveKit/TURN
 
-LiveKit requiere puertos UDP/TCP abiertos fuera del proxy HTTP:
+LiveKit y coturn requieren puertos UDP/TCP abiertos fuera del proxy HTTP:
 
-- `7880/tcp`: API/WebSocket, normalmente detrás de TLS en Coolify.
-- `7881/tcp`: ICE TCP fallback.
+- `7880/tcp`: API/WebSocket de LiveKit, normalmente detrás de TLS en Coolify.
+- `7881/tcp`: ICE TCP fallback de LiveKit.
 - `7882/udp`: ICE UDP mux para medios.
-- `3478/udp`: TURN/UDP.
-- `5349/tcp`: TURN/TLS si tienes terminación L4 para ese dominio.
+- `3478/udp` y `3478/tcp`: STUN/TURN en coturn.
+- `5349/tcp` y `5349/udp`: TURN/TLS/DTLS en coturn.
+- `LIVEKIT_TURN_RELAY_RANGE_START-END/udp`: relays TURN.
 
-LiveKit incluye TURN embebido con autenticación integrada al signaling. Para
-TURN/TLS real hay dos rutas válidas:
+El compose usa `shape-turn` con `coturn/coturn` y desactiva el TURN embebido de
+LiveKit. LiveKit anuncia el TURN externo a clientes usando `rtc.turn_servers` y
+genera credenciales temporales con `LIVEKIT_TURN_SHARED_SECRET`; coturn debe usar
+ese mismo valor como `--static-auth-secret`.
 
-- `LIVEKIT_TURN_EXTERNAL_TLS=true`: un balanceador/proxy L4 termina TLS para
-  `turn.tudominio.com` y reenvía tráfico TCP plano al `LIVEKIT_TURN_TLS_PORT`
-  del contenedor. El proxy HTTP normal de Coolify no sustituye esa capa.
-- `LIVEKIT_TURN_EXTERNAL_TLS=false`: LiveKit termina TLS directamente y necesita
-  certificados montados como archivos (`turn.cert_file` y `turn.key_file` en la
-  config). En ese modo, si no hay balanceador delante, el puerto anunciado debe
-  ser `443`.
+Para máxima cobertura en redes corporativas, publica TURN/TLS en `443/tcp` con
+un balanceador L4/SNI o una IP dedicada para `turn.tudominio.com`. Si el mismo
+servidor Coolify ya usa `443/tcp` para el proxy HTTP, deja `5349/tcp` para
+pruebas iniciales y reserva una ruta L4 antes de pruebas con redes estrictas.
 
-En un único servidor Coolify donde `443/tcp` ya está ocupado por el proxy HTTP,
-lo más práctico para pruebas es TURN/UDP `3478/udp` + ICE `7881/tcp`/`7882/udp`
-y dejar TURN/TLS en `5349/tcp`. Para redes corporativas estrictas, reserva un
-segundo IP o un balanceador L4/SNI para poder anunciar TURN/TLS por `443/tcp`.
-
-Para máxima cobertura, LiveKit recomienda TURN/TLS porque atraviesa mejor
-firewalls corporativos. Si no tienes balanceador L4 delante de `turn.tudominio.com`,
-el puerto anunciado de TURN/TLS debe ser `443`; en ese caso no puede compartir el
-mismo IP:443 con el proxy HTTP normal de Coolify.
-
-Variables para ajustar puertos anunciados y publicados:
+Variables para ajustar puertos y credenciales:
 
 ```env
 LIVEKIT_HTTP_PORT=7880
 LIVEKIT_USE_EXTERNAL_IP=true
 LIVEKIT_RTC_TCP_PORT=7881
 LIVEKIT_RTC_UDP_PORT=7882
+LIVEKIT_TURN_DOMAIN=turn.tudominio.com
+LIVEKIT_TURN_REALM=shape-meet
+LIVEKIT_TURN_SHARED_SECRET=...
+LIVEKIT_TURN_TTL_SECONDS=14400
+LIVEKIT_TURN_EXTERNAL_IP=IP_PUBLICA_DEL_SERVIDOR
+LIVEKIT_STUN_SERVER=stun.l.google.com:19302
 LIVEKIT_TURN_UDP_PORT=3478
 LIVEKIT_TURN_TLS_PORT=5349
-LIVEKIT_TURN_EXTERNAL_TLS=true
 LIVEKIT_TURN_RELAY_RANGE_START=30000
 LIVEKIT_TURN_RELAY_RANGE_END=30100
 ```
@@ -205,16 +207,21 @@ Checklist de firewall/DNS:
 - `livekit.tudominio.com` apunta al proxy HTTP de Coolify y termina TLS para
   `wss://`.
 - `turn.tudominio.com` apunta al balanceador L4 o IP pública que recibe TURN.
-- Abrir inbound `7881/tcp`, `7882/udp`, `3478/udp`, el puerto configurado para
-  TURN/TLS y el rango UDP `LIVEKIT_TURN_RELAY_RANGE_START-END`.
+- Abrir inbound `7881/tcp`, `7882/udp`, `3478/udp`, `3478/tcp`, el puerto
+  configurado para TURN/TLS y el rango UDP `LIVEKIT_TURN_RELAY_RANGE_START-END`.
 - Si usas `LIVEKIT_USE_EXTERNAL_IP=true`, el host debe poder descubrir/anunciar
   su IP pública; si el servidor está detrás de NAT estricto, configura IP externa
   desde la capa de red antes de abrir pruebas con clientes reales.
+- `LIVEKIT_TURN_EXTERNAL_IP` debe ser la IP pública que coturn anunciará; si el
+  servidor está detrás de NAT, usa el formato público/privado que soporta coturn.
 
 Fuentes:
 
 - https://docs.livekit.io/transport/self-hosting/deployment/
 - https://docs.livekit.io/transport/self-hosting/ports-firewall/
+- https://github.com/livekit/livekit/blob/master/config-sample.yaml
+- https://github.com/coturn/coturn/wiki/turnserver
+- https://hub.docker.com/r/coturn/coturn
 
 ## Migraciones
 

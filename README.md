@@ -5,7 +5,7 @@ Monorepo inicial para Shape Meet:
 - `apps/desktop`: app Tauri + React para reuniones, host login, prueba de equipo, ajustes de host y sala activa.
 - `apps/admin`: panel Next.js + Prisma para usuarios, rangos de host y tokens LiveKit.
 - `packages/shared`: contratos y datos base compartidos.
-- `infra`: compose/config para Coolify, Postgres y LiveKit con TURN embebido.
+- `infra`: compose/config para Coolify, Postgres, LiveKit y TURN externo con coturn.
 
 ## Desarrollo
 
@@ -78,7 +78,10 @@ se deja vacío, LiveKit puede anunciar la IP interna del contenedor y WebRTC no
 completará ICE. En Coolify, mantén `LIVEKIT_USE_EXTERNAL_IP=true` o define
 `LIVEKIT_NODE_IP` con la IP pública real del nodo.
 
-El TURN embebido también necesita exponer su rango relay UDP. En local usamos
+El TURN de producción corre como `shape-turn` usando coturn y LiveKit lo anuncia
+a los clientes con `rtc.turn_servers`. `LIVEKIT_TURN_SHARED_SECRET` debe ser el
+mismo secreto compartido entre ambos servicios, y `LIVEKIT_TURN_EXTERNAL_IP`
+debe ser la IP pública real que coturn anunciará para relays. En local usamos
 `LIVEKIT_TURN_RELAY_RANGE_START=30000` y `LIVEKIT_TURN_RELAY_RANGE_END=30100`
 para evitar abrir el rango completo; en producción ajusta ese rango al volumen
 esperado y ábrelo en firewall/Coolify.

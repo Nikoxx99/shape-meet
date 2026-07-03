@@ -47,35 +47,74 @@ services:
           use_external_ip: ${LIVEKIT_USE_EXTERNAL_IP:-true}
           node_ip: ${LIVEKIT_NODE_IP:-}
           enable_loopback_candidate: ${LIVEKIT_ENABLE_LOOPBACK_CANDIDATE:-false}
+          stun_servers:
+            - ${LIVEKIT_STUN_SERVER:-stun.l.google.com:19302}
+          turn_servers:
+            - host: ${LIVEKIT_TURN_DOMAIN:-turn.shape-meet.local}
+              port: ${LIVEKIT_TURN_UDP_PORT:-3478}
+              protocol: udp
+              secret: ${LIVEKIT_TURN_SHARED_SECRET:-shape-turn-dev-secret}
+              ttl: ${LIVEKIT_TURN_TTL_SECONDS:-14400}
+            - host: ${LIVEKIT_TURN_DOMAIN:-turn.shape-meet.local}
+              port: ${LIVEKIT_TURN_UDP_PORT:-3478}
+              protocol: tcp
+              secret: ${LIVEKIT_TURN_SHARED_SECRET:-shape-turn-dev-secret}
+              ttl: ${LIVEKIT_TURN_TTL_SECONDS:-14400}
+            - host: ${LIVEKIT_TURN_DOMAIN:-turn.shape-meet.local}
+              port: ${LIVEKIT_TURN_TLS_PORT:-5349}
+              protocol: tls
+              secret: ${LIVEKIT_TURN_SHARED_SECRET:-shape-turn-dev-secret}
+              ttl: ${LIVEKIT_TURN_TTL_SECONDS:-14400}
         redis:
           address: shape-redis:6379
           password: ${REDIS_PASSWORD:-shape_redis}
         keys:
           "${LIVEKIT_API_KEY:-devkey}": "${LIVEKIT_API_SECRET:-secret}"
         turn:
-          enabled: true
-          domain: ${LIVEKIT_TURN_DOMAIN:-turn.shape-meet.local}
-          udp_port: ${LIVEKIT_TURN_UDP_PORT:-3478}
-          tls_port: ${LIVEKIT_TURN_TLS_PORT:-5349}
-          relay_range_start: ${LIVEKIT_TURN_RELAY_RANGE_START:-30000}
-          relay_range_end: ${LIVEKIT_TURN_RELAY_RANGE_END:-30100}
-          external_tls: ${LIVEKIT_TURN_EXTERNAL_TLS:-true}
+          enabled: false
     ports:
       - "${LIVEKIT_HTTP_PORT:-7880}:7880/tcp"
       - "${LIVEKIT_RTC_TCP_PORT:-7881}:${LIVEKIT_RTC_TCP_PORT:-7881}/tcp"
       - "${LIVEKIT_RTC_UDP_PORT:-7882}:${LIVEKIT_RTC_UDP_PORT:-7882}/udp"
-      - "${LIVEKIT_TURN_UDP_PORT:-3478}:${LIVEKIT_TURN_UDP_PORT:-3478}/udp"
-      - "${LIVEKIT_TURN_TLS_PORT:-5349}:${LIVEKIT_TURN_TLS_PORT:-5349}/tcp"
-      - "${LIVEKIT_TURN_RELAY_RANGE_START:-30000}-${LIVEKIT_TURN_RELAY_RANGE_END:-30100}:${LIVEKIT_TURN_RELAY_RANGE_START:-30000}-${LIVEKIT_TURN_RELAY_RANGE_END:-30100}/udp"
     depends_on:
       shape-redis:
         condition: service_healthy
+      shape-turn:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:7880 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
+    networks:
+      - shape-meet
+
+  shape-turn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    command:
+      - --log-file=stdout
+      - --fingerprint
+      - --lt-cred-mech
+      - --use-auth-secret
+      - --static-auth-secret=${LIVEKIT_TURN_SHARED_SECRET:-shape-turn-dev-secret}
+      - --realm=${LIVEKIT_TURN_REALM:-shape-meet}
+      - --external-ip=${LIVEKIT_TURN_EXTERNAL_IP:-127.0.0.1}
+      - --listening-port=${LIVEKIT_TURN_UDP_PORT:-3478}
+      - --tls-listening-port=${LIVEKIT_TURN_TLS_PORT:-5349}
+      - --min-port=${LIVEKIT_TURN_RELAY_RANGE_START:-30000}
+      - --max-port=${LIVEKIT_TURN_RELAY_RANGE_END:-30100}
+      - --no-cli
+      - --no-loopback-peers
+      - --no-multicast-peers
+      - --stale-nonce=600
+    ports:
+      - "${LIVEKIT_TURN_UDP_PORT:-3478}:${LIVEKIT_TURN_UDP_PORT:-3478}/udp"
+      - "${LIVEKIT_TURN_UDP_PORT:-3478}:${LIVEKIT_TURN_UDP_PORT:-3478}/tcp"
+      - "${LIVEKIT_TURN_TLS_PORT:-5349}:${LIVEKIT_TURN_TLS_PORT:-5349}/tcp"
+      - "${LIVEKIT_TURN_TLS_PORT:-5349}:${LIVEKIT_TURN_TLS_PORT:-5349}/udp"
+      - "${LIVEKIT_TURN_RELAY_RANGE_START:-30000}-${LIVEKIT_TURN_RELAY_RANGE_END:-30100}:${LIVEKIT_TURN_RELAY_RANGE_START:-30000}-${LIVEKIT_TURN_RELAY_RANGE_END:-30100}/udp"
     networks:
       - shape-meet
 

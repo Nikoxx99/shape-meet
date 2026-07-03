@@ -26,6 +26,11 @@ for (const key of [
   "LIVEKIT_API_KEY",
   "LIVEKIT_API_SECRET",
   "LIVEKIT_TURN_DOMAIN",
+  "LIVEKIT_TURN_REALM",
+  "LIVEKIT_TURN_SHARED_SECRET",
+  "LIVEKIT_TURN_TTL_SECONDS",
+  "LIVEKIT_TURN_EXTERNAL_IP",
+  "LIVEKIT_STUN_SERVER",
   "LIVEKIT_RTC_TCP_PORT",
   "LIVEKIT_RTC_UDP_PORT",
   "LIVEKIT_TURN_UDP_PORT",
@@ -45,6 +50,8 @@ for (const key of [
   "HOST_BOOTSTRAP_PASSWORD",
   "LIVEKIT_API_KEY",
   "LIVEKIT_API_SECRET",
+  "LIVEKIT_TURN_SHARED_SECRET",
+  "LIVEKIT_TURN_EXTERNAL_IP",
 ]) {
   if (isPlaceholder(env[key])) {
     const message = `${key} still looks like a placeholder`;
@@ -56,12 +63,14 @@ for (const key of [
 const appUrl = parseUrl("NEXT_PUBLIC_APP_URL");
 const livekitUrl = parseUrl("LIVEKIT_URL");
 const turnDomain = env.LIVEKIT_TURN_DOMAIN;
+const turnExternalIp = env.LIVEKIT_TURN_EXTERNAL_IP;
 const rtcTcpPort = parsePort("LIVEKIT_RTC_TCP_PORT");
 const rtcUdpPort = parsePort("LIVEKIT_RTC_UDP_PORT");
 const turnUdpPort = parsePort("LIVEKIT_TURN_UDP_PORT");
 const turnTlsPort = parsePort("LIVEKIT_TURN_TLS_PORT");
 const relayStart = parsePort("LIVEKIT_TURN_RELAY_RANGE_START");
 const relayEnd = parsePort("LIVEKIT_TURN_RELAY_RANGE_END");
+const turnTtlSeconds = parsePositiveInteger("LIVEKIT_TURN_TTL_SECONDS");
 parsePort("ADMIN_HTTP_PORT");
 
 if (appUrl?.protocol === "https:" && livekitUrl?.protocol !== "wss:") {
@@ -88,17 +97,20 @@ if (relayStart && relayEnd && relayEnd - relayStart < 100) {
   warnings.push("TURN relay range is narrow; keep at least 100 UDP ports for multi-participant tests");
 }
 
-const externalTls = parseBoolean(env.LIVEKIT_TURN_EXTERNAL_TLS ?? "true");
-if (externalTls && turnTlsPort && turnTlsPort !== 443) {
+if (turnExternalIp && isLocalAddress(turnExternalIp)) {
+  const message = "LIVEKIT_TURN_EXTERNAL_IP points to a local/private address; production TURN needs the public server IP";
+  if (strict) issues.push(message);
+  else warnings.push(message);
+}
+
+if (turnTlsPort && turnTlsPort !== 443) {
   warnings.push(
-    "LIVEKIT_TURN_EXTERNAL_TLS=true with LIVEKIT_TURN_TLS_PORT not 443 requires an L4/TCP load balancer in front of turn domain",
+    "TURN/TLS on a port other than 443 may fail behind strict corporate firewalls; use an L4/SNI route for 443 when available",
   );
 }
 
-if (!externalTls) {
-  warnings.push(
-    "LIVEKIT_TURN_EXTERNAL_TLS=false requires cert_file/key_file support; this compose is intended for external TLS termination",
-  );
+if (turnTtlSeconds && turnTtlSeconds < 300) {
+  warnings.push("LIVEKIT_TURN_TTL_SECONDS is short; 300 seconds or more avoids credential churn during connection setup");
 }
 
 const compose = spawnSync(
@@ -113,11 +125,17 @@ if (compose.error?.code === "ENOENT") {
   issues.push(`docker compose config failed:\n${compose.stderr || compose.stdout}`);
 } else {
   const rendered = compose.stdout;
-  for (const expected of ["shape-admin", "shape-livekit", "shape-postgres", "shape-redis"]) {
+  for (const expected of ["shape-admin", "shape-livekit", "shape-postgres", "shape-redis", "shape-turn"]) {
     if (!rendered.includes(expected)) issues.push(`rendered compose is missing ${expected}`);
   }
-  if (!rendered.includes("turn:") || !rendered.includes("enabled: true")) {
-    issues.push("rendered LiveKit config does not show TURN enabled");
+  if (!rendered.includes("turn_servers:")) {
+    issues.push("rendered LiveKit config does not include external TURN servers");
+  }
+  if (!rendered.includes("enabled: false")) {
+    issues.push("rendered LiveKit config should disable embedded TURN when shape-turn is present");
+  }
+  if (!rendered.includes("--use-auth-secret") || !rendered.includes("--static-auth-secret")) {
+    issues.push("rendered coturn command is missing shared-secret authentication");
   }
 }
 
@@ -178,8 +196,14 @@ function parsePort(key) {
   return port;
 }
 
-function parseBoolean(value) {
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+function parsePositiveInteger(key) {
+  if (!env[key]) return null;
+  const value = Number(env[key]);
+  if (!Number.isInteger(value) || value < 1) {
+    issues.push(`${key} must be a positive integer`);
+    return null;
+  }
+  return value;
 }
 
 function isPlaceholder(value) {
@@ -191,8 +215,21 @@ function isPlaceholder(value) {
     /^devkey$/i,
     /^shape_meet$/i,
     /^shape_redis$/i,
+    /^shape-turn-local-secret$/i,
+    /^shape-turn-dev-secret$/i,
     /^local-debug/i,
   ].some((pattern) => pattern.test(value));
+}
+
+function isLocalAddress(value) {
+  const first = value.split("/")[0] ?? value;
+  return [
+    /^127\./,
+    /^10\./,
+    /^192\.168\./,
+    /^172\.(1[6-9]|2\d|3[0-1])\./,
+    /^localhost$/i,
+  ].some((pattern) => pattern.test(first));
 }
 
 function fail(message) {
