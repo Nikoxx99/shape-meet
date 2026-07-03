@@ -716,11 +716,6 @@ export default function App() {
     await handleRequestMeetingAccess();
   }
 
-  async function joinAsGuestFromDeviceTest() {
-    setIsHostFlow(false);
-    await handleRequestMeetingAccess();
-  }
-
   async function handleDebugBundle() {
     const result = await exportDebugBundle();
     setDebugMessage(result);
@@ -1273,7 +1268,6 @@ export default function App() {
           onBack={() => navigate(isHostFlow ? "scheduled" : "found")}
           onContinue={continueAfterDeviceTest}
           onDeviceChange={updateDeviceSelection}
-          onJoinAsGuest={joinAsGuestFromDeviceTest}
           onRefreshDevices={mediaDevices.requestDeviceAccess}
           onToggleCamera={handleToggleCamera}
           onToggleMic={handleToggleMic}
@@ -1874,7 +1868,6 @@ function DeviceTestScreen({
   onBack,
   onContinue,
   onDeviceChange,
-  onJoinAsGuest,
   onRefreshDevices,
   onToggleCamera,
   onToggleMic
@@ -1889,7 +1882,6 @@ function DeviceTestScreen({
   onBack: () => void;
   onContinue: () => void;
   onDeviceChange: (key: keyof DeviceSelection, value: string) => void;
-  onJoinAsGuest: () => void;
   onRefreshDevices: () => void;
   onToggleCamera: () => void;
   onToggleMic: () => void;
@@ -1947,9 +1939,11 @@ function DeviceTestScreen({
             <Button icon={hostMode ? <UserRound /> : <LogIn />} onClick={onContinue}>
               {hostMode ? "Configurar como host" : "Entrar como invitado"}
             </Button>
-            <Button variant="outline" icon={hostMode ? <LogIn /> : <ArrowLeft />} onClick={hostMode ? onJoinAsGuest : onBack}>
-              {hostMode ? "Entrar como invitado" : "Volver"}
-            </Button>
+            {!hostMode ? (
+              <Button variant="outline" icon={<ArrowLeft />} onClick={onBack}>
+                Volver
+              </Button>
+            ) : null}
           </div>
         </aside>
       </div>
