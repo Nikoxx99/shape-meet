@@ -78,7 +78,7 @@ function checkToolchain() {
   requireCommand(python, ["--version"], "python");
   requireCommand(python, ["-m", "venv", "--help"], "python venv");
 
-  const tauri = spawnSync(
+  const tauri = spawnCommand(
     pnpmCommand(),
     ["--filter", "@shape-meet/desktop", "exec", "tauri", "--version"],
     { cwd: repoRoot, encoding: "utf8" },
@@ -200,7 +200,7 @@ function checkBuiltBinary(binaryPath, sourcePath, label) {
 }
 
 function requireCommand(command, commandArgs, label) {
-  const result = spawnSync(command, commandArgs, {
+  const result = spawnCommand(command, commandArgs, {
     cwd: repoRoot,
     encoding: "utf8",
   });
@@ -212,6 +212,13 @@ function requireCommand(command, commandArgs, label) {
   }
   ok(`${label} disponible (${firstLine(result.stdout || result.stderr)})`);
   return result.stdout;
+}
+
+function spawnCommand(command, commandArgs, options) {
+  return spawnSync(command, commandArgs, {
+    ...options,
+    shell: process.platform === "win32" && /\.cmd$/i.test(command),
+  });
 }
 
 function readRustHostTriple() {
