@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRank {
+  USER
+  HOST
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  PENDING
+  DISABLED
+}
+
+enum IdentityKind {
+  PHOTO_IDENTITY
+  TRAINED_IDENTITY
+  OPEN_MODEL_IDENTITY
+}
+
+enum IdentityStatus {
+  AVAILABLE
+  TRAINING
+  REVOKED
+}
+
+enum IdentityDeliveryStatus {
+  PENDING
+  READY
+  PUSHED
+  REVOKED
+}
+
+enum MeetingAccess {
+  INVITE_ONLY
+  PUBLIC_LINK
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  WAITING
+  LIVE
+  ENDED
+}
+
+model User {
+  id                String         @id @default(cuid())
+  username          String         @unique
+  email             String         @unique
+  passwordHash      String
+  rank              UserRank       @default(USER)
+  status            UserStatus     @default(ACTIVE)
+  temporaryPassword Boolean        @default(false)
+  lastAccessAt      DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  identities        HostIdentity[]
+  hostedMeetings    Meeting[]      @relation("MeetingHost")
+  auditLogs         AuditLog[]     @relation("AuditActor")
+}
+
+model HostIdentity {
+  id                String                 @id @default(cuid())
+  userId            String
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String
+  kind              IdentityKind
+  status            IdentityStatus         @default(TRAINING)
+  version           String                 @default("v0")
+  artifactUri       String?
+  artifactSha256    String?
+  artifactSizeBytes Int?
+  deliveryStatus    IdentityDeliveryStatus @default(PENDING)
+  publishedAt       DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@index([userId])
+  @@index([status, deliveryStatus])
+}
+
+model Meeting {
+  id              String               @id @default(cuid())
+  title           String
+  code            String               @unique
+  startsAt        DateTime
+  hostId          String
+  host            User                 @relation("MeetingHost", fields: [hostId], references: [id])
+  access          MeetingAccess        @default(INVITE_ONLY)
+  status          MeetingStatus        @default(SCHEDULED)
+  maxParticipants Int                  @default(4)
+  participants    MeetingParticipant[]
+  invites         MeetingInvite[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([hostId])
+}
+
+model MeetingInvite {
+  id        String   @id @default(cuid())
+  meetingId String
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  email     String
+  createdAt DateTime @default(now())
+
+  @@unique([meetingId, email])
+  @@index([email])
+}
+
+model MeetingParticipant {
+  id          String    @id @default(cuid())
+  meetingId   String
+  meeting     Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  displayName String
+  email       String?
+  userId      String?
+  role        String    @default("guest")
+  cameraEnabled Boolean @default(true)
+  microphoneEnabled Boolean @default(true)
+  admittedAt  DateTime?
+  joinedAt    DateTime?
+  leftAt      DateTime?
+
+  @@index([meetingId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  targetId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([targetId])
+}

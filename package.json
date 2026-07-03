@@ -1,0 +1,26 @@
+{
+  "name": "shape-meet",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @shape-meet/desktop --filter @shape-meet/admin dev",
+    "dev:ai": "python3 apps/ai-sidecar/server.py --port 7851",
+    "dev:desktop": "pnpm --filter @shape-meet/desktop tauri:dev",
+    "dev:admin": "pnpm --filter @shape-meet/admin dev",
+    "build:ai-sidecar": "pnpm --filter @shape-meet/desktop sidecar:build",
+    "build": "pnpm -r build",
+    "build:desktop": "pnpm --filter @shape-meet/desktop tauri:build",
+    "build:admin": "pnpm --filter @shape-meet/admin build",
+    "smoke:admin": "node scripts/smoke-admin-api.mjs",
+    "smoke:meeting-flow": "node scripts/smoke-meeting-flow.mjs",
+    "smoke:ai-contract": "node scripts/smoke-ai-sidecar-contract.mjs",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "latest",
+    "typescript": "latest"
+  }
+}

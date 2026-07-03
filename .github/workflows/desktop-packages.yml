@@ -1,0 +1,68 @@
+name: Desktop Packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - desktop-v*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-latest
+            artifact: shape-meet-windows-x64
+            tauriArgs: ""
+          - name: macOS Apple Silicon
+            runner: macos-26
+            artifact: shape-meet-macos-arm64
+            tauriArgs: "--no-sign"
+          - name: macOS Intel
+            runner: macos-26-intel
+            artifact: shape-meet-macos-x64
+            tauriArgs: "--no-sign"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build AI sidecar for runner target
+        run: pnpm --filter @shape-meet/desktop sidecar:build
+
+      - name: Build Tauri package
+        run: pnpm --filter @shape-meet/desktop exec tauri build --config src-tauri/tauri.sidecar.conf.json ${{ matrix.tauriArgs }}
+
+      - name: Upload desktop bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: apps/desktop/src-tauri/target/release/bundle/**
+          if-no-files-found: error
+          retention-days: 14

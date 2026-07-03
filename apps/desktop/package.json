@@ -1,0 +1,35 @@
+{
+  "name": "@shape-meet/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 1420",
+    "dev:vite": "vite --host 0.0.0.0 --port 1420",
+    "build": "tsc --noEmit && vite build",
+    "build:vite": "tsc --noEmit && vite build",
+    "sidecar:build": "node ../../scripts/build-ai-sidecar.mjs",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "pnpm sidecar:build && tauri build --config src-tauri/tauri.sidecar.conf.json",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@livekit/components-react": "latest",
+    "@sentry/react": "latest",
+    "@shape-meet/shared": "workspace:*",
+    "@tauri-apps/api": "latest",
+    "livekit-client": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
+}

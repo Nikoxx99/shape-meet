@@ -1,0 +1,136 @@
+services:
+  shape-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shape_meet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shape_meet}
+      POSTGRES_DB: ${POSTGRES_DB:-shape_meet}
+      TZ: America/Bogota
+      PGTZ: America/Bogota
+    volumes:
+      - shape_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shape_meet} -d ${POSTGRES_DB:-shape_meet}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - shape-meet
+
+  shape-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-shape_redis}", "--appendonly", "yes"]
+    volumes:
+      - shape_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-shape_redis}", "--no-auth-warning", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - shape-meet
+
+  shape-livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        log_level: info
+        rtc:
+          tcp_port: ${LIVEKIT_RTC_TCP_PORT:-7881}
+          udp_port: ${LIVEKIT_RTC_UDP_PORT:-7882}
+          use_external_ip: ${LIVEKIT_USE_EXTERNAL_IP:-true}
+          node_ip: ${LIVEKIT_NODE_IP:-}
+          enable_loopback_candidate: ${LIVEKIT_ENABLE_LOOPBACK_CANDIDATE:-false}
+        redis:
+          address: shape-redis:6379
+          password: ${REDIS_PASSWORD:-shape_redis}
+        keys:
+          "${LIVEKIT_API_KEY:-devkey}": "${LIVEKIT_API_SECRET:-secret}"
+        turn:
+          enabled: true
+          domain: ${LIVEKIT_TURN_DOMAIN:-turn.shape-meet.local}
+          udp_port: ${LIVEKIT_TURN_UDP_PORT:-3478}
+          tls_port: ${LIVEKIT_TURN_TLS_PORT:-5349}
+          relay_range_start: ${LIVEKIT_TURN_RELAY_RANGE_START:-30000}
+          relay_range_end: ${LIVEKIT_TURN_RELAY_RANGE_END:-30100}
+          external_tls: ${LIVEKIT_TURN_EXTERNAL_TLS:-true}
+    ports:
+      - "${LIVEKIT_HTTP_PORT:-7880}:7880/tcp"
+      - "${LIVEKIT_RTC_TCP_PORT:-7881}:${LIVEKIT_RTC_TCP_PORT:-7881}/tcp"
+      - "${LIVEKIT_RTC_UDP_PORT:-7882}:${LIVEKIT_RTC_UDP_PORT:-7882}/udp"
+      - "${LIVEKIT_TURN_UDP_PORT:-3478}:${LIVEKIT_TURN_UDP_PORT:-3478}/udp"
+      - "${LIVEKIT_TURN_TLS_PORT:-5349}:${LIVEKIT_TURN_TLS_PORT:-5349}/tcp"
+      - "${LIVEKIT_TURN_RELAY_RANGE_START:-30000}-${LIVEKIT_TURN_RELAY_RANGE_END:-30100}:${LIVEKIT_TURN_RELAY_RANGE_START:-30000}-${LIVEKIT_TURN_RELAY_RANGE_END:-30100}/udp"
+    depends_on:
+      shape-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:7880 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - shape-meet
+
+  shape-admin:
+    build:
+      context: ..
+      dockerfile: apps/admin/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-shape_meet}:${POSTGRES_PASSWORD:-shape_meet}@shape-postgres:5432/${POSTGRES_DB:-shape_meet}?schema=public
+      AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:-change-me}
+      LIVEKIT_URL: ${LIVEKIT_URL:-wss://livekit.shape-meet.local}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://admin.shape-meet.local}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      RUN_SEED: ${RUN_SEED:-false}
+      HOST_BOOTSTRAP_EMAIL: ${HOST_BOOTSTRAP_EMAIL:-admin@shape.test}
+      HOST_BOOTSTRAP_PASSWORD: ${HOST_BOOTSTRAP_PASSWORD:-ChangeMe123!}
+      NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ORG: ${SENTRY_ORG:-}
+      SENTRY_PROJECT: ${SENTRY_PROJECT:-}
+      SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-shape-meet-admin@0.1.0}
+      NEXT_PUBLIC_SENTRY_RELEASE: ${NEXT_PUBLIC_SENTRY_RELEASE:-shape-meet-admin@0.1.0}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-1.0}
+      NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: ${NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE:-1.0}
+      SHAPE_ARTIFACT_STORAGE_DIR: ${SHAPE_ARTIFACT_STORAGE_DIR:-/app/artifacts}
+      SHAPE_ARTIFACT_MAX_BYTES: ${SHAPE_ARTIFACT_MAX_BYTES:-2147483648}
+    depends_on:
+      shape-postgres:
+        condition: service_healthy
+      shape-livekit:
+        condition: service_healthy
+    volumes:
+      - shape_artifacts_data:/app/artifacts
+    ports:
+      - "${ADMIN_HTTP_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - shape-meet
+
+volumes:
+  shape_postgres_data:
+  shape_redis_data:
+  shape_artifacts_data:
+
+networks:
+  shape-meet:
+    driver: bridge

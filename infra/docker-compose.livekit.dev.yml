@@ -1,0 +1,15 @@
+services:
+  shape-livekit-dev:
+    image: livekit/livekit-server:latest
+    command: ["--dev", "--bind", "0.0.0.0"]
+    restart: unless-stopped
+    ports:
+      - "${LIVEKIT_DEV_HTTP_PORT:-17880}:7880/tcp"
+      - "${LIVEKIT_DEV_RTC_TCP_PORT:-17881}:7881/tcp"
+      - "${LIVEKIT_DEV_RTC_UDP_PORT:-17882}:7882/udp"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:7880 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s

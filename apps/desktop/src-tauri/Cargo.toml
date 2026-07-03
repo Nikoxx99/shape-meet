@@ -1,0 +1,19 @@
+[package]
+name = "shape-meet"
+version = "0.1.0"
+description = "Shape Meet desktop client"
+authors = ["Luxora Agency"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+sentry = "0.48.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tauri = { version = "2", features = [] }
+tauri-plugin-log = "2"
+time = { version = "0.3", features = ["formatting"] }

@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate monorepo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Build workspaces
+        run: pnpm -r --if-present build
+
+      - name: Check Tauri Rust crate
+        working-directory: apps/desktop/src-tauri
+        run: cargo check
+
+      - name: Check AI sidecar syntax
+        run: python3 -m py_compile apps/ai-sidecar/server.py
+
+      - name: Build AI sidecar package smoke
+        run: pnpm build:ai-sidecar
+
+      - name: Validate Coolify compose
+        run: docker compose -f infra/docker-compose.coolify.yml config >/tmp/shape-meet-compose-config.yml
