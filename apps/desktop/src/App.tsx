@@ -226,12 +226,6 @@ function meetingGuestNames(meeting: Meeting) {
   return guests.length > 0 ? guests.join(", ") : "Sin invitados";
 }
 
-function formatInvitedEmails(emails: string[]) {
-  if (emails.length === 0) return "Sin correos";
-  if (emails.length <= 2) return emails.join(", ");
-  return `${emails.slice(0, 2).join(", ")} +${emails.length - 2}`;
-}
-
 function gpuProfileLabel(profile: NativeGpuProfile | null) {
   if (!profile) return "Detectando";
   if (profile.gpuTier === "ready") return "Lista";
@@ -786,35 +780,6 @@ export default function App() {
     navigate("home");
   }
 
-  async function handleEndSelectedMeeting() {
-    if (!currentMeeting || currentMeeting.status === "ENDED") return;
-
-    try {
-      setApiMessage(null);
-      const meeting = await endMeeting({ code: currentMeeting.code, token: hostSession?.token });
-      setCurrentMeeting(meeting);
-      setMeetings((current) => current.map((item) => (item.id === meeting.id ? meeting : item)));
-      navigate("scheduled");
-    } catch (error) {
-      if (canUseDemoRuntimeFallback(error)) {
-        const endedAt = new Date().toISOString();
-        const meeting: Meeting = {
-          ...currentMeeting,
-          status: "ENDED",
-          participants: currentMeeting.participants.map((participant) =>
-            participant.joinedAt && !participant.leftAt ? { ...participant, leftAt: endedAt } : participant
-          )
-        };
-        setCurrentMeeting(meeting);
-        setMeetings((current) => current.map((item) => (item.id === meeting.id ? meeting : item)));
-        navigate("scheduled");
-        return;
-      }
-
-      setApiMessage(error instanceof Error ? error.message : "No se pudo finalizar la reunión.");
-    }
-  }
-
   async function refreshCurrentMeeting() {
     if (!currentMeeting) {
       throw new Error("No hay reunión seleccionada.");
@@ -1081,7 +1046,6 @@ export default function App() {
           <MeetingDetailScreen
             meeting={currentMeeting}
             onBack={() => navigate("scheduled")}
-            onEnd={() => void handleEndSelectedMeeting()}
             onContinue={() => {
               setIsHostFlow(true);
               navigate("device-test");
@@ -1575,17 +1539,13 @@ function ScheduledMeetingsScreen({
 function MeetingDetailScreen({
   meeting,
   onBack,
-  onEnd,
   onContinue
 }: {
   meeting: Meeting;
   onBack: () => void;
-  onEnd: () => void;
   onContinue: () => void;
 }) {
-  const [confirmingEnd, setConfirmingEnd] = useState(false);
   const meetingEnded = meeting.status === "ENDED";
-  const endLabel = meeting.status === "SCHEDULED" ? "Cancelar" : "Finalizar";
 
   return (
     <ScreenFrame title="Detalle de reunión" onBack={onBack}>
@@ -1593,45 +1553,18 @@ function MeetingDetailScreen({
         <section className="white-panel">
           <h1>{meeting.title}</h1>
           <div className="detail-list">
-            <DetailRow label="Fecha" value={formatMeetingTime(meeting.startsAt)} />
             <DetailRow label="Organizador" value={meetingHostName(meeting)} />
             <DetailRow label="Invitados" value={meetingGuestNames(meeting)} />
             <DetailRow label="Acceso" value={meeting.access === "INVITE_ONLY" ? "Solo invitados" : "Enlace público"} />
-            {meeting.access === "INVITE_ONLY" ? <DetailRow label="Correos invitados" value={formatInvitedEmails(meeting.invitedEmails)} /> : null}
             <DetailRow label="Capacidad" value={`Hasta ${meeting.maxParticipants} participantes`} />
           </div>
           <div className="button-row">
-            {confirmingEnd ? (
-              <>
-                <Button
-                  variant="danger"
-                  icon={<PhoneOff />}
-                  onClick={() => {
-                    setConfirmingEnd(false);
-                    onEnd();
-                  }}
-                >
-                  {endLabel} reunión
-                </Button>
-                <Button variant="outline" icon={<ArrowLeft />} onClick={() => setConfirmingEnd(false)}>
-                  Mantener
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button icon={<ArrowRight />} onClick={onContinue} disabled={meetingEnded}>
-                  Probar equipo
-                </Button>
-                <Button variant="outline" icon={<Copy />} onClick={() => void navigator.clipboard?.writeText(meetingShareUrl(meeting.code))}>
-                  Copiar enlace
-                </Button>
-                {!meetingEnded ? (
-                  <Button variant="outline" icon={<PhoneOff />} onClick={() => setConfirmingEnd(true)}>
-                    {endLabel}
-                  </Button>
-                ) : null}
-              </>
-            )}
+            <Button icon={<ArrowRight />} onClick={onContinue} disabled={meetingEnded}>
+              Probar equipo
+            </Button>
+            <Button variant="outline" icon={<Copy />} onClick={() => void navigator.clipboard?.writeText(meetingShareUrl(meeting.code))}>
+              Copiar enlace
+            </Button>
           </div>
         </section>
         <aside className="side-panel">

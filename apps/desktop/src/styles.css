@@ -552,6 +552,22 @@ svg {
   grid-template-columns: minmax(0, 1fr) 360px;
 }
 
+.detail-layout .white-panel > h1 {
+  font-size: 32px;
+}
+
+.detail-layout .button-row {
+  justify-content: flex-start;
+}
+
+.detail-layout .button-row .button:first-child {
+  width: 220px;
+}
+
+.detail-layout .button-row .button:last-child {
+  width: 180px;
+}
+
 .meeting-list {
   min-height: 0;
   max-height: calc(100vh - 199px);
