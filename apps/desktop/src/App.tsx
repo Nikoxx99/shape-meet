@@ -2719,13 +2719,20 @@ function AiRuntimeScreen({
 
   async function handlePrepareDemo() {
     setSaving(true);
+    setRuntimeMessage(null);
     try {
       const prepared = await prepareDemoAiRuntimeEnv();
       setEnvFile(prepared);
       setContent(prepared.content);
-      setRuntimeMessage("Config demo IA guardada.");
       setRuntimeError(null);
-      await onRefresh();
+      if (!prepared.exists) {
+        await onRefresh();
+        return;
+      }
+      await onStopSidecar();
+      await onStartSidecar();
+      await loadRuntimeState();
+      setRuntimeMessage("Demo IA cargada y sidecar reiniciado.");
     } catch (error) {
       setRuntimeError(
         error instanceof Error

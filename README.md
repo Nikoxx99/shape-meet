@@ -86,9 +86,9 @@ vcclient000. Usa `--dry-run` para ver el archivo sin escribirlo. En desarrollo
 usa el script Python fuente cuando el binario empaquetado está desactualizado;
 usa `--prefer-bundled` para forzar el binario local.
 
-Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`,
-detener/iniciar el sidecar y volver a la llamada. Esa ruta escribe el mismo
-archivo runtime desde la app.
+Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`
+y volver a la llamada. Esa ruta escribe el mismo archivo runtime desde la app y
+reinicia el sidecar gestionado para aplicar los procesadores demo.
 
 `pnpm demo:ui` abre Chromium con cámara/micrófono falsos y recorre la UI real:
 invitado por enlace público, sala de espera, login de host, configuración de
