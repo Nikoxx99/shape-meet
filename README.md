@@ -72,6 +72,7 @@ pnpm demo:prepare
 pnpm demo:check
 pnpm demo:verify
 pnpm demo:ai-runtime
+pnpm models:doctor
 pnpm models:runtime -- --face-command "python apps/ai-sidecar/wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}"
 pnpm demo:ui:install
 pnpm demo:ui
@@ -128,6 +129,12 @@ reciben placeholders como `{input}`, `{output}`, `{identity}`, `{clean_plate}`,
 `{sample_rate}` y `{session_id}`.
 Los wrappers de referencia viven en `apps/ai-sidecar/wrappers` y cubren
 FaceFusion, BackgroundMattingV2 y vcclient000.
+
+`pnpm models:doctor` revisa el runtime de modelos sin cargar pesos pesados:
+archivo `shape-ai-runtime.env`, comandos de procesador, placeholders requeridos,
+paths de FaceFusion/BackgroundMattingV2/vcclient000 y hardware NVIDIA/Apple
+Silicon. Usa `--strict` para fallar también con warnings y `--env-file` para
+probar un runtime específico antes de copiarlo a la app.
 
 Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`
 y volver a la llamada. Esa ruta escribe el mismo archivo runtime desde la app y

@@ -147,6 +147,7 @@ no reemplaza la integración final de modelos.
 Para wrappers reales, genera el mismo archivo runtime con:
 
 ```bash
+pnpm models:doctor
 pnpm models:runtime -- \
   --face-command "python apps/ai-sidecar/wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}" \
   --background-command "python apps/ai-sidecar/wrappers/backgroundmattingv2_frame.py --input {input} --output {output} --clean-plate {clean_plate}" \
@@ -158,6 +159,8 @@ fondo, y `--audio-chunk-command` si prefieres un wrapper combinado para voz.
 Los wrappers versionados están en `apps/ai-sidecar/wrappers`; aceptan variables
 como `FACEFUSION_DIR`, `BMV2_REPO_DIR`, `BMV2_MODEL_CHECKPOINT` y
 `VCCLIENT000_CHUNK_COMMAND`.
+`pnpm models:doctor` valida esas variables, comandos y placeholders sin cargar
+modelos pesados; usa `--env-file` para revisar un runtime concreto.
 
 El adaptador escribe archivos temporales y ejecuta el comando sin shell. Tambien
 inyecta variables como `SHAPE_FRAME_INPUT_PATH`, `SHAPE_FRAME_OUTPUT_PATH`,

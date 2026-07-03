@@ -69,5 +69,8 @@ jobs:
       - name: Smoke AI command adapters
         run: pnpm smoke:ai-command
 
+      - name: Smoke AI model doctor
+        run: pnpm smoke:ai-model-doctor
+
       - name: Validate Coolify compose
         run: pnpm check:coolify infra/env.coolify.example
