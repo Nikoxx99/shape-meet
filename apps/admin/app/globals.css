@@ -46,6 +46,7 @@ svg {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
+  background: #f8fafc;
 }
 
 .admin-login-shell {
@@ -134,7 +135,8 @@ svg {
 .brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  min-height: 36px;
 }
 
 .brand div {
@@ -143,7 +145,7 @@ svg {
 }
 
 .brand strong {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.35;
 }
 
@@ -153,9 +155,9 @@ svg {
 }
 
 .logo {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -164,8 +166,8 @@ svg {
 }
 
 .logo svg {
-  width: 10px;
-  height: 10px;
+  width: 18px;
+  height: 18px;
 }
 
 nav {
@@ -210,11 +212,12 @@ nav button.active svg {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 22px;
   padding: 32px;
 }
 
 .admin-header {
+  min-height: 41px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -253,7 +256,7 @@ p {
 .secondary-button,
 .danger-button,
 .row-button {
-  height: 36px;
+  height: 40px;
   border: 0;
   border-radius: 6px;
   display: inline-flex;
@@ -264,7 +267,7 @@ p {
   color: #ffffff;
   background: #2563eb;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .secondary-button {
@@ -305,18 +308,21 @@ p {
 .metric-card {
   display: grid;
   gap: 4px;
-  min-height: 90px;
-  padding: 16px;
+  min-height: 114px;
+  align-content: center;
+  padding: 18px;
 }
 
 .metric-card span {
   color: #64748b;
   font-size: 12px;
   font-weight: 700;
+  line-height: 1.35;
 }
 
 .metric-card strong {
-  font-size: 22px;
+  color: #0f172a;
+  font-size: 28px;
   line-height: 1.35;
 }
 
@@ -361,12 +367,12 @@ p {
 }
 
 .modal-header {
-  height: 58px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 18px;
+  padding: 0 24px;
   border-bottom: 1px solid #dde6f3;
 }
 
@@ -396,8 +402,8 @@ p {
 
 .modal-form {
   display: grid;
-  gap: 14px;
-  padding: 18px;
+  gap: 16px;
+  padding: 24px;
 }
 
 .modal-form-grid {
@@ -447,12 +453,11 @@ p {
 }
 
 .table-row {
-  min-height: 44px;
+  min-height: 68px;
   display: grid;
-  grid-template-columns: minmax(86px, 1fr) minmax(
-      126px,
-      1.4fr
-    ) 72px 70px 78px 94px;
+  grid-template-columns:
+    minmax(86px, 1fr) minmax(126px, 1.4fr)
+    72px 70px 78px 94px;
   align-items: center;
   gap: 0;
   border-top: 1px solid #dde6f3;
@@ -461,74 +466,81 @@ p {
 .table-row > * {
   min-width: 0;
   overflow: hidden;
-  padding: 0 10px;
+  padding: 0 18px;
   font-size: 12px;
   text-overflow: ellipsis;
 }
 
 .table-row.users-table {
-  grid-template-columns: minmax(86px, 1fr) minmax(
-      126px,
-      1.4fr
-    ) 72px 72px 90px minmax(180px, 1.4fr);
+  grid-template-columns:
+    minmax(116px, 210px) minmax(160px, 1fr) minmax(86px, 116px)
+    minmax(96px, 128px) minmax(120px, 154px) minmax(170px, 208px);
 }
 
 .table-row.meetings-table {
-  grid-template-columns: minmax(180px, 1.4fr) minmax(
-      110px,
-      0.8fr
-    ) 126px 84px 88px 88px 92px 96px;
+  grid-template-columns:
+    minmax(180px, 1.4fr) minmax(110px, 0.8fr)
+    126px 84px 88px 88px 92px 96px;
 }
 
 .table-row.identities-table {
-  grid-template-columns: minmax(120px, 1.1fr) minmax(
-      84px,
-      0.75fr
-    ) 76px 92px 86px 62px minmax(144px, 1fr);
+  grid-template-columns:
+    minmax(120px, 1.1fr) minmax(84px, 0.75fr)
+    76px 92px 86px 62px minmax(144px, 1fr);
 }
 
 .table-row.audit-table {
-  grid-template-columns: minmax(150px, 1fr) minmax(100px, 0.7fr) minmax(
-      140px,
-      1fr
-    ) 132px minmax(180px, 1.2fr);
+  grid-template-columns:
+    minmax(150px, 1fr) minmax(100px, 0.7fr) minmax(140px, 1fr)
+    132px minmax(180px, 1.2fr);
 }
 
 .table-head {
-  min-height: 40px;
+  min-height: 48px;
   border-top: 0;
   color: #64748b;
-  background: #f1f5f9;
+  background: #f8fafc;
   font-weight: 700;
 }
 
 .rank,
 .status {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .rank.host {
   color: #2563eb;
+  background: #eff6ff;
 }
 
 .rank.admin {
   color: #7c3aed;
+  background: #f3e8ff;
 }
 
 .rank.user {
   color: #64748b;
+  background: #f1f5f9;
 }
 
 .status.active {
   color: #16a34a;
+  background: #dcfce7;
 }
 
 .status.pending {
   color: #d97706;
+  background: #fef3c7;
 }
 
 .status.disabled {
   color: #dc2626;
+  background: #fee2e2;
 }
 
 .row-button {
@@ -556,6 +568,8 @@ p {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 .table-actions .rank-select {
@@ -567,6 +581,7 @@ p {
   height: 30px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
+  min-width: 72px;
   padding: 0 8px;
   color: #0f172a;
   background: #ffffff;

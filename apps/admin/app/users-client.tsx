@@ -97,7 +97,7 @@ const sectionMeta: Record<
     title: "Rostros aprobados",
     icon: <ShieldCheck />,
   },
-  deliveries: { label: "Entregas", title: "Entregas", icon: <CloudUpload /> },
+  deliveries: { label: "Sistema", title: "Sistema", icon: <Database /> },
   audit: { label: "Auditoría", title: "Auditoría", icon: <Shield /> },
 };
 
@@ -154,8 +154,23 @@ export function UsersClient() {
   const activeMeetings = meetings.filter(
     (meeting) => meeting.status === "LIVE" || meeting.status === "WAITING",
   );
+  const activeHostUsers = users.filter(
+    (user) => user.rank === "HOST" && user.status === "ACTIVE",
+  );
+  const newUsersToday = users.filter((user) => isToday(user.createdAt)).length;
+  const pendingUsers = users.filter((user) => user.status === "PENDING").length;
+  const disabledUsers = users.filter(
+    (user) => user.status === "DISABLED",
+  ).length;
 
-  const metrics = [
+  const userMetrics = [
+    ["Hosts", String(activeHostUsers.length), "activos"],
+    ["Nuevos usuarios", String(newUsersToday), "hoy"],
+    ["Aprobaciones", String(pendingUsers), "pendientes"],
+    ["Desactivados", String(disabledUsers), "total"],
+  ];
+
+  const panelMetrics = [
     ["Usuarios", String(users.length), "totales"],
     [
       "Hosts activos",
@@ -169,6 +184,7 @@ export function UsersClient() {
       `${trainingIdentities.length} entrenando`,
     ],
   ];
+  const metrics = section === "users" ? userMetrics : panelMetrics;
 
   async function restoreAdminSession() {
     setLoading(true);
@@ -496,7 +512,9 @@ export function UsersClient() {
       );
       setMeetings((current) =>
         current.map((item) =>
-          item.id === data.meeting.id ? mergeAdminMeeting(item, data.meeting) : item,
+          item.id === data.meeting.id
+            ? mergeAdminMeeting(item, data.meeting)
+            : item,
         ),
       );
       setMeetingToEnd(null);
@@ -572,13 +590,15 @@ export function UsersClient() {
         <header className="admin-header">
           <h1>{title}</h1>
           <div className="admin-actions">
-            <button
-              className="secondary-button"
-              onClick={() => void loadAdminData()}
-              type="button"
-            >
-              <RefreshCw /> Actualizar
-            </button>
+            {section !== "users" ? (
+              <button
+                className="secondary-button"
+                onClick={() => void loadAdminData()}
+                type="button"
+              >
+                <RefreshCw /> Actualizar
+              </button>
+            ) : null}
             {section === "users" ? (
               <button
                 className="primary-button"
@@ -681,7 +701,11 @@ export function UsersClient() {
 
       <Modal
         open={Boolean(meetingToEnd)}
-        title={meetingToEnd?.status === "SCHEDULED" ? "Cancelar reunión" : "Finalizar reunión"}
+        title={
+          meetingToEnd?.status === "SCHEDULED"
+            ? "Cancelar reunión"
+            : "Finalizar reunión"
+        }
         onClose={() => setMeetingToEnd(null)}
       >
         {meetingToEnd ? (
@@ -1126,16 +1150,15 @@ function UsersSection({
                 <span className="muted-action">Admin</span>
               ) : (
                 <>
-                  <select
-                    className="rank-select"
-                    value={user.rank}
-                    onChange={(event) =>
-                      onRankChange(user, event.target.value as UserRank)
+                  <button
+                    className={`mini-button ${user.rank === "USER" ? "primary" : ""}`}
+                    type="button"
+                    onClick={() =>
+                      onRankChange(user, user.rank === "HOST" ? "USER" : "HOST")
                     }
                   >
-                    <option value="USER">Usuario</option>
-                    <option value="HOST">Host</option>
-                  </select>
+                    {user.rank === "HOST" ? "Degradar" : "Promover"}
+                  </button>
                   <button
                     className={`mini-button ${user.status === "ACTIVE" ? "" : "primary"}`}
                     type="button"
@@ -1267,7 +1290,9 @@ function IdentitiesSection({
       ) : (
         identities.map((identity) => (
           <div className="table-row identities-table" key={identity.id}>
-            <strong title={artifactIntegrityLabel(identity)}>{identity.name}</strong>
+            <strong title={artifactIntegrityLabel(identity)}>
+              {identity.name}
+            </strong>
             <span>{identity.ownerName}</span>
             <span>{identityKindLabel(identity.kind)}</span>
             <StatusChip
@@ -1594,19 +1619,30 @@ function deliveryStatusTone(
   return "idle";
 }
 
-function hasPublishableArtifact(identity: Pick<HostIdentity, "artifactUri" | "artifactSha256" | "artifactSizeBytes">) {
+function hasPublishableArtifact(
+  identity: Pick<
+    HostIdentity,
+    "artifactUri" | "artifactSha256" | "artifactSizeBytes"
+  >,
+) {
   return Boolean(
     identity.artifactUri?.trim() &&
-      identity.artifactSha256?.trim().match(/^[a-f0-9]{64}$/i) &&
-      identity.artifactSizeBytes &&
-      identity.artifactSizeBytes > 0,
+    identity.artifactSha256?.trim().match(/^[a-f0-9]{64}$/i) &&
+    identity.artifactSizeBytes &&
+    identity.artifactSizeBytes > 0,
   );
 }
 
-function artifactIntegrityLabel(identity: Pick<HostIdentity, "artifactUri" | "artifactSha256" | "artifactSizeBytes">) {
+function artifactIntegrityLabel(
+  identity: Pick<
+    HostIdentity,
+    "artifactUri" | "artifactSha256" | "artifactSizeBytes"
+  >,
+) {
   if (hasPublishableArtifact(identity)) return "Artefacto listo para publicar";
   if (!identity.artifactUri) return "Falta artefacto";
-  if (!identity.artifactSha256?.trim().match(/^[a-f0-9]{64}$/i)) return "Falta SHA256 válido";
+  if (!identity.artifactSha256?.trim().match(/^[a-f0-9]{64}$/i))
+    return "Falta SHA256 válido";
   return "Falta tamaño del artefacto";
 }
 
@@ -1658,5 +1694,19 @@ function formatDate(value: string) {
     dateStyle: "short",
     timeStyle: "short",
     timeZone: "America/Bogota",
+  }).format(new Date(value));
+}
+
+function isToday(value?: string) {
+  if (!value) return false;
+  return bogotaDateKey(value) === bogotaDateKey(new Date().toISOString());
+}
+
+function bogotaDateKey(value: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Bogota",
+    year: "numeric",
   }).format(new Date(value));
 }
