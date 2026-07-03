@@ -8,7 +8,11 @@ const noPrepare = args.has("--no-prepare");
 const replaceAi = args.has("--replace-ai") || args.has("--restart-ai");
 const strict = args.has("--strict");
 const verifyUi = args.has("--verify-ui");
-const exitAfterReady = args.has("--exit-after-ready") || args.has("--once");
+const keepAlive = args.has("--keep-alive");
+const exitAfterReady =
+  args.has("--exit-after-ready") ||
+  args.has("--once") ||
+  (verifyUi && !keepAlive);
 const infraEnv = readEnvFile("infra/env.local.example");
 const rootEnv = readEnvFile(".env.local");
 const appEnv = {

@@ -86,6 +86,8 @@ MAX_AUDIO_BYTES = 2 * 1024 * 1024
 EXTERNAL_PROCESSOR_TIMEOUT_SECS = 0.8
 MANAGED_PROCESSORS = {}
 MANAGED_PROCESSOR_LOG_LIMIT = 60
+SENTRY_CAPTURE_LAST = {}
+SENTRY_CAPTURE_THROTTLE_SECS = 30
 SENTRY = None
 SENTRY_STATUS = {
     "configured": False,
@@ -257,6 +259,9 @@ class ShapeMeetHandler(BaseHTTPRequestHandler):
         self._json({"error": "not_found"}, status=404)
 
     def log_message(self, format, *args):
+        if not env_bool("SHAPE_AI_ACCESS_LOG", True):
+            return
+
         print(f"[shape-ai-sidecar] {self.address_string()} {format % args}")
 
     def _json(self, payload, status=200):
@@ -1443,12 +1448,82 @@ def capture_sidecar_exception(error, context=None):
     if not SENTRY:
         return
 
+    if not sentry_capture_enabled_for_context(context):
+        return
+
+    if sentry_capture_throttled(error, context):
+        return
+
+    if hasattr(SENTRY, "new_scope"):
+        with SENTRY.new_scope() as scope:
+            tag_sentry_scope(scope, context)
+            SENTRY.capture_exception(error)
+        return
+
     with SENTRY.push_scope() as scope:
-        if context:
-            for key, value in context.items():
-                if value is not None:
-                    scope.set_tag(key, str(value))
+        tag_sentry_scope(scope, context)
         SENTRY.capture_exception(error)
+
+
+def sentry_capture_throttled(error, context=None):
+    throttle_seconds = sentry_capture_throttle_seconds()
+    if throttle_seconds <= 0:
+        return False
+
+    key = sentry_capture_key(error, context)
+    now = time.time()
+    last = SENTRY_CAPTURE_LAST.get(key)
+    if last and now - last < throttle_seconds:
+        return True
+
+    SENTRY_CAPTURE_LAST[key] = now
+    return False
+
+
+def sentry_capture_enabled_for_context(context=None):
+    context = context or {}
+    processor = context.get("processor")
+    phase = context.get("phase", "runtime")
+    is_processor_runtime_error = processor in {"video", "audio"} and phase == "runtime"
+
+    if is_processor_runtime_error:
+        return env_bool("SHAPE_SENTRY_CAPTURE_PROCESSOR_ERRORS", True)
+
+    return True
+
+
+def sentry_capture_key(error, context=None):
+    context = context or {}
+    return "|".join(
+        [
+            str(context.get("processor", "sidecar")),
+            str(context.get("phase", "runtime")),
+            error.__class__.__name__,
+            str(error)[:160],
+        ]
+    )
+
+
+def sentry_capture_throttle_seconds():
+    return max(
+        0,
+        min(
+            300,
+            safe_float(
+                os.environ.get("SHAPE_SENTRY_CAPTURE_THROTTLE_SECS"),
+                SENTRY_CAPTURE_THROTTLE_SECS,
+            ),
+        ),
+    )
+
+
+def tag_sentry_scope(scope, context=None):
+    if not context:
+        return
+
+    for key, value in context.items():
+        if value is not None:
+            scope.set_tag(key, str(value))
 
 
 def main():

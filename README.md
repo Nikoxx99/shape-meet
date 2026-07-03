@@ -74,6 +74,10 @@ Para levantar/verificar servicios y recorrer la UI real con Playwright:
 pnpm demo:verify
 ```
 
+`demo:verify` termina solo después de validar el flujo. Usa
+`pnpm demo:verify -- --keep-alive` si quieres dejar vivos los procesos locales
+que haya iniciado.
+
 Para diagnosticar sin levantar procesos:
 
 ```bash

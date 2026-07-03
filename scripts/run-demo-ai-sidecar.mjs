@@ -23,17 +23,30 @@ const audioPort =
   "7861";
 const python = resolveSidecarPython();
 const runtimeEnv = readRuntimeEnv(renderRuntimeEnv());
+const sidecarEnv = {
+  ...process.env,
+  ...runtimeEnv,
+  SHAPE_AI_PYTHON: python,
+  SENTRY_DEBUG:
+    process.env.SHAPE_DEMO_SENTRY_DEBUG ??
+    process.env.SHAPE_AI_SENTRY_DEBUG ??
+    "false",
+  SHAPE_AI_ACCESS_LOG:
+    process.env.SHAPE_DEMO_AI_ACCESS_LOG ??
+    process.env.SHAPE_AI_ACCESS_LOG ??
+    "false",
+  SHAPE_SENTRY_CAPTURE_PROCESSOR_ERRORS:
+    process.env.SHAPE_DEMO_SENTRY_CAPTURE_PROCESSOR_ERRORS ??
+    process.env.SHAPE_SENTRY_CAPTURE_PROCESSOR_ERRORS ??
+    "false",
+};
 
 const sidecar = spawn(
   python,
   ["apps/ai-sidecar/server.py", "--host", host, "--port", String(port)],
   {
     cwd: process.cwd(),
-    env: {
-      ...process.env,
-      ...runtimeEnv,
-      SHAPE_AI_PYTHON: python,
-    },
+    env: sidecarEnv,
     stdio: "inherit",
   },
 );
