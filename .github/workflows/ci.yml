@@ -49,8 +49,7 @@ jobs:
         run: pnpm -r --if-present build
 
       - name: Check Tauri Rust crate
-        working-directory: apps/desktop/src-tauri
-        run: cargo check
+        run: pnpm check:native
 
       - name: Check AI sidecar syntax
         run: python3 -m py_compile apps/ai-sidecar/server.py
@@ -59,4 +58,4 @@ jobs:
         run: pnpm build:ai-sidecar
 
       - name: Validate Coolify compose
-        run: docker compose -f infra/docker-compose.coolify.yml config >/tmp/shape-meet-compose-config.yml
+        run: pnpm check:coolify infra/env.coolify.example
