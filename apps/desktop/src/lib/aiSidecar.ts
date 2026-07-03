@@ -276,6 +276,10 @@ export async function runAiPreflight(
       error?: string;
     };
 
+    if (response.status === 404 || data.error === "not_found") {
+      return runLegacyAiPreflight(input);
+    }
+
     if (!response.ok || !data.preflight) {
       throw new Error(
         data.error ?? "No se pudo probar el runtime local de IA.",
@@ -286,6 +290,132 @@ export async function runAiPreflight(
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+async function runLegacyAiPreflight(
+  input: AiPreflightInput,
+): Promise<AiPreflightResult> {
+  const startedAt = performance.now();
+  const session = await startAiSession(input);
+  const checks: AiPreflightResult["checks"] = [];
+
+  try {
+    if (input.faceEnabled || input.backgroundEnabled) {
+      const frame = await processAiFrame(session.id, {
+        sequence: 1,
+        timestampMs: Date.now(),
+        width: input.targetWidth ?? 1280,
+        height: input.targetHeight ?? 720,
+        frameDataUrl: input.frameDataUrl ?? legacyPreflightFrameDataUrl(),
+        effects: {
+          face: input.faceEnabled,
+          background: input.backgroundEnabled,
+          voice: input.voiceEnabled,
+        },
+      });
+      checks.push({
+        id: "video",
+        label: "Video",
+        status: frame.status,
+        processor: frame.processor,
+        latencyMs: frame.metrics.latencyMs,
+        warnings: frame.warnings ?? [],
+      });
+    }
+
+    if (input.voiceEnabled) {
+      const audio = await processAiAudio(session.id, {
+        sequence: 1,
+        timestampMs: Date.now(),
+        sampleRate: input.audioSampleRate ?? 48000,
+        channels: 1,
+        format: "pcm_f32le",
+        audioDataBase64: input.audioDataBase64 ?? legacySilentAudioBase64(),
+      });
+      checks.push({
+        id: "audio",
+        label: "Audio",
+        status: audio.status,
+        processor: audio.processor,
+        latencyMs: audio.metrics.latencyMs,
+        warnings: audio.warnings ?? [],
+      });
+    }
+
+    if (checks.length === 0) {
+      checks.push({
+        id: "runtime",
+        label: "Runtime",
+        status: "skipped",
+        processor: null,
+        latencyMs: null,
+        warnings: ["no_effects_enabled"],
+      });
+    }
+
+    const warnings = uniqueWarnings([
+      ...(session.warnings ?? []),
+      ...checks.flatMap((check) => check.warnings),
+    ]);
+
+    return {
+      status: preflightStatus(checks, warnings, session.mode),
+      checkedAt: new Date().toISOString(),
+      durationMs: Math.max(1, Math.round(performance.now() - startedAt)),
+      mode: session.mode,
+      checks,
+      warnings,
+      session,
+    };
+  } finally {
+    await stopAiSession(session.id);
+  }
+}
+
+function preflightStatus(
+  checks: AiPreflightResult["checks"],
+  warnings: string[],
+  mode: string,
+) {
+  if (checks.some((check) => check.status === "error")) return "failed";
+  const activeChecks = checks.filter((check) => check.status !== "skipped");
+  if (
+    activeChecks.length > 0 &&
+    activeChecks.every((check) => check.status === "processed")
+  ) {
+    return "passed";
+  }
+  if (mode === "development-passthrough" && warnings.length === 0)
+    return "passed";
+  return "warning";
+}
+
+function uniqueWarnings(values: string[]) {
+  const unique: string[] = [];
+  for (const value of values) {
+    if (value && !unique.includes(value)) unique.push(value);
+  }
+  return unique;
+}
+
+function legacyPreflightFrameDataUrl() {
+  return (
+    "data:image/jpeg;base64," +
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////" +
+    "2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/" +
+    "8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/" +
+    "9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/" +
+    "xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/" +
+    "EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH//EABQQAQAAAAAAAAAAAAAAAAAAABD/" +
+    "2gAIAQEAAT8QH//Z"
+  );
+}
+
+function legacySilentAudioBase64() {
+  const bytes = new Uint8Array(4096);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }
 
 export async function processAiFrame(

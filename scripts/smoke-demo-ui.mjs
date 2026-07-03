@@ -128,6 +128,12 @@ async function enterHostCall(page, meetingCode) {
   await expectVisibleText(page, "Sidecar");
   await expectVisibleText(page, "Cargar demo");
   await expectVisibleText(page, "Probar IA");
+  await clickByRole(page, "button", "Probar IA");
+  await expectAnyVisibleText(
+    page,
+    ["Prueba IA completada.", "Prueba IA completada con avisos."],
+    20_000,
+  );
   await clickByRole(page, "button", "Volver");
   await expectVisibleText(page, "Ajustes de cámara e identidad");
   await clickByRole(page, "button", "Entrar a la reunión");
@@ -154,6 +160,27 @@ async function expectVisibleText(page, text, timeout = 10_000) {
     .getByText(text, { exact: false })
     .first()
     .waitFor({ state: "visible", timeout });
+}
+
+async function expectAnyVisibleText(page, texts, timeout = 10_000) {
+  const deadline = Date.now() + timeout;
+  let lastError;
+
+  while (Date.now() < deadline) {
+    for (const text of texts) {
+      try {
+        await page
+          .getByText(text, { exact: false })
+          .first()
+          .waitFor({ state: "visible", timeout: 500 });
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+
+  throw lastError ?? new Error(`Expected one of: ${texts.join(", ")}`);
 }
 
 async function assertReachableApp() {
