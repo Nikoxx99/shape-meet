@@ -96,6 +96,7 @@ pnpm models:doctor
 pnpm models:runtime -- --face-command "python apps/ai-sidecar/wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}"
 pnpm demo:ui:install
 pnpm demo:ui
+pnpm demo:local-preview
 pnpm check:sentry
 
 SHAPE_SMOKE_API_URL=http://127.0.0.1:13000 \
@@ -170,6 +171,11 @@ invitado por enlace público, sala de espera, login de host, configuración de
 host, admisión y entrada de ambos participantes. Requiere que la desktop web
 esté viva en `http://localhost:1420` o en `SHAPE_DEMO_APP_URL`. En una máquina
 nueva corre primero `pnpm demo:ui:install`.
+
+`pnpm demo:local-preview` es el smoke más corto para máquinas sin Docker,
+Postgres ni LiveKit: levanta Vite y el sidecar IA demo en puertos libres, usa
+datos mock del cliente, abre Chromium con cámara falsa y confirma que la llamada
+muestre video `1280x720` procesado por el pipeline local de IA.
 
 Para desarrollo rápido por procesos locales:
 
