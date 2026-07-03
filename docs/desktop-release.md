@@ -57,10 +57,15 @@ Antes de empaquetar, valida el entorno local con:
 pnpm build:ai-sidecar
 pnpm desktop:doctor -- --strict
 pnpm build:desktop
+pnpm desktop:bundle:check
 ```
 
 El modo estricto falla si los binarios esperados no existen o están
 desactualizados frente a `server.py` / `shape_processor_command.py`.
+`desktop:bundle:check` valida el bundle ya generado. En macOS confirma `.app`,
+`.dmg`, `shape-ai-sidecar`, `shape-ai-processor` y esquemas
+`shapemeet://` / `shape-meet://`; en Windows confirma ejecutables y un
+instalador en `target/release/bundle`.
 
 ## Debug de hardware
 

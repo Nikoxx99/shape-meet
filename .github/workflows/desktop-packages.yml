@@ -62,6 +62,9 @@ jobs:
       - name: Build Tauri package
         run: pnpm --filter @shape-meet/desktop exec tauri build --config src-tauri/tauri.sidecar.conf.json ${{ matrix.tauriArgs }}
 
+      - name: Check desktop bundle contents
+        run: pnpm desktop:bundle:check
+
       - name: Upload desktop bundle
         uses: actions/upload-artifact@v4
         with:

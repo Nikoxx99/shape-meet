@@ -15,6 +15,7 @@
     "build:admin": "pnpm --filter @shape-meet/admin build",
     "check:native": "pnpm --filter @shape-meet/desktop check:native",
     "desktop:doctor": "node scripts/check-desktop-release.mjs",
+    "desktop:bundle:check": "node scripts/check-desktop-bundle.mjs",
     "check:coolify": "node scripts/check-coolify-config.mjs",
     "check:sentry": "node scripts/check-sentry-config.mjs",
     "coolify:env": "node scripts/render-coolify-env.mjs",
