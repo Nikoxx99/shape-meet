@@ -410,10 +410,10 @@ export function UsersClient() {
     try {
       const formData = new FormData();
       formData.set("userId", identityForm.userId);
-      formData.set("name", identityForm.name);
+      formData.set("name", identityForm.name.trim());
       formData.set("kind", identityForm.kind);
       formData.set("status", identityForm.status);
-      formData.set("version", identityForm.version);
+      formData.set("version", identityForm.version.trim());
       if (identityForm.artifactUri.trim())
         formData.set("artifactUri", identityForm.artifactUri.trim());
       if (identityForm.artifactSha256.trim())
@@ -1104,6 +1104,20 @@ function IdentityForm({
   onChange: (form: typeof initialIdentityForm) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const artifactSizeBytes = form.artifactSizeBytes.trim();
+  const canCreateIdentity =
+    hosts.length > 0 &&
+    Boolean(form.userId) &&
+    form.name.trim().length >= 3 &&
+    form.name.trim().length <= 120 &&
+    form.version.trim().length >= 1 &&
+    form.version.trim().length <= 40 &&
+    form.artifactUri.trim().length <= 500 &&
+    form.artifactSha256.trim().length <= 128 &&
+    (!artifactSizeBytes ||
+      (/^\d+$/.test(artifactSizeBytes) && Number(artifactSizeBytes) > 0)) &&
+    (!form.artifactFile || form.artifactFile.size > 0);
+
   return (
     <form className="modal-form" onSubmit={onSubmit}>
       <Field label="Host" icon={<User />}>
@@ -1127,6 +1141,8 @@ function IdentityForm({
       <Field label="Nombre" icon={<ShieldCheck />}>
         <input
           required
+          maxLength={120}
+          minLength={3}
           value={form.name}
           onChange={(event) => onChange({ ...form, name: event.target.value })}
         />
@@ -1163,6 +1179,7 @@ function IdentityForm({
       <Field label="Versión" icon={<Database />}>
         <input
           required
+          maxLength={40}
           value={form.version}
           onChange={(event) =>
             onChange({ ...form, version: event.target.value })
@@ -1187,6 +1204,7 @@ function IdentityForm({
       <Field label="URI del artefacto" icon={<CloudUpload />}>
         <input
           disabled={Boolean(form.artifactFile)}
+          maxLength={500}
           value={form.artifactUri}
           onChange={(event) =>
             onChange({ ...form, artifactUri: event.target.value })
@@ -1196,6 +1214,7 @@ function IdentityForm({
       <div className="modal-form-grid">
         <Field label="SHA256" icon={<KeyRound />}>
           <input
+            maxLength={128}
             value={form.artifactSha256}
             onChange={(event) =>
               onChange({ ...form, artifactSha256: event.target.value })
@@ -1206,7 +1225,7 @@ function IdentityForm({
           <input
             disabled={Boolean(form.artifactFile)}
             inputMode="numeric"
-            min="0"
+            min="1"
             type="number"
             value={form.artifactSizeBytes}
             onChange={(event) =>
@@ -1217,7 +1236,8 @@ function IdentityForm({
       </div>
       <button
         className="primary-button full"
-        disabled={saving || hosts.length === 0}
+        disabled={saving || !canCreateIdentity}
+        type="submit"
       >
         <Plus /> {saving ? "Agregando" : "Agregar rostro"}
       </button>
