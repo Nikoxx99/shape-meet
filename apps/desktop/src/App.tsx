@@ -18,6 +18,7 @@ import {
   MonitorUp,
   Phone,
   PhoneOff,
+  Plus,
   RefreshCw,
   ScreenShare,
   Send,
@@ -196,6 +197,7 @@ function canUseDemoHostFallback(error: unknown, identifier: string, password: st
 function canUseDemoRuntimeFallback(error: unknown) {
   if (!DEMO_DATA_ENABLED) return false;
   if (!(error instanceof ShapeApiError)) return true;
+  if (error.status === 404) return true;
   return error.status >= 500;
 }
 
@@ -236,6 +238,17 @@ function formatMeetingTime(value: string) {
     timeStyle: "short",
     timeZone: "America/Bogota"
   }).format(new Date(value));
+}
+
+function initials(value: string) {
+  const letters = value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase())
+    .join("");
+
+  return letters || "SM";
 }
 
 function formatCaptureTime(value: string) {
@@ -2181,6 +2194,14 @@ function ActiveCallScreen({
       ),
     [meeting.participants]
   );
+  const fallbackParticipants = useMemo(() => {
+    const activeIds = new Set(activeParticipants.map((participant) => participant.id));
+    const visibleWaitingParticipants = hostMode
+      ? waitingParticipants.filter((participant) => !activeIds.has(participant.id))
+      : [];
+
+    return [...activeParticipants, ...visibleWaitingParticipants].slice(0, 4);
+  }, [activeParticipants, hostMode, waitingParticipants]);
   const hostDisplayName = activeParticipants.find((participant) => participant.role === "host")?.displayName ?? "Host";
   const localDisplayName =
     meeting.participants.find((participant) => participant.id === liveKitConnection?.identity)?.displayName ??
@@ -2630,8 +2651,8 @@ function ActiveCallScreen({
     [aiSession, backgroundEnabled, faceEnabled, liveKitState, processedAudioRuntimeStatus?.latencyMs, processedAudioState, processedVideoState, voiceEnabled]
   );
   const fallbackTiles = useMemo(
-    () => activeParticipants.map((participant) => fallbackTileFromMeetingParticipant(participant, liveKitConnection?.identity ?? null, { faceEnabled, backgroundEnabled, voiceEnabled })),
-    [activeParticipants, backgroundEnabled, faceEnabled, liveKitConnection?.identity, voiceEnabled]
+    () => fallbackParticipants.map((participant) => fallbackTileFromMeetingParticipant(participant, liveKitConnection?.identity ?? null, { faceEnabled, backgroundEnabled, voiceEnabled })),
+    [backgroundEnabled, faceEnabled, fallbackParticipants, liveKitConnection?.identity, voiceEnabled]
   );
   const liveKitTiles = useMemo(
     () =>
@@ -2645,7 +2666,10 @@ function ActiveCallScreen({
     [backgroundEnabled, faceEnabled, hostMode, liveKitConnection?.identity, meeting, room, roomMediaVersion, voiceEnabled]
   );
   const visibleTiles = liveKitTiles.length > 0 ? liveKitTiles : fallbackTiles;
-  const visibleParticipantCount = Math.max(visibleTiles.length, activeParticipants.length);
+  const [primaryTile, ...secondaryTiles] = visibleTiles;
+  const secondaryPlaceholderCount = hostMode ? Math.max(0, 2 - secondaryTiles.length) : 0;
+  const hasSecondaryColumn = secondaryTiles.length > 0 || secondaryPlaceholderCount > 0;
+  const visibleParticipantCount = Math.max(activeParticipants.length, 1);
   const liveKitDiagnosticDetail = liveKitState === "error" || liveKitState === "offline" || liveKitWarning ? liveKitError : null;
 
   return (
@@ -2661,23 +2685,29 @@ function ActiveCallScreen({
         <div className="top-actions">
           <Button variant={sideTab === "participants" ? "soft" : "ghost"} icon={<Users />} onClick={() => setSideTab("participants")}>Participantes</Button>
           <Button variant={sideTab === "chat" ? "soft" : "ghost"} icon={<Send />} onClick={() => setSideTab("chat")}>Chat</Button>
+          <Button variant={callDiagnosticsOpen ? "soft" : "ghost"} icon={<Settings />} onClick={() => setCallDiagnosticsOpen((value) => !value)}>Más</Button>
         </div>
       </header>
       <div className="call-body">
         <section className="call-stage">
-          <div className={visibleTiles.length === 1 ? "video-grid single" : "video-grid"}>
-            {visibleTiles.map((participant, index) => (
-              <VideoTile
-                key={participant.id}
-                primary={index === 0}
-                tile={participant}
-              />
-            ))}
+          <div className={hasSecondaryColumn ? "video-grid" : "video-grid single"}>
+            {primaryTile ? <VideoTile primary tile={primaryTile} /> : null}
+            {hasSecondaryColumn ? (
+              <div className="secondary-video-stack">
+                {secondaryTiles.map((participant) => (
+                  <VideoTile key={participant.id} tile={participant} />
+                ))}
+                {Array.from({ length: secondaryPlaceholderCount }).map((_, index) => (
+                  <EmptyVideoSlot key={`empty-slot-${index}`} />
+                ))}
+              </div>
+            ) : null}
           </div>
           <RemoteAudioTracks tiles={visibleTiles} speakerId={deviceSelection.speakerId} />
           <div className="call-controls">
             <CircleButton active={micEnabled} icon={micEnabled ? <Mic /> : <MicOff />} onClick={onToggleMic} />
             <CircleButton active={cameraEnabled} icon={cameraEnabled ? <Video /> : <VideoOff />} onClick={onToggleCamera} />
+            <CircleButton active={sideTab === "participants"} icon={<Users />} title="Participantes" onClick={() => setSideTab("participants")} />
             <CircleButton
               active={screenShareEnabled}
               disabled={!room || screenShareState === "starting"}
@@ -2699,97 +2729,90 @@ function ActiveCallScreen({
             <button className={sideTab === "participants" ? "active" : ""} onClick={() => setSideTab("participants")}>Participantes</button>
             <button className={sideTab === "chat" ? "active" : ""} onClick={() => setSideTab("chat")}>Chat</button>
           </div>
-          {sideTab === "participants" ? (
-            <>
-              <Panel title="Participantes">
-                {activeParticipants.map((participant) => (
-                  <ParticipantLine key={participant.id} name={participant.displayName} meta={participant.role === "host" ? "Host" : "Invitada"} />
-                ))}
-              </Panel>
-              {hostMode && waitingParticipants.length > 0 ? (
-                <Panel title="Sala de espera">
-                  {waitingParticipants.map((participant) => (
-                    <WaitingParticipantLine
-                      key={participant.id}
-                      participant={participant}
-                      onAdmit={() => onAdmitParticipant(participant.id)}
-                    />
-                  ))}
-                </Panel>
-              ) : null}
-            </>
-          ) : (
-            <Panel title="Chat">
-              <div className="chat-list">
-                {chatMessages.length > 0 ? (
-                  chatMessages.map((message) => <ChatBubble key={message.id} message={message} />)
-                ) : (
-                  <div className="chat-empty">No hay mensajes.</div>
-                )}
-              </div>
-              {chatError ? <InlineNotice icon={<ShieldAlert />}>{chatError}</InlineNotice> : null}
-              <form
-                className="chat-compose"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void handleSendChatMessage();
-                }}
-              >
-                <input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Mensaje" />
-                <button disabled={!chatDraft.trim()} type="submit">
-                  <Send />
-                </button>
-              </form>
-            </Panel>
-          )}
-          <details
-            className="panel debug-details call-diagnostics"
-            open={callDiagnosticsOpen}
-            onToggle={(event) => setCallDiagnosticsOpen(event.currentTarget.open)}
-          >
-            <summary>Diagnóstico</summary>
-            <div className="debug-details-body">
-              {metrics.map((metric) => (
-                <StatusRow key={metric.label} label={metric.label} value={metric.value} tone={metric.state} />
-              ))}
-              <StatusRow
-                label="Pantalla"
-                value={screenShareState === "sharing" ? "Compartiendo" : screenShareState === "starting" ? "Iniciando" : screenShareState === "error" ? "Error" : "Sin compartir"}
-                tone={screenShareState === "sharing" ? "ok" : screenShareState === "error" ? "warning" : "idle"}
+          <Panel title="Participantes">
+            {activeParticipants.map((participant) => (
+              <ParticipantLine key={participant.id} name={participant.displayName} meta={participant.role === "host" ? "Host" : "Invitada"} />
+            ))}
+            {hostMode && waitingParticipants.map((participant) => (
+              <WaitingParticipantLine
+                key={participant.id}
+                participant={participant}
+                onAdmit={() => onAdmitParticipant(participant.id)}
               />
-              {hostMode ? (
-                <StatusRow
-                  label="IA local"
-                  value={aiSessionError ? "Error de sesión" : aiSession ? `${aiSession.metrics.fps} FPS · ${aiSession.metrics.latencyMs} ms` : "Iniciando sesión"}
-                  tone={aiSessionError ? "warning" : aiSession ? "ok" : "idle"}
-                />
-              ) : null}
-              {processedRuntimeStatus ? (
-                <StatusRow
-                  label="Bridge"
-                  value={processedRuntimeStatus.latencyMs ? `${processedRuntimeStatus.latencyMs} ms · ${processedRuntimeStatus.mode}` : processedRuntimeStatus.message}
-                  tone={processedRuntimeStatus.state === "processing" ? "ok" : processedRuntimeStatus.state === "fallback" ? "warning" : "idle"}
-                />
-              ) : null}
-              {processedAudioRuntimeStatus ? (
-                <StatusRow
-                  label="Bridge voz"
-                  value={
-                    processedAudioRuntimeStatus.latencyMs
-                      ? `${processedAudioRuntimeStatus.latencyMs} ms · ${processedAudioRuntimeStatus.processor ?? processedAudioRuntimeStatus.mode}`
-                      : processedAudioRuntimeStatus.message
-                  }
-                  tone={processedAudioRuntimeStatus.state === "processing" ? "ok" : processedAudioRuntimeStatus.state === "fallback" ? "warning" : "idle"}
-                />
-              ) : null}
-              {liveKitDiagnosticDetail ? <StatusRow label="LiveKit" value={liveKitDiagnosticDetail} tone="warning" /> : null}
-              {mediaSyncError ? <StatusRow label="Servidor" value={mediaSyncError} tone="warning" /> : null}
-              {callActionError ? <StatusRow label="Acción" value={callActionError} tone="warning" /> : null}
-              {processedRuntimeStatus?.lastError ? <StatusRow label="Frames" value={processedRuntimeStatus.lastError} tone="warning" /> : null}
-              {processedAudioRuntimeStatus?.lastError ? <StatusRow label="Voz" value={processedAudioRuntimeStatus.lastError} tone="warning" /> : null}
-              {aiSessionError ? <StatusRow label="Sidecar" value={aiSessionError} tone="warning" /> : null}
+            ))}
+          </Panel>
+          <Panel title="Chat de reunión">
+            <div className="chat-list">
+              {chatMessages.length > 0 ? (
+                chatMessages.map((message) => <ChatBubble key={message.id} message={message} />)
+              ) : (
+                <div className="chat-empty">Sin mensajes.</div>
+              )}
             </div>
-          </details>
+            {chatError ? <InlineNotice icon={<ShieldAlert />}>{chatError}</InlineNotice> : null}
+            <form
+              className="chat-compose"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSendChatMessage();
+              }}
+            >
+              <input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Mensaje" />
+              <button disabled={!chatDraft.trim()} type="submit">
+                <Send />
+              </button>
+            </form>
+          </Panel>
+          {callDiagnosticsOpen ? (
+            <details
+              className="panel debug-details call-diagnostics"
+              open={callDiagnosticsOpen}
+              onToggle={(event) => setCallDiagnosticsOpen(event.currentTarget.open)}
+            >
+              <summary>Diagnóstico</summary>
+              <div className="debug-details-body">
+                {metrics.map((metric) => (
+                  <StatusRow key={metric.label} label={metric.label} value={metric.value} tone={metric.state} />
+                ))}
+                <StatusRow
+                  label="Pantalla"
+                  value={screenShareState === "sharing" ? "Compartiendo" : screenShareState === "starting" ? "Iniciando" : screenShareState === "error" ? "Error" : "Sin compartir"}
+                  tone={screenShareState === "sharing" ? "ok" : screenShareState === "error" ? "warning" : "idle"}
+                />
+                {hostMode ? (
+                  <StatusRow
+                    label="IA local"
+                    value={aiSessionError ? "Error de sesión" : aiSession ? `${aiSession.metrics.fps} FPS · ${aiSession.metrics.latencyMs} ms` : "Iniciando sesión"}
+                    tone={aiSessionError ? "warning" : aiSession ? "ok" : "idle"}
+                  />
+                ) : null}
+                {processedRuntimeStatus ? (
+                  <StatusRow
+                    label="Bridge"
+                    value={processedRuntimeStatus.latencyMs ? `${processedRuntimeStatus.latencyMs} ms · ${processedRuntimeStatus.mode}` : processedRuntimeStatus.message}
+                    tone={processedRuntimeStatus.state === "processing" ? "ok" : processedRuntimeStatus.state === "fallback" ? "warning" : "idle"}
+                  />
+                ) : null}
+                {processedAudioRuntimeStatus ? (
+                  <StatusRow
+                    label="Bridge voz"
+                    value={
+                      processedAudioRuntimeStatus.latencyMs
+                        ? `${processedAudioRuntimeStatus.latencyMs} ms · ${processedAudioRuntimeStatus.processor ?? processedAudioRuntimeStatus.mode}`
+                        : processedAudioRuntimeStatus.message
+                    }
+                    tone={processedAudioRuntimeStatus.state === "processing" ? "ok" : processedAudioRuntimeStatus.state === "fallback" ? "warning" : "idle"}
+                  />
+                ) : null}
+                {liveKitDiagnosticDetail ? <StatusRow label="LiveKit" value={liveKitDiagnosticDetail} tone="warning" /> : null}
+                {mediaSyncError ? <StatusRow label="Servidor" value={mediaSyncError} tone="warning" /> : null}
+                {callActionError ? <StatusRow label="Acción" value={callActionError} tone="warning" /> : null}
+                {processedRuntimeStatus?.lastError ? <StatusRow label="Frames" value={processedRuntimeStatus.lastError} tone="warning" /> : null}
+                {processedAudioRuntimeStatus?.lastError ? <StatusRow label="Voz" value={processedAudioRuntimeStatus.lastError} tone="warning" /> : null}
+                {aiSessionError ? <StatusRow label="Sidecar" value={aiSessionError} tone="warning" /> : null}
+              </div>
+            </details>
+          ) : null}
         </aside>
       </div>
     </section>
@@ -3256,8 +3279,8 @@ function VideoTile({
       {tile.videoTrack && tile.cameraOn ? (
         <video className="tile-video" muted playsInline ref={videoRef} />
       ) : tile.cameraOn ? (
-        <div className="tile-placeholder">
-          <RefreshCw />
+        <div className="tile-avatar">
+          {initials(tile.label)}
         </div>
       ) : (
         <div className="tile-placeholder">
@@ -3276,6 +3299,20 @@ function VideoTile({
             <span className={tile.effects.voiceEnabled ? "on" : ""} />
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EmptyVideoSlot() {
+  return (
+    <div className="video-tile empty-video-slot">
+      <div className="empty-slot-icon">
+        <Plus />
+      </div>
+      <div className="empty-slot-copy">
+        <strong>Espacio disponible</strong>
+        <span>Invitado pendiente</span>
       </div>
     </div>
   );
