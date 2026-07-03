@@ -22,7 +22,14 @@ pnpm check:coolify infra/env.local.example
 docker compose -p shape-meet-local -f infra/docker-compose.coolify.yml up -d --build
 ```
 
-En otra terminal, deja vivo el sidecar:
+En otra terminal, deja vivo el sidecar. Para demo visible sin modelos reales,
+usa:
+
+```bash
+pnpm dev:ai:demo
+```
+
+Para desarrollo passthrough sin procesadores demo:
 
 ```bash
 python3 apps/ai-sidecar/server.py --port 7851
@@ -85,6 +92,8 @@ probar sidecar/procesadores antes de conectar FaceFusion, BackgroundMattingV2 o
 vcclient000. Usa `--dry-run` para ver el archivo sin escribirlo. En desarrollo
 usa el script Python fuente cuando el binario empaquetado está desactualizado;
 usa `--prefer-bundled` para forzar el binario local.
+`pnpm dev:ai:demo` levanta el sidecar en ese mismo modo demo sin depender de
+Tauri ni de `shape-ai-runtime.env`.
 
 Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`
 y volver a la llamada. Esa ruta escribe el mismo archivo runtime desde la app y

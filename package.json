@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @shape-meet/desktop --filter @shape-meet/admin dev",
     "dev:ai": "python3 apps/ai-sidecar/server.py --port 7851",
+    "dev:ai:demo": "node scripts/run-demo-ai-sidecar.mjs",
     "dev:desktop": "pnpm --filter @shape-meet/desktop tauri:dev",
     "dev:admin": "pnpm --filter @shape-meet/admin dev",
     "build:ai-sidecar": "pnpm --filter @shape-meet/desktop sidecar:build",
@@ -27,6 +28,7 @@
     "smoke:ai-contract": "node scripts/smoke-ai-sidecar-contract.mjs",
     "smoke:ai-demo": "node scripts/smoke-ai-demo-processor.mjs",
     "smoke:ai-runtime": "node scripts/smoke-ai-runtime-env.mjs",
+    "smoke:ai-demo-sidecar": "node scripts/smoke-ai-demo-sidecar-runner.mjs",
     "smoke:ai-managed": "node scripts/smoke-ai-managed-processors.mjs",
     "smoke:ai-command": "node scripts/smoke-ai-command-adapters.mjs",
     "smoke:ai-stage-command": "node scripts/smoke-ai-stage-commands.mjs",

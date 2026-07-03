@@ -8,6 +8,12 @@ En desarrollo corre sin dependencias externas:
 python3 apps/ai-sidecar/server.py --port 7851
 ```
 
+Para enseñar el demo local con procesadores visuales sin modelos reales:
+
+```bash
+pnpm dev:ai:demo
+```
+
 Dentro de Tauri, la pantalla de prueba de equipo puede iniciar este proceso
 automáticamente. Define `SHAPE_AI_SIDECAR_COMMAND` para usar un comando completo,
 `SHAPE_AI_SIDECAR_BIN` para un binario empaquetado o `SHAPE_AI_SIDECAR_SCRIPT`
@@ -182,6 +188,7 @@ Smoke automatizado del contrato de adaptadores:
 pnpm smoke:ai-contract
 pnpm smoke:ai-demo
 pnpm smoke:ai-runtime
+pnpm smoke:ai-demo-sidecar
 pnpm smoke:ai-managed
 pnpm smoke:ai-command
 pnpm smoke:ai-stage-command
@@ -194,6 +201,8 @@ fondo, flags activos y datos procesables.
 
 `smoke:ai-managed` valida además que el sidecar pueda iniciar procesadores por
 comando, reportarlos en diagnostics y delegar frame/audio a esos procesos.
+`smoke:ai-demo-sidecar` valida que `pnpm dev:ai:demo` arranque el sidecar con
+procesadores demo gestionados y que `/preflight` use esos procesadores.
 `smoke:ai-command` valida la ruta completa usando el adaptador de comandos:
 sidecar gestionado -> procesador HTTP -> comando de modelo -> output procesado.
 `smoke:ai-stage-command` valida la ruta de comandos separados para
