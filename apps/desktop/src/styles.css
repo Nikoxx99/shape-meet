@@ -1,6 +1,12 @@
 :root {
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   color: #0f172a;
   background: #f8fafc;
   font-synthesis: none;
@@ -648,6 +654,78 @@ svg {
 .detail-layout .participant-avatar {
   width: 38px;
   height: 38px;
+}
+
+.runtime-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 28px;
+  padding: 32px;
+  align-items: start;
+}
+
+.runtime-panel {
+  min-height: calc(100vh - 136px);
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.runtime-side {
+  align-self: start;
+  max-height: calc(100vh - 136px);
+  overflow-y: auto;
+}
+
+.runtime-editor-field {
+  display: grid;
+  gap: 8px;
+}
+
+.runtime-editor-field > span {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.runtime-editor {
+  width: 100%;
+  height: 278px;
+  resize: vertical;
+  border: 1px solid #dde6f3;
+  border-radius: 8px;
+  padding: 14px;
+  color: #0f172a;
+  background: #f8fafc;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.runtime-key-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.runtime-key-list span {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  padding: 0 9px;
+  color: #2563eb;
+  background: #eff6ff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.runtime-actions {
+  justify-content: flex-start;
 }
 
 .meeting-list {
@@ -1597,14 +1675,17 @@ svg {
 
   .workbench,
   .split-grid,
+  .runtime-grid,
   .call-body {
     grid-template-columns: 1fr;
   }
 
   .settings-column,
   .side-panel,
+  .runtime-side,
   .call-side {
     width: auto;
+    max-height: none;
   }
 
   .video-grid {

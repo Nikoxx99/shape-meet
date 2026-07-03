@@ -122,6 +122,12 @@ async function enterHostCall(page, meetingCode) {
   await clickByRole(page, "button", "Configurar como host");
   await expectVisibleText(page, "Ajustes de cámara e identidad");
   await expectVisibleText(page, "Rostro demo aprobado");
+  await clickByRole(page, "button", "Runtime IA local");
+  await expectVisibleText(page, "Runtime IA local");
+  await expectVisibleText(page, "Variables");
+  await expectVisibleText(page, "Sidecar");
+  await clickByRole(page, "button", "Volver");
+  await expectVisibleText(page, "Ajustes de cámara e identidad");
   await clickByRole(page, "button", "Entrar a la reunión");
   await expectVisibleText(page, meetingCode, 20_000);
   await expectVisibleText(page, guestName, 20_000);

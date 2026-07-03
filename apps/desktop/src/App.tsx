@@ -31,7 +31,7 @@ import {
   Video,
   VideoOff,
   Volume2,
-  Wand2
+  Wand2,
 } from "lucide-react";
 import {
   defaultPipelineMetrics,
@@ -44,10 +44,21 @@ import {
   type Meeting,
   type MeetingCreateInput,
   type PipelineMetric,
-  type ShapeUser
+  type ShapeUser,
 } from "@shape-meet/shared";
-import { RoomEvent, Track, type AudioCaptureOptions, type Participant, type Room, type TrackPublication, type VideoCaptureOptions } from "livekit-client";
-import { getCurrent as getCurrentDeepLinks, onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import {
+  RoomEvent,
+  Track,
+  type AudioCaptureOptions,
+  type Participant,
+  type Room,
+  type TrackPublication,
+  type VideoCaptureOptions,
+} from "livekit-client";
+import {
+  getCurrent as getCurrentDeepLinks,
+  onOpenUrl,
+} from "@tauri-apps/plugin-deep-link";
 import {
   ShapeApiError,
   admitMeetingParticipant,
@@ -65,9 +76,16 @@ import {
   loginHost,
   requestMeetingAccess,
   requestMeetingToken,
-  updateMeetingParticipantMedia
+  updateMeetingParticipantMedia,
 } from "./lib/api";
-import { getAiSession, startAiSession, stopAiSession, type AiSession } from "./lib/aiSidecar";
+import {
+  getAiDiagnostics,
+  getAiSession,
+  startAiSession,
+  stopAiSession,
+  type AiDiagnostics,
+  type AiSession,
+} from "./lib/aiSidecar";
 import { connectLiveKitRoom } from "./lib/livekit";
 import {
   cacheIdentityArtifact,
@@ -75,26 +93,37 @@ import {
   captureNativeDebugEvent,
   exportDebugBundle,
   getAiSidecarRuntime,
+  getAiRuntimeEnv,
   getAiServiceStatus,
   getGpuProfile,
   getObservabilityStatus,
+  saveAiRuntimeEnv,
   startAiSidecar,
   stopAiSidecar,
+  type NativeAiRuntimeEnvFile,
   type NativeAiSidecarRuntime,
   type NativeIdentityArtifactCacheResult,
   type NativeAiServiceStatus,
   type NativeGpuProfile,
-  type NativeObservabilityStatus
+  type NativeObservabilityStatus,
 } from "./lib/native";
-import { createProcessedAudioPipeline, type ProcessedAudioPipeline, type ProcessedAudioRuntimeStatus } from "./lib/processedAudio";
-import { createProcessedVideoPipeline, type ProcessedVideoPipeline, type ProcessedVideoRuntimeStatus } from "./lib/processedVideo";
+import {
+  createProcessedAudioPipeline,
+  type ProcessedAudioPipeline,
+  type ProcessedAudioRuntimeStatus,
+} from "./lib/processedAudio";
+import {
+  createProcessedVideoPipeline,
+  type ProcessedVideoPipeline,
+  type ProcessedVideoRuntimeStatus,
+} from "./lib/processedVideo";
 import {
   normalizeDeviceSelection,
   readStoredDeviceSelection,
   useMediaDevices,
   writeStoredDeviceSelection,
   type DeviceSelection,
-  type MediaDeviceChoice
+  type MediaDeviceChoice,
 } from "./lib/useMediaDevices";
 import { useCameraPreview } from "./lib/useCameraPreview";
 
@@ -111,13 +140,17 @@ type Route =
   | "created"
   | "device-test"
   | "host-settings"
+  | "ai-runtime"
   | "background-calibration"
   | "waiting"
   | "call";
 
 type LiveKitVideoTrack = NonNullable<TrackPublication["videoTrack"]>;
 type LiveKitAudioTrack = NonNullable<TrackPublication["audioTrack"]>;
-type DeviceChoices = Record<"audioinput" | "audiooutput" | "videoinput", MediaDeviceChoice[]>;
+type DeviceChoices = Record<
+  "audioinput" | "audiooutput" | "videoinput",
+  MediaDeviceChoice[]
+>;
 
 interface CallTile {
   id: string;
@@ -130,7 +163,11 @@ interface CallTile {
   micOn: boolean;
   videoTrack?: LiveKitVideoTrack;
   audioTrack?: LiveKitAudioTrack;
-  effects?: { faceEnabled: boolean; backgroundEnabled: boolean; voiceEnabled: boolean };
+  effects?: {
+    faceEnabled: boolean;
+    backgroundEnabled: boolean;
+    voiceEnabled: boolean;
+  };
 }
 
 interface CallChatMessage {
@@ -150,16 +187,25 @@ interface BackgroundCalibration {
   cameraDeviceId: string;
 }
 
-const DEMO_DATA_ENABLED = import.meta.env.DEV && (import.meta.env.VITE_SHAPE_DEMO_DATA as string | undefined) === "true";
+const DEMO_DATA_ENABLED =
+  import.meta.env.DEV &&
+  (import.meta.env.VITE_SHAPE_DEMO_DATA as string | undefined) === "true";
 const initialMeetings = DEMO_DATA_ENABLED ? mockMeetings : [];
 const initialIdentities = DEMO_DATA_ENABLED ? mockIdentities : [];
 const initialDeepLinkCode = readMeetingCodeFromLocation();
 const initialMeeting = initialDeepLinkCode
-  ? initialMeetings.find((meeting) => meeting.code === initialDeepLinkCode) ?? null
-  : initialMeetings[0] ?? null;
-const initialIdentity = initialIdentities.find((identity) => identity.deliveryStatus === "PUSHED") ?? initialIdentities[0] ?? null;
-const configuredHostIdentifier = (import.meta.env.VITE_SHAPE_HOST_IDENTIFIER as string | undefined)?.trim();
-const initialHostIdentifier = configuredHostIdentifier || (DEMO_DATA_ENABLED ? "nicolas@luxora.co" : "");
+  ? (initialMeetings.find((meeting) => meeting.code === initialDeepLinkCode) ??
+    null)
+  : (initialMeetings[0] ?? null);
+const initialIdentity =
+  initialIdentities.find((identity) => identity.deliveryStatus === "PUSHED") ??
+  initialIdentities[0] ??
+  null;
+const configuredHostIdentifier = (
+  import.meta.env.VITE_SHAPE_HOST_IDENTIFIER as string | undefined
+)?.trim();
+const initialHostIdentifier =
+  configuredHostIdentifier || (DEMO_DATA_ENABLED ? "nicolas@luxora.co" : "");
 const initialGuestName = DEMO_DATA_ENABLED ? "Maria R." : "";
 const initialGuestEmail = DEMO_DATA_ENABLED ? "maria@luxora.co" : "";
 const CALL_CHAT_TOPIC = "shape-meet.chat.v1";
@@ -180,7 +226,7 @@ function readMeetingCodeFromUrl(rawUrl: string) {
       url.pathname,
       url.hash,
       url.searchParams.get("code") ?? "",
-      url.searchParams.get("meeting") ?? ""
+      url.searchParams.get("meeting") ?? "",
     );
   } catch {
     // Plain pasted codes are still valid and handled below.
@@ -217,10 +263,19 @@ function findInitialMeeting(codeOrUrl: string) {
   return initialMeetings.find((meeting) => meeting.code === code) ?? null;
 }
 
-function canUseDemoHostFallback(error: unknown, identifier: string, password: string) {
+function canUseDemoHostFallback(
+  error: unknown,
+  identifier: string,
+  password: string,
+) {
   if (!DEMO_DATA_ENABLED) return false;
   if (error instanceof ShapeApiError && error.code === "NOT_HOST") return false;
-  if (error instanceof ShapeApiError && error.status !== 401 && error.status < 500) return false;
+  if (
+    error instanceof ShapeApiError &&
+    error.status !== 401 &&
+    error.status < 500
+  )
+    return false;
   if (password.length < 8) return false;
 
   const normalized = identifier.trim().toLowerCase();
@@ -234,10 +289,14 @@ function canUseDemoRuntimeFallback(error: unknown) {
   return error.status >= 500;
 }
 
-function createDemoMeeting(input: MeetingCreateInput, host: ShapeUser | null): Meeting {
+function createDemoMeeting(
+  input: MeetingCreateInput,
+  host: ShapeUser | null,
+): Meeting {
   const now = Date.now();
   const suffix = String(now % 1000000).padStart(6, "0");
-  const hostUser = host ?? mockUsers.find((user) => user.rank === "HOST") ?? mockUsers[0]!;
+  const hostUser =
+    host ?? mockUsers.find((user) => user.rank === "HOST") ?? mockUsers[0]!;
 
   return {
     id: `meet_demo_${now}`,
@@ -257,18 +316,27 @@ function createDemoMeeting(input: MeetingCreateInput, host: ShapeUser | null): M
         role: "host",
         mic: "on",
         camera: "on",
-        aiEffects: { faceSwap: false, background: true, voice: false }
-      }
-    ]
+        aiEffects: { faceSwap: false, background: true, voice: false },
+      },
+    ],
   };
 }
 
-function createDemoWaitingAccess(meeting: Meeting, input: { displayName: string; email?: string | null; camera: boolean; microphone: boolean }) {
+function createDemoWaitingAccess(
+  meeting: Meeting,
+  input: {
+    displayName: string;
+    email?: string | null;
+    camera: boolean;
+    microphone: boolean;
+  },
+) {
   const normalizedEmail = input.email?.trim().toLowerCase() || null;
   const normalizedName = input.displayName.trim().toLowerCase();
   const existingParticipant = meeting.participants.find((participant) => {
     if (participant.role === "host") return false;
-    if (normalizedEmail && participant.email?.toLowerCase() === normalizedEmail) return true;
+    if (normalizedEmail && participant.email?.toLowerCase() === normalizedEmail)
+      return true;
     return participant.displayName.trim().toLowerCase() === normalizedName;
   });
   const participantId = existingParticipant?.id ?? `guest_demo_${Date.now()}`;
@@ -277,14 +345,16 @@ function createDemoWaitingAccess(meeting: Meeting, input: { displayName: string;
     displayName: input.displayName,
     email: input.email || null,
     role: "guest" as const,
-    mic: input.microphone ? "on" as const : "muted" as const,
-    camera: input.camera ? "on" as const : "off" as const,
+    mic: input.microphone ? ("on" as const) : ("muted" as const),
+    camera: input.camera ? ("on" as const) : ("off" as const),
     admittedAt: existingParticipant?.admittedAt ?? null,
     joinedAt: null,
-    leftAt: null
+    leftAt: null,
   };
   const participants = existingParticipant
-    ? meeting.participants.map((item) => (item.id === participantId ? { ...item, ...participant } : item))
+    ? meeting.participants.map((item) =>
+        item.id === participantId ? { ...item, ...participant } : item,
+      )
     : [...meeting.participants, participant];
 
   return {
@@ -292,8 +362,8 @@ function createDemoWaitingAccess(meeting: Meeting, input: { displayName: string;
     meeting: {
       ...meeting,
       status: "WAITING" as const,
-      participants
-    }
+      participants,
+    },
   };
 }
 
@@ -303,7 +373,7 @@ function formatMeetingTime(value: string) {
   return new Intl.DateTimeFormat("es-CO", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "America/Bogota"
+    timeZone: "America/Bogota",
   }).format(new Date(value));
 }
 
@@ -319,11 +389,16 @@ function initials(value: string) {
 }
 
 function meetingHostName(meeting: Meeting) {
-  return meeting.participants.find((participant) => participant.role === "host")?.displayName ?? "Host";
+  return (
+    meeting.participants.find((participant) => participant.role === "host")
+      ?.displayName ?? "Host"
+  );
 }
 
 function meetingGuestNames(meeting: Meeting) {
-  const guests = meeting.participants.filter((participant) => participant.role !== "host").map((participant) => participant.displayName);
+  const guests = meeting.participants
+    .filter((participant) => participant.role !== "host")
+    .map((participant) => participant.displayName);
   return guests.length > 0 ? guests.join(", ") : "Sin invitados";
 }
 
@@ -344,22 +419,60 @@ function gpuDeviceLabel(profile: NativeGpuProfile | null) {
   const primary = profile?.devices[0];
   if (!primary) return null;
 
-  const total = primary.memoryTotalMb ? `${Math.round(primary.memoryTotalMb / 1024)} GB` : null;
+  const total = primary.memoryTotalMb
+    ? `${Math.round(primary.memoryTotalMb / 1024)} GB`
+    : null;
   return total ? `${primary.name} · ${total}` : primary.name;
 }
 
 function gpuVramLabel(profile: NativeGpuProfile | null) {
   if (!profile?.totalVramMb) return null;
   const total = `${Math.round(profile.totalVramMb / 1024)} GB`;
-  const free = profile.freeVramMb ? `${Math.round(profile.freeVramMb / 1024)} GB libres` : null;
+  const free = profile.freeVramMb
+    ? `${Math.round(profile.freeVramMb / 1024)} GB libres`
+    : null;
   return free ? `${total} · ${free}` : total;
 }
 
 function gpuCudaLabel(profile: NativeGpuProfile | null) {
   if (!profile) return null;
-  if (profile.cudaVersion) return `CUDA ${profile.cudaVersion}${profile.driverVersion ? ` · Driver ${profile.driverVersion}` : ""}`;
-  if (profile.nvidiaSmiAvailable) return profile.driverVersion ? `Driver ${profile.driverVersion}` : "Sin CUDA reportada";
+  if (profile.cudaVersion)
+    return `CUDA ${profile.cudaVersion}${profile.driverVersion ? ` · Driver ${profile.driverVersion}` : ""}`;
+  if (profile.nvidiaSmiAvailable)
+    return profile.driverVersion
+      ? `Driver ${profile.driverVersion}`
+      : "Sin CUDA reportada";
   return null;
+}
+
+function serviceTone(online?: boolean): "ok" | "warning" | "idle" {
+  if (online === undefined) return "idle";
+  return online ? "ok" : "warning";
+}
+
+function statusTone(status?: string | null): "ok" | "warning" | "idle" {
+  if (!status) return "idle";
+  const normalized = status.toLowerCase();
+  if (["ready", "running", "standby", "ok", "healthy"].includes(normalized))
+    return "ok";
+  if (
+    [
+      "offline",
+      "error",
+      "failed",
+      "missing",
+      "limited",
+      "stopped",
+      "dead",
+    ].includes(normalized)
+  )
+    return "warning";
+  return "idle";
+}
+
+function boolStatus(value?: boolean) {
+  if (value === undefined) return "Detectando";
+  return value ? "Activo" : "Inactivo";
 }
 
 type AgendaFilter = "today" | "week" | "all";
@@ -367,14 +480,14 @@ type AgendaFilter = "today" | "week" | "all";
 const agendaFilters: { id: AgendaFilter; label: string }[] = [
   { id: "today", label: "Hoy" },
   { id: "week", label: "Semana" },
-  { id: "all", label: "Todas" }
+  { id: "all", label: "Todas" },
 ];
 
 const bogotaDayFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Bogota",
   year: "numeric",
   month: "2-digit",
-  day: "2-digit"
+  day: "2-digit",
 });
 
 const bogotaDateTimeFormatter = new Intl.DateTimeFormat("en-CA", {
@@ -384,7 +497,7 @@ const bogotaDateTimeFormatter = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
   hour: "2-digit",
   minute: "2-digit",
-  hour12: false
+  hour12: false,
 });
 
 function parseMeetingDate(value: string | Date) {
@@ -414,14 +527,20 @@ function meetingDayKey(value: string | Date) {
 }
 
 function bogotaDateTimeInputValue(value: Date) {
-  const parts = Object.fromEntries(bogotaDateTimeFormatter.formatToParts(value).map((part) => [part.type, part.value]));
+  const parts = Object.fromEntries(
+    bogotaDateTimeFormatter
+      .formatToParts(value)
+      .map((part) => [part.type, part.value]),
+  );
   const hour = parts.hour === "24" ? "00" : parts.hour;
   return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`;
 }
 
 function bogotaDateTimeInputToIso(value: string) {
   const parsed = new Date(`${value}:00-05:00`);
-  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : new Date().toISOString();
+  return Number.isFinite(parsed.getTime())
+    ? parsed.toISOString()
+    : new Date().toISOString();
 }
 
 function defaultMeetingStartInput() {
@@ -458,8 +577,11 @@ function filterAgendaMeetings(meetings: Meeting[], filter: AgendaFilter) {
 }
 
 function meetingShareUrl(code: string) {
-  const configuredUrl = (import.meta.env.VITE_SHAPE_MEETING_URL as string | undefined) ?? (import.meta.env.VITE_SHAPE_APP_URL as string | undefined);
-  const baseUrl = configuredUrl?.replace(/\/$/, "") || "https://meet.shape.local";
+  const configuredUrl =
+    (import.meta.env.VITE_SHAPE_MEETING_URL as string | undefined) ??
+    (import.meta.env.VITE_SHAPE_APP_URL as string | undefined);
+  const baseUrl =
+    configuredUrl?.replace(/\/$/, "") || "https://meet.shape.local";
   return `${baseUrl}/r/${code}`;
 }
 
@@ -470,7 +592,7 @@ function isLikelyEmail(value: string) {
 function videoCaptureOptions(deviceId: string): VideoCaptureOptions {
   return {
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-    resolution: { width: 1280, height: 720, frameRate: 30 }
+    resolution: { width: 1280, height: 720, frameRate: 30 },
   };
 }
 
@@ -479,7 +601,7 @@ function audioCaptureOptions(deviceId: string): AudioCaptureOptions {
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
     echoCancellation: true,
     noiseSuppression: true,
-    autoGainControl: true
+    autoGainControl: true,
   };
 }
 
@@ -488,7 +610,7 @@ function mediaTrackAudioConstraints(deviceId: string): MediaTrackConstraints {
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
     echoCancellation: true,
     noiseSuppression: true,
-    autoGainControl: true
+    autoGainControl: true,
   };
 }
 
@@ -497,11 +619,14 @@ function mediaTrackVideoConstraints(deviceId: string): MediaTrackConstraints {
     width: 1280,
     height: 720,
     frameRate: 30,
-    ...(deviceId ? { deviceId: { exact: deviceId } } : {})
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
   };
 }
 
-async function prepareIdentityForAiSession(identity: HostIdentity | null, hostToken: string | null): Promise<{
+async function prepareIdentityForAiSession(
+  identity: HostIdentity | null,
+  hostToken: string | null,
+): Promise<{
   identity: HostIdentity | null;
   cache: NativeIdentityArtifactCacheResult | null;
 }> {
@@ -517,7 +642,7 @@ async function prepareIdentityForAiSession(identity: HostIdentity | null, hostTo
       resolvedIdentity = {
         ...identity,
         ...artifact,
-        artifactUri: artifact.downloadUrl ?? artifact.artifactUri
+        artifactUri: artifact.downloadUrl ?? artifact.artifactUri,
       };
     } catch (error) {
       if (!identity.artifactUri) {
@@ -534,43 +659,70 @@ async function prepareIdentityForAiSession(identity: HostIdentity | null, hostTo
   return { identity: resolvedIdentity, cache };
 }
 
-function evictUnauthorizedIdentityArtifacts(previousIdentities: HostIdentity[], nextIdentities: HostIdentity[]) {
+function evictUnauthorizedIdentityArtifacts(
+  previousIdentities: HostIdentity[],
+  nextIdentities: HostIdentity[],
+) {
   const authorizedIds = new Set(nextIdentities.map((identity) => identity.id));
-  const staleIdentities = previousIdentities.filter((identity) => !authorizedIds.has(identity.id));
+  const staleIdentities = previousIdentities.filter(
+    (identity) => !authorizedIds.has(identity.id),
+  );
 
   if (staleIdentities.length === 0) return;
 
-  void Promise.allSettled(staleIdentities.map((identity) => evictIdentityArtifact(identity.id)));
+  void Promise.allSettled(
+    staleIdentities.map((identity) => evictIdentityArtifact(identity.id)),
+  );
 }
 
 export default function App() {
-  const [route, setRoute] = useState<Route>(initialDeepLinkCode ? "join" : "home");
+  const [route, setRoute] = useState<Route>(
+    initialDeepLinkCode ? "join" : "home",
+  );
   const [isHostFlow, setIsHostFlow] = useState(false);
   const [hostSession, setHostSession] = useState<HostSession | null>(null);
   const [host, setHost] = useState<ShapeUser | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>(initialMeetings);
-  const [currentMeeting, setCurrentMeeting] = useState<Meeting | null>(initialMeeting);
-  const [identities, setIdentities] = useState<HostIdentity[]>(initialIdentities);
-  const [selectedIdentityId, setSelectedIdentityId] = useState<string | null>(initialIdentity?.id ?? null);
-  const [joinCode, setJoinCode] = useState(initialDeepLinkCode || initialMeeting?.code || "");
+  const [currentMeeting, setCurrentMeeting] = useState<Meeting | null>(
+    initialMeeting,
+  );
+  const [identities, setIdentities] =
+    useState<HostIdentity[]>(initialIdentities);
+  const [selectedIdentityId, setSelectedIdentityId] = useState<string | null>(
+    initialIdentity?.id ?? null,
+  );
+  const [joinCode, setJoinCode] = useState(
+    initialDeepLinkCode || initialMeeting?.code || "",
+  );
   const [guestName, setGuestName] = useState(initialGuestName);
   const [guestEmail, setGuestEmail] = useState(initialGuestEmail);
-  const [waitingParticipantId, setWaitingParticipantId] = useState<string | null>(null);
-  const [pendingDeepLinkCode, setPendingDeepLinkCode] = useState(initialDeepLinkCode);
-  const [liveKitConnection, setLiveKitConnection] = useState<(LiveKitConnection & { warning?: string }) | null>(null);
+  const [waitingParticipantId, setWaitingParticipantId] = useState<
+    string | null
+  >(null);
+  const [pendingDeepLinkCode, setPendingDeepLinkCode] =
+    useState(initialDeepLinkCode);
+  const [liveKitConnection, setLiveKitConnection] = useState<
+    (LiveKitConnection & { warning?: string }) | null
+  >(null);
   const [apiMessage, setApiMessage] = useState<string | null>(null);
   const [micEnabled, setMicEnabled] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(true);
-  const [deviceSelection, setDeviceSelection] = useState<DeviceSelection>(() => readStoredDeviceSelection());
+  const [deviceSelection, setDeviceSelection] = useState<DeviceSelection>(() =>
+    readStoredDeviceSelection(),
+  );
   const [faceEnabled, setFaceEnabled] = useState(false);
   const [backgroundEnabled, setBackgroundEnabled] = useState(true);
-  const [backgroundCalibration, setBackgroundCalibration] = useState<BackgroundCalibration | null>(null);
+  const [backgroundCalibration, setBackgroundCalibration] =
+    useState<BackgroundCalibration | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [debugMessage, setDebugMessage] = useState<string | null>(null);
   const [gpuProfile, setGpuProfile] = useState<NativeGpuProfile | null>(null);
-  const [aiServiceStatus, setAiServiceStatus] = useState<NativeAiServiceStatus | null>(null);
-  const [aiSidecarRuntime, setAiSidecarRuntime] = useState<NativeAiSidecarRuntime | null>(null);
-  const [observabilityStatus, setObservabilityStatus] = useState<NativeObservabilityStatus | null>(null);
+  const [aiServiceStatus, setAiServiceStatus] =
+    useState<NativeAiServiceStatus | null>(null);
+  const [aiSidecarRuntime, setAiSidecarRuntime] =
+    useState<NativeAiSidecarRuntime | null>(null);
+  const [observabilityStatus, setObservabilityStatus] =
+    useState<NativeObservabilityStatus | null>(null);
   const mediaDevices = useMediaDevices();
 
   useEffect(() => {
@@ -618,7 +770,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const normalized = normalizeDeviceSelection(deviceSelection, mediaDevices.choices);
+    const normalized = normalizeDeviceSelection(
+      deviceSelection,
+      mediaDevices.choices,
+    );
     if (
       normalized.cameraId !== deviceSelection.cameraId ||
       normalized.microphoneId !== deviceSelection.microphoneId ||
@@ -652,7 +807,13 @@ export default function App() {
         setHost(user);
         void refreshHostData(session);
       })
-      .catch((error) => setApiMessage(error instanceof Error ? error.message : "No se pudo restaurar la sesión."));
+      .catch((error) =>
+        setApiMessage(
+          error instanceof Error
+            ? error.message
+            : "No se pudo restaurar la sesión.",
+        ),
+      );
   }, []);
 
   useEffect(() => {
@@ -682,7 +843,11 @@ export default function App() {
         }
 
         setRoute("join");
-        setApiMessage(error instanceof Error ? error.message : "No se pudo encontrar la reunión.");
+        setApiMessage(
+          error instanceof Error
+            ? error.message
+            : "No se pudo encontrar la reunión.",
+        );
       } finally {
         if (!cancelled) setPendingDeepLinkCode("");
       }
@@ -726,12 +891,21 @@ export default function App() {
   }
 
   async function handleNativeDebugEvent() {
-    const result = await captureNativeDebugEvent("Shape Meet manual native debug event");
-    setDebugMessage(result.captured && result.eventId ? `Evento Sentry enviado: ${result.eventId}` : result.message);
+    const result = await captureNativeDebugEvent(
+      "Shape Meet manual native debug event",
+    );
+    setDebugMessage(
+      result.captured && result.eventId
+        ? `Evento Sentry enviado: ${result.eventId}`
+        : result.message,
+    );
   }
 
   async function refreshAiRuntime() {
-    const [service, runtime] = await Promise.all([getAiServiceStatus(), getAiSidecarRuntime()]);
+    const [service, runtime] = await Promise.all([
+      getAiServiceStatus(),
+      getAiSidecarRuntime(),
+    ]);
     setAiServiceStatus(service);
     setAiSidecarRuntime(runtime);
   }
@@ -756,14 +930,19 @@ export default function App() {
 
   function updateMeetingState(meeting: Meeting) {
     setCurrentMeeting(meeting);
-    setMeetings((current) => current.map((item) => (item.id === meeting.id ? meeting : item)));
+    setMeetings((current) =>
+      current.map((item) => (item.id === meeting.id ? meeting : item)),
+    );
   }
 
   function mediaParticipantId() {
     return liveKitConnection?.identity ?? waitingParticipantId;
   }
 
-  function patchLocalParticipantMedia(participantId: string, media: { camera?: boolean; microphone?: boolean }) {
+  function patchLocalParticipantMedia(
+    participantId: string,
+    media: { camera?: boolean; microphone?: boolean },
+  ) {
     if (!currentMeeting) return;
 
     updateMeetingState({
@@ -772,15 +951,22 @@ export default function App() {
         participant.id === participantId
           ? {
               ...participant,
-              ...(media.camera !== undefined ? { camera: media.camera ? "on" : "off" } : {}),
-              ...(media.microphone !== undefined ? { mic: media.microphone ? "on" : "muted" } : {})
+              ...(media.camera !== undefined
+                ? { camera: media.camera ? "on" : "off" }
+                : {}),
+              ...(media.microphone !== undefined
+                ? { mic: media.microphone ? "on" : "muted" }
+                : {}),
             }
-          : participant
-      )
+          : participant,
+      ),
     });
   }
 
-  async function syncParticipantMedia(media: { camera?: boolean; microphone?: boolean }) {
+  async function syncParticipantMedia(media: {
+    camera?: boolean;
+    microphone?: boolean;
+  }) {
     const participantId = mediaParticipantId();
     const meeting = currentMeeting;
 
@@ -794,12 +980,16 @@ export default function App() {
         participantId,
         camera: media.camera,
         microphone: media.microphone,
-        token: isHostFlow ? hostSession?.token : null
+        token: isHostFlow ? hostSession?.token : null,
       });
       updateMeetingState(updatedMeeting);
       setApiMessage(null);
     } catch (error) {
-      setApiMessage(error instanceof Error ? error.message : "No se pudo sincronizar el estado del dispositivo.");
+      setApiMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo sincronizar el estado del dispositivo.",
+      );
     }
   }
 
@@ -820,7 +1010,7 @@ export default function App() {
 
     const [nextMeetings, nextIdentities] = await Promise.all([
       listHostMeetings(session.token),
-      listHostIdentities(session.token)
+      listHostIdentities(session.token),
     ]);
 
     setMeetings(nextMeetings);
@@ -832,7 +1022,11 @@ export default function App() {
 
     evictUnauthorizedIdentityArtifacts(identities, nextIdentities);
     setIdentities(nextIdentities);
-    setSelectedIdentityId((current) => (current && nextIdentities.some((identity) => identity.id === current) ? current : nextIdentities[0]?.id ?? null));
+    setSelectedIdentityId((current) =>
+      current && nextIdentities.some((identity) => identity.id === current)
+        ? current
+        : (nextIdentities[0]?.id ?? null),
+    );
   }
 
   async function handleHostLogin(identifier: string, password: string) {
@@ -851,7 +1045,8 @@ export default function App() {
       }
 
       if (canUseDemoHostFallback(error, identifier, password)) {
-        const demoHost = mockUsers.find((user) => user.rank === "HOST") ?? mockUsers[0]!;
+        const demoHost =
+          mockUsers.find((user) => user.rank === "HOST") ?? mockUsers[0]!;
         const session = { token: "shape-demo-host-token", user: demoHost };
         setHostSession(session);
         setHost(demoHost);
@@ -865,7 +1060,9 @@ export default function App() {
         return;
       }
 
-      setApiMessage(error instanceof Error ? error.message : "No se pudo iniciar sesión.");
+      setApiMessage(
+        error instanceof Error ? error.message : "No se pudo iniciar sesión.",
+      );
     }
   }
 
@@ -891,7 +1088,11 @@ export default function App() {
         return;
       }
 
-      setApiMessage(error instanceof Error ? error.message : "No se pudo encontrar la reunión.");
+      setApiMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo encontrar la reunión.",
+      );
     }
   }
 
@@ -913,7 +1114,9 @@ export default function App() {
         return;
       }
 
-      setApiMessage(error instanceof Error ? error.message : "No se pudo crear la reunión.");
+      setApiMessage(
+        error instanceof Error ? error.message : "No se pudo crear la reunión.",
+      );
     }
   }
 
@@ -938,7 +1141,10 @@ export default function App() {
       throw new Error("No hay reunión seleccionada.");
     }
 
-    const meeting = await findMeeting(currentMeeting.code, isHostFlow ? hostSession?.token : null);
+    const meeting = await findMeeting(
+      currentMeeting.code,
+      isHostFlow ? hostSession?.token : null,
+    );
     setCurrentMeeting(meeting);
     return meeting;
   }
@@ -969,7 +1175,9 @@ export default function App() {
 
         if (
           currentMeeting.invitedEmails.length > 0 &&
-          !currentMeeting.invitedEmails.some((email) => email.toLowerCase() === normalizedGuestEmail)
+          !currentMeeting.invitedEmails.some(
+            (email) => email.toLowerCase() === normalizedGuestEmail,
+          )
         ) {
           setApiMessage("Este correo no está en la lista de invitados.");
           navigate("found");
@@ -982,7 +1190,7 @@ export default function App() {
         displayName: guestName.trim(),
         email: normalizedGuestEmail || null,
         camera: cameraEnabled,
-        microphone: micEnabled
+        microphone: micEnabled,
       });
 
       setWaitingParticipantId(result.participantId);
@@ -994,7 +1202,7 @@ export default function App() {
           displayName: guestName.trim(),
           email: normalizedGuestEmail || null,
           camera: cameraEnabled,
-          microphone: micEnabled
+          microphone: micEnabled,
         });
         setWaitingParticipantId(result.participantId);
         setCurrentMeeting(result.meeting);
@@ -1003,7 +1211,9 @@ export default function App() {
         return;
       }
 
-      setApiMessage(error instanceof Error ? error.message : "No se pudo solicitar acceso.");
+      setApiMessage(
+        error instanceof Error ? error.message : "No se pudo solicitar acceso.",
+      );
       if (currentMeeting) setRoute("found");
     }
   }
@@ -1017,7 +1227,7 @@ export default function App() {
         return;
       }
 
-      const displayName = isHostFlow ? host?.username ?? "Host" : guestName;
+      const displayName = isHostFlow ? (host?.username ?? "Host") : guestName;
 
       if (!isHostFlow && !participantId) {
         await handleRequestMeetingAccess();
@@ -1030,7 +1240,7 @@ export default function App() {
         camera: cameraEnabled,
         microphone: micEnabled,
         participantId: isHostFlow ? null : participantId,
-        token: isHostFlow ? hostSession?.token : null
+        token: isHostFlow ? hostSession?.token : null,
       });
 
       setCurrentMeeting(result.meeting);
@@ -1041,8 +1251,14 @@ export default function App() {
       if (canUseDemoRuntimeFallback(error) && currentMeeting) {
         const now = new Date().toISOString();
         const identity = isHostFlow
-          ? currentMeeting.participants.find((participant) => participant.role === "host")?.id ?? `host_${currentMeeting.hostId}`
-          : participantId ?? currentMeeting.participants.find((participant) => participant.role !== "host")?.id ?? "guest_demo";
+          ? (currentMeeting.participants.find(
+              (participant) => participant.role === "host",
+            )?.id ?? `host_${currentMeeting.hostId}`)
+          : (participantId ??
+            currentMeeting.participants.find(
+              (participant) => participant.role !== "host",
+            )?.id ??
+            "guest_demo");
 
         setCurrentMeeting({
           ...currentMeeting,
@@ -1055,24 +1271,28 @@ export default function App() {
                   mic: micEnabled ? "on" : "muted",
                   admittedAt: participant.admittedAt ?? now,
                   joinedAt: participant.joinedAt ?? now,
-                  leftAt: null
+                  leftAt: null,
                 }
-              : participant
-          )
+              : participant,
+          ),
         });
         setLiveKitConnection({
           url: null,
           token: null,
           room: currentMeeting.code,
           identity,
-          warning: "Modo demo sin LiveKit local."
+          warning: "Modo demo sin LiveKit local.",
         });
         setWaitingParticipantId(null);
         navigate("call");
         return;
       }
 
-      setApiMessage(error instanceof Error ? error.message : "No se pudo entrar a la reunión.");
+      setApiMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo entrar a la reunión.",
+      );
     }
   }
 
@@ -1087,11 +1307,15 @@ export default function App() {
       const meeting = await admitMeetingParticipant({
         code: currentMeeting.code,
         participantId,
-        token: hostSession?.token
+        token: hostSession?.token,
       });
       setCurrentMeeting(meeting);
     } catch (error) {
-      setApiMessage(error instanceof Error ? error.message : "No se pudo admitir al participante.");
+      setApiMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo admitir al participante.",
+      );
     }
   }
 
@@ -1106,7 +1330,13 @@ export default function App() {
 
     void leaveMeeting({ code: meetingCode, participantId })
       .then((meeting) => setCurrentMeeting(meeting))
-      .catch((error) => setApiMessage(error instanceof Error ? error.message : "No se pudo cerrar la solicitud."));
+      .catch((error) =>
+        setApiMessage(
+          error instanceof Error
+            ? error.message
+            : "No se pudo cerrar la solicitud.",
+        ),
+      );
   }
 
   function handleLeaveCall() {
@@ -1122,7 +1352,13 @@ export default function App() {
     if (isHostFlow) {
       void endMeeting({ code: meetingCode, token: hostToken })
         .then((meeting) => setCurrentMeeting(meeting))
-        .catch((error) => setApiMessage(error instanceof Error ? error.message : "No se pudo finalizar la reunión."));
+        .catch((error) =>
+          setApiMessage(
+            error instanceof Error
+              ? error.message
+              : "No se pudo finalizar la reunión.",
+          ),
+        );
       return;
     }
 
@@ -1130,7 +1366,13 @@ export default function App() {
 
     void leaveMeeting({ code: meetingCode, participantId, token: hostToken })
       .then((meeting) => setCurrentMeeting(meeting))
-      .catch((error) => setApiMessage(error instanceof Error ? error.message : "No se pudo registrar la salida."));
+      .catch((error) =>
+        setApiMessage(
+          error instanceof Error
+            ? error.message
+            : "No se pudo registrar la salida.",
+        ),
+      );
   }
 
   useEffect(() => {
@@ -1139,20 +1381,29 @@ export default function App() {
     const interval = window.setInterval(() => {
       void refreshCurrentMeeting().catch((error) => {
         if (canUseDemoRuntimeFallback(error)) return;
-        setApiMessage(error instanceof Error ? error.message : "No se pudo actualizar la sala.");
+        setApiMessage(
+          error instanceof Error
+            ? error.message
+            : "No se pudo actualizar la sala.",
+        );
       });
     }, 2500);
 
     void refreshCurrentMeeting().catch((error) => {
       if (canUseDemoRuntimeFallback(error)) return;
-      setApiMessage(error instanceof Error ? error.message : "No se pudo actualizar la sala.");
+      setApiMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar la sala.",
+      );
     });
 
     return () => window.clearInterval(interval);
   }, [currentMeeting?.code, route, waitingParticipantId]);
 
   useEffect(() => {
-    if (route !== "call" || !currentMeeting || liveKitConnection?.warning) return;
+    if (route !== "call" || !currentMeeting || liveKitConnection?.warning)
+      return;
 
     const syncMeeting = async () => {
       const meeting = await refreshCurrentMeeting();
@@ -1164,21 +1415,35 @@ export default function App() {
     };
 
     const interval = window.setInterval(() => {
-      void syncMeeting().catch((error) => setApiMessage(error instanceof Error ? error.message : "No se pudo actualizar la reunión."));
+      void syncMeeting().catch((error) =>
+        setApiMessage(
+          error instanceof Error
+            ? error.message
+            : "No se pudo actualizar la reunión.",
+        ),
+      );
     }, 2500);
 
     return () => window.clearInterval(interval);
   }, [currentMeeting?.code, liveKitConnection?.warning, route]);
 
-  const waitingParticipant = waitingParticipantId && currentMeeting
-    ? currentMeeting.participants.find((participant) => participant.id === waitingParticipantId)
-    : null;
+  const waitingParticipant =
+    waitingParticipantId && currentMeeting
+      ? currentMeeting.participants.find(
+          (participant) => participant.id === waitingParticipantId,
+        )
+      : null;
   const waitingAdmitted = Boolean(waitingParticipant?.admittedAt);
-  const selectedIdentity = identities.find((identity) => identity.id === selectedIdentityId) ?? identities[0] ?? null;
+  const selectedIdentity =
+    identities.find((identity) => identity.id === selectedIdentityId) ??
+    identities[0] ??
+    null;
 
   return (
     <main className="app-shell">
-      {route === "home" && <HomeScreen onJoin={() => navigate("join")} onHost={startHostLogin} />}
+      {route === "home" && (
+        <HomeScreen onJoin={() => navigate("join")} onHost={startHostLogin} />
+      )}
       {route === "join" && (
         <JoinScreen
           code={joinCode}
@@ -1190,8 +1455,8 @@ export default function App() {
           onContinue={() => void handleFindMeeting()}
         />
       )}
-      {route === "found" && (
-        currentMeeting ? (
+      {route === "found" &&
+        (currentMeeting ? (
           <MeetingFoundScreen
             meeting={currentMeeting}
             name={guestName}
@@ -1207,8 +1472,7 @@ export default function App() {
           />
         ) : (
           <MissingMeetingScreen onBack={() => navigate("join")} />
-        )
-      )}
+        ))}
       {route === "login" && (
         <HostLoginScreen
           error={apiMessage}
@@ -1218,12 +1482,19 @@ export default function App() {
       )}
       {route === "verify" && (
         <HostVerifyScreen
-          hostEmail={host?.email ?? hostSession?.user.email ?? initialHostIdentifier}
+          hostEmail={
+            host?.email ?? hostSession?.user.email ?? initialHostIdentifier
+          }
           onBack={() => navigate("login")}
           onContinue={() => navigate("scheduled")}
         />
       )}
-      {route === "denied" && <HostDeniedScreen onPublicJoin={() => navigate("join")} onSwitchAccount={() => navigate("home")} />}
+      {route === "denied" && (
+        <HostDeniedScreen
+          onPublicJoin={() => navigate("join")}
+          onSwitchAccount={() => navigate("home")}
+        />
+      )}
       {route === "scheduled" && (
         <ScheduledMeetingsScreen
           meetings={meetings}
@@ -1236,8 +1507,8 @@ export default function App() {
           }}
         />
       )}
-      {route === "meeting-detail" && (
-        currentMeeting ? (
+      {route === "meeting-detail" &&
+        (currentMeeting ? (
           <MeetingDetailScreen
             meeting={currentMeeting}
             onBack={() => navigate("scheduled")}
@@ -1248,20 +1519,28 @@ export default function App() {
           />
         ) : (
           <MissingMeetingScreen onBack={() => navigate("scheduled")} />
-        )
+        ))}
+      {route === "create" && (
+        <CreateMeetingScreen
+          error={apiMessage}
+          onBack={() => navigate("scheduled")}
+          onCreate={handleCreateMeeting}
+        />
       )}
-      {route === "create" && <CreateMeetingScreen error={apiMessage} onBack={() => navigate("scheduled")} onCreate={handleCreateMeeting} />}
-      {route === "created" && (
-        currentMeeting ? (
+      {route === "created" &&
+        (currentMeeting ? (
           <MeetingCreatedScreen
             shareUrl={meetingShareUrl(currentMeeting.code)}
-            onCopy={() => void navigator.clipboard?.writeText(meetingShareUrl(currentMeeting.code))}
+            onCopy={() =>
+              void navigator.clipboard?.writeText(
+                meetingShareUrl(currentMeeting.code),
+              )
+            }
             onContinue={() => navigate("device-test")}
           />
         ) : (
           <MissingMeetingScreen onBack={() => navigate("scheduled")} />
-        )
-      )}
+        ))}
       {route === "device-test" && (
         <DeviceTestScreen
           cameraEnabled={cameraEnabled}
@@ -1296,10 +1575,26 @@ export default function App() {
           onToggleFace={() => setFaceEnabled((value) => !value)}
           onToggleBackground={() => setBackgroundEnabled((value) => !value)}
           onToggleVoice={() => setVoiceEnabled((value) => !value)}
+          onOpenAiRuntime={() => navigate("ai-runtime")}
           onOpenBackgroundCalibration={() => navigate("background-calibration")}
           onBack={() => navigate("device-test")}
           onSkip={() => void handleEnterCall()}
           onContinue={() => void handleEnterCall()}
+        />
+      )}
+      {route === "ai-runtime" && (
+        <AiRuntimeScreen
+          aiServiceStatus={aiServiceStatus}
+          aiSidecarRuntime={aiSidecarRuntime}
+          debugMessage={debugMessage}
+          gpuProfile={gpuProfile}
+          observabilityStatus={observabilityStatus}
+          onBack={() => navigate("host-settings")}
+          onExportDebug={handleDebugBundle}
+          onNativeDebugEvent={handleNativeDebugEvent}
+          onRefresh={refreshAiRuntime}
+          onStartSidecar={handleStartAiSidecar}
+          onStopSidecar={handleStopAiSidecar}
         />
       )}
       {route === "background-calibration" && (
@@ -1312,8 +1607,8 @@ export default function App() {
           onContinue={() => navigate("host-settings")}
         />
       )}
-      {route === "waiting" && (
-        currentMeeting ? (
+      {route === "waiting" &&
+        (currentMeeting ? (
           <WaitingRoomScreen
             meeting={currentMeeting}
             cameraEnabled={cameraEnabled}
@@ -1329,10 +1624,9 @@ export default function App() {
           />
         ) : (
           <MissingMeetingScreen onBack={() => navigate("join")} />
-        )
-      )}
-      {route === "call" && (
-        currentMeeting ? (
+        ))}
+      {route === "call" &&
+        (currentMeeting ? (
           <ActiveCallScreen
             meeting={currentMeeting}
             liveKitConnection={liveKitConnection}
@@ -1349,18 +1643,25 @@ export default function App() {
             mediaSyncError={apiMessage}
             onToggleCamera={handleToggleCamera}
             onToggleMic={handleToggleMic}
-            onAdmitParticipant={(participantId) => void handleAdmitParticipant(participantId)}
+            onAdmitParticipant={(participantId) =>
+              void handleAdmitParticipant(participantId)
+            }
             onLeave={handleLeaveCall}
           />
         ) : (
           <MissingMeetingScreen onBack={() => navigate("home")} />
-        )
-      )}
+        ))}
     </main>
   );
 }
 
-function HomeScreen({ onJoin, onHost }: { onJoin: () => void; onHost: () => void }) {
+function HomeScreen({
+  onJoin,
+  onHost,
+}: {
+  onJoin: () => void;
+  onHost: () => void;
+}) {
   return (
     <section className="screen minimal-screen">
       <div className="home-top">
@@ -1391,7 +1692,7 @@ function JoinScreen({
   onBack,
   onCodeChange,
   onNameChange,
-  onContinue
+  onContinue,
 }: {
   code: string;
   name: string;
@@ -1405,13 +1706,25 @@ function JoinScreen({
     <ScreenFrame title="Unirse a reunión" onBack={onBack}>
       <CenteredPanel width={540}>
         <h1>Pega el enlace o código</h1>
-        <TextField label="Enlace o código de reunión" icon={<LogIn />} value={code} onChange={onCodeChange} />
-        <TextField label="Nombre visible" icon={<UserRound />} value={name} onChange={onNameChange} />
+        <TextField
+          label="Enlace o código de reunión"
+          icon={<LogIn />}
+          value={code}
+          onChange={onCodeChange}
+        />
+        <TextField
+          label="Nombre visible"
+          icon={<UserRound />}
+          value={name}
+          onChange={onNameChange}
+        />
         <Checkbox label="Recordar este nombre en esta app" checked />
         <Button icon={<ArrowRight />} onClick={onContinue}>
           Buscar reunión
         </Button>
-        {error ? <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice> : null}
+        {error ? (
+          <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice>
+        ) : null}
       </CenteredPanel>
     </ScreenFrame>
   );
@@ -1425,7 +1738,7 @@ function MeetingFoundScreen({
   onBack,
   onNameChange,
   onEmailChange,
-  onContinue
+  onContinue,
 }: {
   meeting: Meeting;
   name: string;
@@ -1437,25 +1750,48 @@ function MeetingFoundScreen({
   onContinue: () => void;
 }) {
   const inviteOnly = meeting.access === "INVITE_ONLY";
-  const canContinue = Boolean(name.trim()) && (!inviteOnly || isLikelyEmail(email));
+  const canContinue =
+    Boolean(name.trim()) && (!inviteOnly || isLikelyEmail(email));
 
   return (
     <ScreenFrame title="Unirse a reunión" onBack={onBack}>
       <CenteredPanel width={620}>
         <StatusIcon icon={<Calendar />} />
         <h1>{meeting.title}</h1>
-        <p>{formatMeetingTime(meeting.startsAt)} · Hasta {meeting.maxParticipants} participantes</p>
+        <p>
+          {formatMeetingTime(meeting.startsAt)} · Hasta{" "}
+          {meeting.maxParticipants} participantes
+        </p>
         <div className="detail-list">
           <DetailRow label="Organizador" value={meetingHostName(meeting)} />
           <DetailRow label="Acceso" value="Sala de espera" />
           <DetailRow label="Código" value={meeting.code} />
         </div>
-        <TextField label="Nombre visible" icon={<UserRound />} value={name} onChange={onNameChange} autoComplete="name" />
+        <TextField
+          label="Nombre visible"
+          icon={<UserRound />}
+          value={name}
+          onChange={onNameChange}
+          autoComplete="name"
+        />
         {inviteOnly ? (
-          <TextField label="Correo invitado" icon={<Mail />} value={email} onChange={onEmailChange} type="email" autoComplete="email" />
+          <TextField
+            label="Correo invitado"
+            icon={<Mail />}
+            value={email}
+            onChange={onEmailChange}
+            type="email"
+            autoComplete="email"
+          />
         ) : null}
-        {error ? <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice> : null}
-        <Button icon={<ArrowRight />} onClick={onContinue} disabled={!canContinue}>
+        {error ? (
+          <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice>
+        ) : null}
+        <Button
+          icon={<ArrowRight />}
+          onClick={onContinue}
+          disabled={!canContinue}
+        >
           Probar equipo
         </Button>
       </CenteredPanel>
@@ -1480,7 +1816,7 @@ function MissingMeetingScreen({ onBack }: { onBack: () => void }) {
 function HostLoginScreen({
   error,
   onBack,
-  onContinue
+  onContinue,
 }: {
   error: string | null;
   onBack: () => void;
@@ -1518,20 +1854,49 @@ function HostLoginScreen({
         >
           <StatusIcon icon={<Lock />} />
           <h1>Inicia sesión como host</h1>
-          <TextField label="Correo o usuario" icon={<Mail />} value={identifier} onChange={setIdentifier} autoComplete="username" />
-          <TextField label="Contraseña" icon={<KeyRound />} value={password} onChange={setPassword} type="password" autoComplete="current-password" />
-          <Button icon={<ArrowRight />} disabled={submitting || password.length < 8} type="submit">
+          <TextField
+            label="Correo o usuario"
+            icon={<Mail />}
+            value={identifier}
+            onChange={setIdentifier}
+            autoComplete="username"
+          />
+          <TextField
+            label="Contraseña"
+            icon={<KeyRound />}
+            value={password}
+            onChange={setPassword}
+            type="password"
+            autoComplete="current-password"
+          />
+          <Button
+            icon={<ArrowRight />}
+            disabled={submitting || password.length < 8}
+            type="submit"
+          >
             {submitting ? "Validando" : "Continuar"}
           </Button>
-          {error ? <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice> : null}
+          {error ? (
+            <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice>
+          ) : null}
         </form>
       </AuthCard>
     </section>
   );
 }
 
-function HostVerifyScreen({ hostEmail, onBack, onContinue }: { hostEmail: string; onBack: () => void; onContinue: () => void }) {
-  const [digits, setDigits] = useState<string[]>(() => (DEMO_DATA_ENABLED ? ["1", "2", "3", "", "", ""] : ["", "", "", "", "", ""]));
+function HostVerifyScreen({
+  hostEmail,
+  onBack,
+  onContinue,
+}: {
+  hostEmail: string;
+  onBack: () => void;
+  onContinue: () => void;
+}) {
+  const [digits, setDigits] = useState<string[]>(() =>
+    DEMO_DATA_ENABLED ? ["1", "2", "3", "", "", ""] : ["", "", "", "", "", ""],
+  );
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const verificationCode = digits.join("");
@@ -1553,9 +1918,12 @@ function HostVerifyScreen({ hostEmail, onBack, onContinue }: { hostEmail: string
     const numeric = value.replace(/\D/g, "");
     if (numeric.length > 1) {
       const nextDigits = [...digits];
-      numeric.slice(0, 6 - index).split("").forEach((digit, offset) => {
-        nextDigits[index + offset] = digit;
-      });
+      numeric
+        .slice(0, 6 - index)
+        .split("")
+        .forEach((digit, offset) => {
+          nextDigits[index + offset] = digit;
+        });
       updateDigits(nextDigits, Math.min(index + numeric.length, 5));
       return;
     }
@@ -1567,7 +1935,12 @@ function HostVerifyScreen({ hostEmail, onBack, onContinue }: { hostEmail: string
 
   function handleDigitKeyDown(index: number, key: string) {
     if (key === "Backspace" && !digits[index] && index > 0) {
-      updateDigits(digits.map((digit, digitIndex) => (digitIndex === index - 1 ? "" : digit)), index - 1);
+      updateDigits(
+        digits.map((digit, digitIndex) =>
+          digitIndex === index - 1 ? "" : digit,
+        ),
+        index - 1,
+      );
     }
   }
 
@@ -1576,14 +1949,21 @@ function HostVerifyScreen({ hostEmail, onBack, onContinue }: { hostEmail: string
     if (!numeric) return;
 
     const nextDigits = [...digits];
-    numeric.slice(0, 6 - index).split("").forEach((digit, offset) => {
-      nextDigits[index + offset] = digit;
-    });
+    numeric
+      .slice(0, 6 - index)
+      .split("")
+      .forEach((digit, offset) => {
+        nextDigits[index + offset] = digit;
+      });
     updateDigits(nextDigits, Math.min(index + numeric.length, 5));
   }
 
   function resendCode() {
-    setDigits(DEMO_DATA_ENABLED ? ["1", "2", "3", "", "", ""] : ["", "", "", "", "", ""]);
+    setDigits(
+      DEMO_DATA_ENABLED
+        ? ["1", "2", "3", "", "", ""]
+        : ["", "", "", "", "", ""],
+    );
     setResendMessage("Código reenviado.");
     window.setTimeout(() => focusDigit(DEMO_DATA_ENABLED ? 3 : 0), 0);
   }
@@ -1629,13 +2009,21 @@ function HostVerifyScreen({ hostEmail, onBack, onContinue }: { hostEmail: string
         <Button variant="outline" icon={<RefreshCw />} onClick={resendCode}>
           Reenviar código
         </Button>
-        {resendMessage ? <p className="resend-message">{resendMessage}</p> : null}
+        {resendMessage ? (
+          <p className="resend-message">{resendMessage}</p>
+        ) : null}
       </AuthCard>
     </section>
   );
 }
 
-function HostDeniedScreen({ onPublicJoin, onSwitchAccount }: { onPublicJoin: () => void; onSwitchAccount: () => void }) {
+function HostDeniedScreen({
+  onPublicJoin,
+  onSwitchAccount,
+}: {
+  onPublicJoin: () => void;
+  onSwitchAccount: () => void;
+}) {
   return (
     <section className="screen minimal-screen">
       <div className="auth-top">
@@ -1662,7 +2050,7 @@ function ScheduledMeetingsScreen({
   meetings,
   onBack,
   onCreate,
-  onOpen
+  onOpen,
 }: {
   meetings: Meeting[];
   onBack: () => void;
@@ -1670,8 +2058,12 @@ function ScheduledMeetingsScreen({
   onOpen: (meeting: Meeting) => void;
 }) {
   const [filter, setFilter] = useState<AgendaFilter>("today");
-  const visibleMeetings = useMemo(() => filterAgendaMeetings(meetings, filter), [filter, meetings]);
-  const activeFilter = agendaFilters.find((item) => item.id === filter) ?? agendaFilters[0]!;
+  const visibleMeetings = useMemo(
+    () => filterAgendaMeetings(meetings, filter),
+    [filter, meetings],
+  );
+  const activeFilter =
+    agendaFilters.find((item) => item.id === filter) ?? agendaFilters[0]!;
 
   return (
     <ScreenFrame title="Reuniones agendadas" onBack={onBack}>
@@ -1682,7 +2074,11 @@ function ScheduledMeetingsScreen({
           </div>
           <div className="segmented">
             {agendaFilters.map((item) => (
-              <button className={item.id === filter ? "active" : ""} key={item.id} onClick={() => setFilter(item.id)}>
+              <button
+                className={item.id === filter ? "active" : ""}
+                key={item.id}
+                onClick={() => setFilter(item.id)}
+              >
                 {item.label}
               </button>
             ))}
@@ -1691,26 +2087,47 @@ function ScheduledMeetingsScreen({
         <div className="split-grid">
           <div className="meeting-list">
             {visibleMeetings.map((meeting, index) => (
-              <button className="meeting-row" key={meeting.id} onClick={() => onOpen(meeting)}>
+              <button
+                className="meeting-row"
+                key={meeting.id}
+                onClick={() => onOpen(meeting)}
+              >
                 <span className="row-icon">
                   <Video />
                 </span>
                 <span className="row-main">
                   <strong>{meeting.title}</strong>
-                  <small>{formatMeetingTime(meeting.startsAt)} · {meeting.code}</small>
+                  <small>
+                    {formatMeetingTime(meeting.startsAt)} · {meeting.code}
+                  </small>
                 </span>
-                <span className={`status-chip ${meeting.status.toLowerCase()}`}>{meetingStatusLabel(meeting.status)}</span>
-                <span className={index === 0 && meeting.status !== "ENDED" ? "row-action primary" : "row-action"}>
+                <span className={`status-chip ${meeting.status.toLowerCase()}`}>
+                  {meetingStatusLabel(meeting.status)}
+                </span>
+                <span
+                  className={
+                    index === 0 && meeting.status !== "ENDED"
+                      ? "row-action primary"
+                      : "row-action"
+                  }
+                >
                   {index === 0 && meeting.status !== "ENDED" ? "Entrar" : "Ver"}
                 </span>
               </button>
             ))}
-            {visibleMeetings.length === 0 ? <div className="empty-state">No hay reuniones en este filtro.</div> : null}
+            {visibleMeetings.length === 0 ? (
+              <div className="empty-state">
+                No hay reuniones en este filtro.
+              </div>
+            ) : null}
           </div>
           <aside className="agenda-summary">
             <section className="side-panel agenda-count">
               <h2>{activeFilter.label}</h2>
-              <strong className="big-number">{visibleMeetings.length} {visibleMeetings.length === 1 ? "reunión" : "reuniones"}</strong>
+              <strong className="big-number">
+                {visibleMeetings.length}{" "}
+                {visibleMeetings.length === 1 ? "reunión" : "reuniones"}
+              </strong>
             </section>
             <Button icon={<Calendar />} onClick={onCreate}>
               Crear reunión
@@ -1725,7 +2142,7 @@ function ScheduledMeetingsScreen({
 function MeetingDetailScreen({
   meeting,
   onBack,
-  onContinue
+  onContinue,
 }: {
   meeting: Meeting;
   onBack: () => void;
@@ -1741,14 +2158,36 @@ function MeetingDetailScreen({
           <div className="detail-list">
             <DetailRow label="Organizador" value={meetingHostName(meeting)} />
             <DetailRow label="Invitados" value={meetingGuestNames(meeting)} />
-            <DetailRow label="Acceso" value={meeting.access === "INVITE_ONLY" ? "Solo invitados" : "Enlace público"} />
-            <DetailRow label="Capacidad" value={`Hasta ${meeting.maxParticipants} participantes`} />
+            <DetailRow
+              label="Acceso"
+              value={
+                meeting.access === "INVITE_ONLY"
+                  ? "Solo invitados"
+                  : "Enlace público"
+              }
+            />
+            <DetailRow
+              label="Capacidad"
+              value={`Hasta ${meeting.maxParticipants} participantes`}
+            />
           </div>
           <div className="button-row">
-            <Button icon={<ArrowRight />} onClick={onContinue} disabled={meetingEnded}>
+            <Button
+              icon={<ArrowRight />}
+              onClick={onContinue}
+              disabled={meetingEnded}
+            >
               Probar equipo
             </Button>
-            <Button variant="outline" icon={<Copy />} onClick={() => void navigator.clipboard?.writeText(meetingShareUrl(meeting.code))}>
+            <Button
+              variant="outline"
+              icon={<Copy />}
+              onClick={() =>
+                void navigator.clipboard?.writeText(
+                  meetingShareUrl(meeting.code),
+                )
+              }
+            >
               Copiar enlace
             </Button>
           </div>
@@ -1756,7 +2195,11 @@ function MeetingDetailScreen({
         <aside className="side-panel">
           <h2>Participantes</h2>
           {meeting.participants.map((participant) => (
-            <ParticipantLine key={participant.id} name={participant.displayName} meta={participant.role === "host" ? "Host" : "Invitada"} />
+            <ParticipantLine
+              key={participant.id}
+              name={participant.displayName}
+              meta={participant.role === "host" ? "Host" : "Invitada"}
+            />
           ))}
         </aside>
       </div>
@@ -1767,19 +2210,25 @@ function MeetingDetailScreen({
 function CreateMeetingScreen({
   error,
   onBack,
-  onCreate
+  onCreate,
 }: {
   error: string | null;
   onBack: () => void;
   onCreate: (input: MeetingCreateInput) => Promise<void>;
 }) {
-  const [title, setTitle] = useState(DEMO_DATA_ENABLED ? "Revisión con Luxora" : "");
+  const [title, setTitle] = useState(
+    DEMO_DATA_ENABLED ? "Revisión con Luxora" : "",
+  );
   const [startsAt] = useState(defaultMeetingStartInput);
-  const [access, setAccess] = useState<MeetingCreateInput["access"]>("INVITE_ONLY");
-  const [invitedEmails, setInvitedEmails] = useState(DEMO_DATA_ENABLED ? "maria@luxora.co" : "");
+  const [access, setAccess] =
+    useState<MeetingCreateInput["access"]>("INVITE_ONLY");
+  const [invitedEmails, setInvitedEmails] = useState(
+    DEMO_DATA_ENABLED ? "maria@luxora.co" : "",
+  );
   const [waitingRoomEnabled, setWaitingRoomEnabled] = useState(true);
   const [chatEnabled, setChatEnabled] = useState(true);
-  const [internalRecordingEnabled, setInternalRecordingEnabled] = useState(false);
+  const [internalRecordingEnabled, setInternalRecordingEnabled] =
+    useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function submit() {
@@ -1797,7 +2246,7 @@ function CreateMeetingScreen({
                 .split(",")
                 .map((email) => email.trim())
                 .filter(Boolean)
-            : []
+            : [],
       });
     } finally {
       setSubmitting(false);
@@ -1807,27 +2256,60 @@ function CreateMeetingScreen({
   return (
     <ScreenFrame title="Crear reunión" onBack={onBack}>
       <div className="center-region create-meeting-region">
-        <section className="white-panel centered create-meeting-panel" style={{ width: 620 }}>
+        <section
+          className="white-panel centered create-meeting-panel"
+          style={{ width: 620 }}
+        >
           <h1>Configura lo básico</h1>
-          <TextField label="Nombre de la reunión" icon={<Calendar />} value={title} onChange={setTitle} />
+          <TextField
+            label="Nombre de la reunión"
+            icon={<Calendar />}
+            value={title}
+            onChange={setTitle}
+          />
           <SelectField
             label="Acceso"
             value={access}
-            onChange={(value) => setAccess(value as MeetingCreateInput["access"])}
+            onChange={(value) =>
+              setAccess(value as MeetingCreateInput["access"])
+            }
             options={[
               { value: "INVITE_ONLY", label: "Solo invitados" },
-              { value: "PUBLIC_LINK", label: "Enlace público" }
+              { value: "PUBLIC_LINK", label: "Enlace público" },
             ]}
           />
-          <TextField label="Invitados" icon={<Users />} value={invitedEmails} onChange={setInvitedEmails} />
+          <TextField
+            label="Invitados"
+            icon={<Users />}
+            value={invitedEmails}
+            onChange={setInvitedEmails}
+          />
           <div className="create-options">
-            <ToggleRow label="Sala de espera" checked={waitingRoomEnabled} onClick={() => setWaitingRoomEnabled((current) => !current)} />
-            <ToggleRow label="Permitir chat" checked={chatEnabled} onClick={() => setChatEnabled((current) => !current)} />
-            <ToggleRow label="Grabar en modo interno" checked={internalRecordingEnabled} onClick={() => setInternalRecordingEnabled((current) => !current)} />
+            <ToggleRow
+              label="Sala de espera"
+              checked={waitingRoomEnabled}
+              onClick={() => setWaitingRoomEnabled((current) => !current)}
+            />
+            <ToggleRow
+              label="Permitir chat"
+              checked={chatEnabled}
+              onClick={() => setChatEnabled((current) => !current)}
+            />
+            <ToggleRow
+              label="Grabar en modo interno"
+              checked={internalRecordingEnabled}
+              onClick={() => setInternalRecordingEnabled((current) => !current)}
+            />
           </div>
-          {error ? <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice> : null}
+          {error ? (
+            <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice>
+          ) : null}
           <div className="form-actions">
-            <Button icon={<Check />} onClick={() => void submit()} disabled={submitting || title.length < 3}>
+            <Button
+              icon={<Check />}
+              onClick={() => void submit()}
+              disabled={submitting || title.length < 3}
+            >
               {submitting ? "Creando" : "Crear reunión"}
             </Button>
           </div>
@@ -1840,7 +2322,7 @@ function CreateMeetingScreen({
 function MeetingCreatedScreen({
   shareUrl,
   onCopy,
-  onContinue
+  onContinue,
 }: {
   shareUrl: string;
   onCopy: () => void;
@@ -1881,7 +2363,7 @@ function DeviceTestScreen({
   onDeviceChange,
   onRefreshDevices,
   onToggleCamera,
-  onToggleMic
+  onToggleMic,
 }: {
   cameraEnabled: boolean;
   micEnabled: boolean;
@@ -1900,7 +2382,11 @@ function DeviceTestScreen({
   const [rememberSettings, setRememberSettings] = useState(true);
 
   return (
-    <ScreenFrame title="Prueba de equipo" right={<StepDots active={1} />} onBack={onBack}>
+    <ScreenFrame
+      title="Prueba de equipo"
+      right={<StepDots active={1} />}
+      onBack={onBack}
+    >
       <div className="workbench">
         <section className="preview-column device-preview-column">
           <div className="section-header compact">
@@ -1908,12 +2394,30 @@ function DeviceTestScreen({
               <h1>Revisa cámara y micrófono</h1>
             </div>
           </div>
-          <VideoPreview enabled={cameraEnabled} label="Vista previa" cameraDeviceId={deviceSelection.cameraId} />
+          <VideoPreview
+            enabled={cameraEnabled}
+            label="Vista previa"
+            cameraDeviceId={deviceSelection.cameraId}
+          />
           <div className="control-row">
-            <ControlButton active={micEnabled} icon={micEnabled ? <Mic /> : <MicOff />} label="Micrófono" onClick={onToggleMic} />
-            <ControlButton active={cameraEnabled} icon={cameraEnabled ? <Video /> : <VideoOff />} label="Cámara" onClick={onToggleCamera} />
+            <ControlButton
+              active={micEnabled}
+              icon={micEnabled ? <Mic /> : <MicOff />}
+              label="Micrófono"
+              onClick={onToggleMic}
+            />
+            <ControlButton
+              active={cameraEnabled}
+              icon={cameraEnabled ? <Video /> : <VideoOff />}
+              label="Cámara"
+              onClick={onToggleCamera}
+            />
             <ControlButton icon={<Volume2 />} label="Altavoz" />
-            <ControlButton icon={<Settings />} label={devicesRefreshing ? "Buscando" : "Ajustes"} onClick={onRefreshDevices} />
+            <ControlButton
+              icon={<Settings />}
+              label={devicesRefreshing ? "Buscando" : "Ajustes"}
+              onClick={onRefreshDevices}
+            />
           </div>
         </section>
         <aside className="settings-column">
@@ -1936,18 +2440,38 @@ function DeviceTestScreen({
               label="Salida"
               value={deviceSelection.speakerId}
               onChange={(value) => onDeviceChange("speakerId", value)}
-              options={deviceOptions(deviceChoices.audiooutput, "Salida por defecto")}
+              options={deviceOptions(
+                deviceChoices.audiooutput,
+                "Salida por defecto",
+              )}
               disabled={deviceChoices.audiooutput.length === 0}
             />
-            {deviceError ? <InlineNotice icon={<ShieldAlert />}>{deviceError}</InlineNotice> : null}
+            {deviceError ? (
+              <InlineNotice icon={<ShieldAlert />}>{deviceError}</InlineNotice>
+            ) : null}
           </Panel>
           <Panel title="Al entrar">
-            <ToggleRow label="Entrar con micrófono apagado" checked={!micEnabled} onClick={onToggleMic} />
-            <ToggleRow label="Entrar con cámara encendida" checked={cameraEnabled} onClick={onToggleCamera} />
-            <ToggleRow label="Recordar esta configuración" checked={rememberSettings} onClick={() => setRememberSettings((current) => !current)} />
+            <ToggleRow
+              label="Entrar con micrófono apagado"
+              checked={!micEnabled}
+              onClick={onToggleMic}
+            />
+            <ToggleRow
+              label="Entrar con cámara encendida"
+              checked={cameraEnabled}
+              onClick={onToggleCamera}
+            />
+            <ToggleRow
+              label="Recordar esta configuración"
+              checked={rememberSettings}
+              onClick={() => setRememberSettings((current) => !current)}
+            />
           </Panel>
           <div className="stacked-actions device-actions">
-            <Button icon={hostMode ? <UserRound /> : <LogIn />} onClick={onContinue}>
+            <Button
+              icon={hostMode ? <UserRound /> : <LogIn />}
+              onClick={onContinue}
+            >
               {hostMode ? "Configurar como host" : "Entrar como invitado"}
             </Button>
             {!hostMode ? (
@@ -1978,10 +2502,11 @@ function HostSettingsScreen({
   onToggleFace,
   onToggleBackground,
   onToggleVoice,
+  onOpenAiRuntime,
   onOpenBackgroundCalibration,
   onBack,
   onSkip,
-  onContinue
+  onContinue,
 }: {
   cameraEnabled: boolean;
   faceEnabled: boolean;
@@ -1998,14 +2523,22 @@ function HostSettingsScreen({
   onToggleFace: () => void;
   onToggleBackground: () => void;
   onToggleVoice: () => void;
+  onOpenAiRuntime: () => void;
   onOpenBackgroundCalibration: () => void;
   onBack: () => void;
   onSkip: () => void;
   onContinue: () => void;
 }) {
-  const pushedIdentities = identities.filter((identity) => identity.status === "AVAILABLE" && identity.deliveryStatus === "PUSHED");
-  const identityOptions = pushedIdentities.length > 0 ? pushedIdentities : identities;
-  const hostIdentity = identityOptions.find((identity) => identity.id === selectedIdentityId) ?? identityOptions[0] ?? null;
+  const pushedIdentities = identities.filter(
+    (identity) =>
+      identity.status === "AVAILABLE" && identity.deliveryStatus === "PUSHED",
+  );
+  const identityOptions =
+    pushedIdentities.length > 0 ? pushedIdentities : identities;
+  const hostIdentity =
+    identityOptions.find((identity) => identity.id === selectedIdentityId) ??
+    identityOptions[0] ??
+    null;
   const [lightingEnhanced, setLightingEnhanced] = useState(true);
 
   function handleIdentitySelect(identityId: string) {
@@ -2015,13 +2548,26 @@ function HostSettingsScreen({
   }
 
   return (
-    <ScreenFrame title="Ajustes del host" right={<Button variant="outline" icon={<LogIn />} onClick={onSkip}>Omitir y entrar</Button>}>
+    <ScreenFrame
+      title="Ajustes del host"
+      right={
+        <Button variant="outline" icon={<LogIn />} onClick={onSkip}>
+          Omitir y entrar
+        </Button>
+      }
+    >
       <div className="workbench">
         <section className="preview-column host-preview-column">
           <div className="section-header compact">
             <h1>Ajustes de cámara e identidad</h1>
           </div>
-          <VideoPreview enabled={cameraEnabled} label="Vista del host" cameraDeviceId={deviceSelection.cameraId} darkFooter footerText={hostIdentity?.name ?? host?.username ?? "Host"} />
+          <VideoPreview
+            enabled={cameraEnabled}
+            label="Vista del host"
+            cameraDeviceId={deviceSelection.cameraId}
+            darkFooter
+            footerText={hostIdentity?.name ?? host?.username ?? "Host"}
+          />
         </section>
         <aside className="settings-column">
           <Panel title="Cámara">
@@ -2032,8 +2578,16 @@ function HostSettingsScreen({
               options={deviceOptions(deviceChoices.videoinput, "Sin cámara")}
               disabled={deviceChoices.videoinput.length === 0}
             />
-            <ToggleRow label="Fondo limpio listo" checked={Boolean(backgroundCalibration)} onClick={onOpenBackgroundCalibration} />
-            <ToggleRow label="Mejorar iluminación" checked={lightingEnhanced} onClick={() => setLightingEnhanced((current) => !current)} />
+            <ToggleRow
+              label="Fondo limpio listo"
+              checked={Boolean(backgroundCalibration)}
+              onClick={onOpenBackgroundCalibration}
+            />
+            <ToggleRow
+              label="Mejorar iluminación"
+              checked={lightingEnhanced}
+              onClick={() => setLightingEnhanced((current) => !current)}
+            />
           </Panel>
           <Panel title="Rostro aprobado">
             <SelectField
@@ -2044,13 +2598,32 @@ function HostSettingsScreen({
                 { value: "", label: "Sin cambio de rostro" },
                 ...identityOptions.map((identity) => ({
                   value: identity.id,
-                  label: identity.name
-                }))
+                  label: identity.name,
+                })),
               ]}
             />
-            <ToggleRow label="Activar rostro aprobado" checked={faceEnabled} onClick={onToggleFace} />
-            <ToggleRow label="Activar fondo personalizado" checked={backgroundEnabled} onClick={onToggleBackground} />
-            <ToggleRow label="Activar voz configurada" checked={voiceEnabled} onClick={onToggleVoice} />
+            <ToggleRow
+              label="Activar rostro aprobado"
+              checked={faceEnabled}
+              onClick={onToggleFace}
+            />
+            <ToggleRow
+              label="Activar fondo personalizado"
+              checked={backgroundEnabled}
+              onClick={onToggleBackground}
+            />
+            <ToggleRow
+              label="Activar voz configurada"
+              checked={voiceEnabled}
+              onClick={onToggleVoice}
+            />
+            <Button
+              variant="outline"
+              icon={<Settings />}
+              onClick={onOpenAiRuntime}
+            >
+              Runtime IA local
+            </Button>
           </Panel>
           <div className="stacked-actions host-actions">
             <Button icon={<LogIn />} onClick={onContinue}>
@@ -2066,13 +2639,293 @@ function HostSettingsScreen({
   );
 }
 
+function AiRuntimeScreen({
+  aiServiceStatus,
+  aiSidecarRuntime,
+  debugMessage,
+  gpuProfile,
+  observabilityStatus,
+  onBack,
+  onExportDebug,
+  onNativeDebugEvent,
+  onRefresh,
+  onStartSidecar,
+  onStopSidecar,
+}: {
+  aiServiceStatus: NativeAiServiceStatus | null;
+  aiSidecarRuntime: NativeAiSidecarRuntime | null;
+  debugMessage: string | null;
+  gpuProfile: NativeGpuProfile | null;
+  observabilityStatus: NativeObservabilityStatus | null;
+  onBack: () => void;
+  onExportDebug: () => Promise<void> | void;
+  onNativeDebugEvent: () => Promise<void> | void;
+  onRefresh: () => Promise<void> | void;
+  onStartSidecar: () => Promise<void> | void;
+  onStopSidecar: () => Promise<void> | void;
+}) {
+  const [envFile, setEnvFile] = useState<NativeAiRuntimeEnvFile | null>(null);
+  const [content, setContent] = useState("");
+  const [diagnostics, setDiagnostics] = useState<AiDiagnostics | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [runtimeMessage, setRuntimeMessage] = useState<string | null>(null);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+
+  async function loadRuntimeState() {
+    setLoading(true);
+    try {
+      const [runtimeEnv, nextDiagnostics] = await Promise.all([
+        getAiRuntimeEnv(),
+        getAiDiagnostics().catch(() => null),
+      ]);
+      setEnvFile(runtimeEnv);
+      setContent(runtimeEnv.content);
+      setDiagnostics(nextDiagnostics);
+      setRuntimeError(null);
+      await onRefresh();
+    } catch (error) {
+      setRuntimeError(
+        error instanceof Error ? error.message : "No se pudo leer runtime IA.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadRuntimeState();
+  }, []);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const saved = await saveAiRuntimeEnv(content);
+      setEnvFile(saved);
+      setContent(saved.content);
+      setRuntimeMessage("Config IA guardada.");
+      setRuntimeError(null);
+    } catch (error) {
+      setRuntimeError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo guardar config IA.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRefresh() {
+    setRuntimeMessage(null);
+    await loadRuntimeState();
+  }
+
+  async function handleStart() {
+    setRuntimeMessage(null);
+    await onStartSidecar();
+    await loadRuntimeState();
+  }
+
+  async function handleStop() {
+    setRuntimeMessage(null);
+    await onStopSidecar();
+    await loadRuntimeState();
+  }
+
+  const engines = diagnostics?.engines ?? [];
+  const managedProcessors = diagnostics?.managedProcessors ?? [];
+  const pipelineStatuses = aiServiceStatus?.pipelines ?? [];
+
+  return (
+    <ScreenFrame title="Runtime IA local" onBack={onBack}>
+      <div className="runtime-grid">
+        <section className="white-panel runtime-panel">
+          <div className="section-header compact">
+            <h1>Runtime IA local</h1>
+          </div>
+          <div className="detail-list">
+            <DetailRow
+              label="Archivo"
+              value={envFile?.path || "No disponible"}
+            />
+            <StatusRow
+              label="Sidecar"
+              value={aiSidecarRuntime?.running ? "Activo" : "Detenido"}
+              tone={serviceTone(aiSidecarRuntime?.running)}
+            />
+            <StatusRow
+              label="Servicio"
+              value={
+                aiServiceStatus
+                  ? `${boolStatus(aiServiceStatus.online)} · ${aiServiceStatus.mode}`
+                  : "Detectando"
+              }
+              tone={serviceTone(aiServiceStatus?.online)}
+            />
+            <StatusRow
+              label="GPU"
+              value={gpuDeviceLabel(gpuProfile) ?? gpuProfileLabel(gpuProfile)}
+              tone={gpuTone(gpuProfile)}
+            />
+            {gpuVramLabel(gpuProfile) ? (
+              <DetailRow label="VRAM" value={gpuVramLabel(gpuProfile)!} />
+            ) : null}
+            {gpuCudaLabel(gpuProfile) ? (
+              <DetailRow label="CUDA" value={gpuCudaLabel(gpuProfile)!} />
+            ) : null}
+          </div>
+          <label className="runtime-editor-field">
+            <span>Variables</span>
+            <textarea
+              className="runtime-editor"
+              spellCheck={false}
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+            />
+          </label>
+          {envFile?.configuredKeys.length ? (
+            <div className="runtime-key-list">
+              {envFile.configuredKeys.map((key) => (
+                <span key={key}>{key}</span>
+              ))}
+            </div>
+          ) : null}
+          {envFile?.warnings.map((warning) => (
+            <InlineNotice icon={<ShieldAlert />} key={warning}>
+              {warning}
+            </InlineNotice>
+          ))}
+          {runtimeError ? (
+            <InlineNotice icon={<ShieldAlert />}>{runtimeError}</InlineNotice>
+          ) : null}
+          {runtimeMessage ? (
+            <InlineNotice icon={<Check />}>{runtimeMessage}</InlineNotice>
+          ) : null}
+          <div className="button-row runtime-actions">
+            <Button
+              variant="outline"
+              icon={<RefreshCw />}
+              onClick={() => void handleRefresh()}
+              disabled={loading}
+            >
+              Refrescar
+            </Button>
+            <Button
+              variant="outline"
+              icon={<LogOut />}
+              onClick={() => void handleStop()}
+              disabled={loading}
+            >
+              Detener
+            </Button>
+            <Button
+              variant="outline"
+              icon={<Sparkles />}
+              onClick={() => void handleStart()}
+              disabled={loading}
+            >
+              Iniciar
+            </Button>
+            <Button
+              icon={<Check />}
+              onClick={() => void handleSave()}
+              disabled={saving}
+            >
+              {saving ? "Guardando" : "Guardar"}
+            </Button>
+          </div>
+        </section>
+        <aside className="settings-column runtime-side">
+          <Panel title="Motores">
+            {engines.length > 0
+              ? engines.map((engine) => (
+                  <StatusRow
+                    key={engine.id}
+                    label={engine.label}
+                    value={`${engine.status}${engine.configured ? " · configurado" : ""}`}
+                    tone={statusTone(engine.status)}
+                  />
+                ))
+              : pipelineStatuses.map((pipeline) => (
+                  <StatusRow
+                    key={pipeline.id}
+                    label={pipeline.label}
+                    value={pipeline.status}
+                    tone={statusTone(pipeline.status)}
+                  />
+                ))}
+          </Panel>
+          <Panel title="Procesadores">
+            {managedProcessors.length > 0 ? (
+              managedProcessors.map((processor) => (
+                <StatusRow
+                  key={processor.id}
+                  label={processor.label}
+                  value={
+                    processor.pid
+                      ? `${processor.status} · pid ${processor.pid}`
+                      : processor.status
+                  }
+                  tone={statusTone(processor.status)}
+                />
+              ))
+            ) : (
+              <StatusRow
+                label="Video/Audio"
+                value={diagnostics ? "Sin procesos" : "Sin diagnóstico"}
+                tone={diagnostics ? "warning" : "idle"}
+              />
+            )}
+          </Panel>
+          <Panel title="Observabilidad">
+            <StatusRow
+              label="Sentry web"
+              value={boolStatus(observabilityStatus?.frontendSentryEnabled)}
+              tone={serviceTone(observabilityStatus?.frontendSentryEnabled)}
+            />
+            <StatusRow
+              label="Sentry nativo"
+              value={boolStatus(observabilityStatus?.nativeSentryEnabled)}
+              tone={serviceTone(observabilityStatus?.nativeSentryEnabled)}
+            />
+            <StatusRow
+              label="Entorno"
+              value={observabilityStatus?.environment ?? "Detectando"}
+            />
+            {debugMessage ? (
+              <InlineNotice icon={<Check />}>{debugMessage}</InlineNotice>
+            ) : null}
+            <div className="stacked-actions compact">
+              <Button
+                variant="outline"
+                icon={<Copy />}
+                onClick={() => void onExportDebug()}
+              >
+                Bundle debug
+              </Button>
+              <Button
+                variant="outline"
+                icon={<ShieldCheck />}
+                onClick={() => void onNativeDebugEvent()}
+              >
+                Evento Sentry
+              </Button>
+            </div>
+          </Panel>
+        </aside>
+      </div>
+    </ScreenFrame>
+  );
+}
+
 function BackgroundCalibrationScreen({
   cameraEnabled,
   cameraDeviceId,
   calibration,
   onBack,
   onCapture,
-  onContinue
+  onContinue,
 }: {
   cameraEnabled: boolean;
   cameraDeviceId: string;
@@ -2081,7 +2934,10 @@ function BackgroundCalibrationScreen({
   onCapture: (calibration: BackgroundCalibration) => void;
   onContinue: () => void;
 }) {
-  const { videoRef, active, error } = useCameraPreview({ enabled: cameraEnabled, deviceId: cameraDeviceId });
+  const { videoRef, active, error } = useCameraPreview({
+    enabled: cameraEnabled,
+    deviceId: cameraDeviceId,
+  });
   const [captureError, setCaptureError] = useState<string | null>(null);
 
   function captureCleanPlate() {
@@ -2110,20 +2966,26 @@ function BackgroundCalibrationScreen({
       capturedAt: new Date().toISOString(),
       width,
       height,
-      cameraDeviceId
+      cameraDeviceId,
     });
     setCaptureError(null);
   }
 
   return (
-    <ScreenFrame title="Calibrar fondo" right={<StepDots active={2} />} onBack={onBack}>
+    <ScreenFrame
+      title="Calibrar fondo"
+      right={<StepDots active={2} />}
+      onBack={onBack}
+    >
       <div className="workbench">
         <section className="preview-column">
           <div className="section-header compact">
             <h1>Captura fondo limpio</h1>
           </div>
           <div className="video-preview">
-            {cameraEnabled && active ? <video ref={videoRef} muted playsInline /> : null}
+            {cameraEnabled && active ? (
+              <video ref={videoRef} muted playsInline />
+            ) : null}
             {!active ? (
               <div className="avatar-preview">
                 <Camera />
@@ -2138,20 +3000,53 @@ function BackgroundCalibrationScreen({
         </section>
         <aside className="settings-column">
           <Panel title="Calibración">
-            <StatusRow label="Cámara" value={active ? "Lista" : "Sin señal"} tone={active ? "ok" : "warning"} />
-            <StatusRow label="Clean plate" value={calibration ? "Capturado" : "Pendiente"} tone={calibration ? "ok" : "warning"} />
-            <StatusRow label="Resolución" value={calibration ? `${calibration.width}x${calibration.height}` : "720p objetivo"} tone={calibration ? "ok" : "idle"} />
-            {calibration ? <img className="clean-plate-thumb" src={calibration.cleanPlateDataUrl} alt="Fondo capturado" /> : null}
-            {captureError ? <InlineNotice icon={<ShieldAlert />}>{captureError}</InlineNotice> : null}
+            <StatusRow
+              label="Cámara"
+              value={active ? "Lista" : "Sin señal"}
+              tone={active ? "ok" : "warning"}
+            />
+            <StatusRow
+              label="Clean plate"
+              value={calibration ? "Capturado" : "Pendiente"}
+              tone={calibration ? "ok" : "warning"}
+            />
+            <StatusRow
+              label="Resolución"
+              value={
+                calibration
+                  ? `${calibration.width}x${calibration.height}`
+                  : "720p objetivo"
+              }
+              tone={calibration ? "ok" : "idle"}
+            />
+            {calibration ? (
+              <img
+                className="clean-plate-thumb"
+                src={calibration.cleanPlateDataUrl}
+                alt="Fondo capturado"
+              />
+            ) : null}
+            {captureError ? (
+              <InlineNotice icon={<ShieldAlert />}>{captureError}</InlineNotice>
+            ) : null}
           </Panel>
           <div className="stacked-actions">
-            <Button icon={<Camera />} onClick={captureCleanPlate} disabled={!active}>
+            <Button
+              icon={<Camera />}
+              onClick={captureCleanPlate}
+              disabled={!active}
+            >
               Capturar fondo
             </Button>
             <Button variant="outline" icon={<ArrowLeft />} onClick={onBack}>
               Volver
             </Button>
-            <Button variant="outline" icon={<ArrowRight />} onClick={onContinue} disabled={!calibration}>
+            <Button
+              variant="outline"
+              icon={<ArrowRight />}
+              onClick={onContinue}
+              disabled={!calibration}
+            >
               Continuar
             </Button>
           </div>
@@ -2172,7 +3067,7 @@ function WaitingRoomScreen({
   onLeave,
   admitted,
   onEnter,
-  error
+  error,
 }: {
   meeting: Meeting;
   cameraEnabled: boolean;
@@ -2190,11 +3085,29 @@ function WaitingRoomScreen({
     <ScreenFrame title={meeting.title} showTitle>
       <div className="workbench waiting-workbench">
         <section className="preview-column waiting-preview-column">
-          <VideoPreview enabled={cameraEnabled} label="Vista previa" cameraDeviceId={cameraDeviceId} />
+          <VideoPreview
+            enabled={cameraEnabled}
+            label="Vista previa"
+            cameraDeviceId={cameraDeviceId}
+          />
           <div className="control-row">
-            <ControlButton active={micEnabled} icon={micEnabled ? <Mic /> : <MicOff />} label="Mic" onClick={onToggleMic} />
-            <ControlButton active={cameraEnabled} icon={cameraEnabled ? <Video /> : <VideoOff />} label="Cámara" onClick={onToggleCamera} />
-            <ControlButton icon={<Settings />} label="Ajustes" onClick={onSettings} />
+            <ControlButton
+              active={micEnabled}
+              icon={micEnabled ? <Mic /> : <MicOff />}
+              label="Mic"
+              onClick={onToggleMic}
+            />
+            <ControlButton
+              active={cameraEnabled}
+              icon={cameraEnabled ? <Video /> : <VideoOff />}
+              label="Cámara"
+              onClick={onToggleCamera}
+            />
+            <ControlButton
+              icon={<Settings />}
+              label="Ajustes"
+              onClick={onSettings}
+            />
           </div>
         </section>
         <aside className="side-panel waiting-panel waiting-status-panel">
@@ -2202,7 +3115,9 @@ function WaitingRoomScreen({
           <InlineNotice icon={admitted ? <Check /> : <RefreshCw />}>
             {admitted ? "Admitido por el host" : "Esperando admisión"}
           </InlineNotice>
-          {error ? <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice> : null}
+          {error ? (
+            <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice>
+          ) : null}
           {admitted ? (
             <Button icon={<ArrowRight />} onClick={onEnter}>
               Entrar a la reunión
@@ -2234,7 +3149,7 @@ function ActiveCallScreen({
   onToggleCamera,
   onToggleMic,
   onAdmitParticipant,
-  onLeave
+  onLeave,
 }: {
   meeting: Meeting;
   liveKitConnection: (LiveKitConnection & { warning?: string }) | null;
@@ -2255,19 +3170,31 @@ function ActiveCallScreen({
   onLeave: () => void;
 }) {
   const [room, setRoom] = useState<Room | null>(null);
-  const [liveKitState, setLiveKitState] = useState<"offline" | "connecting" | "connected" | "error">("offline");
+  const [liveKitState, setLiveKitState] = useState<
+    "offline" | "connecting" | "connected" | "error"
+  >("offline");
   const [liveKitError, setLiveKitError] = useState<string | null>(null);
   const [callActionError, setCallActionError] = useState<string | null>(null);
   const [aiSession, setAiSession] = useState<AiSession | null>(null);
   const [aiSessionError, setAiSessionError] = useState<string | null>(null);
-  const [processedVideoState, setProcessedVideoState] = useState<"idle" | "publishing" | "published" | "error">("idle");
-  const [processedRuntimeStatus, setProcessedRuntimeStatus] = useState<ProcessedVideoRuntimeStatus | null>(null);
-  const [processedAudioState, setProcessedAudioState] = useState<"idle" | "publishing" | "published" | "error">("idle");
-  const [processedAudioRuntimeStatus, setProcessedAudioRuntimeStatus] = useState<ProcessedAudioRuntimeStatus | null>(null);
+  const [processedVideoState, setProcessedVideoState] = useState<
+    "idle" | "publishing" | "published" | "error"
+  >("idle");
+  const [processedRuntimeStatus, setProcessedRuntimeStatus] =
+    useState<ProcessedVideoRuntimeStatus | null>(null);
+  const [processedAudioState, setProcessedAudioState] = useState<
+    "idle" | "publishing" | "published" | "error"
+  >("idle");
+  const [processedAudioRuntimeStatus, setProcessedAudioRuntimeStatus] =
+    useState<ProcessedAudioRuntimeStatus | null>(null);
   const [roomMediaVersion, setRoomMediaVersion] = useState(0);
   const [screenShareEnabled, setScreenShareEnabled] = useState(false);
-  const [screenShareState, setScreenShareState] = useState<"idle" | "starting" | "sharing" | "error">("idle");
-  const [sideTab, setSideTab] = useState<"participants" | "chat">("participants");
+  const [screenShareState, setScreenShareState] = useState<
+    "idle" | "starting" | "sharing" | "error"
+  >("idle");
+  const [sideTab, setSideTab] = useState<"participants" | "chat">(
+    "participants",
+  );
   const [callDiagnosticsOpen, setCallDiagnosticsOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<CallChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
@@ -2275,7 +3202,9 @@ function ActiveCallScreen({
   const processedAudioRef = useRef<ProcessedAudioPipeline | null>(null);
   const processedVideoRef = useRef<ProcessedVideoPipeline | null>(null);
   const activeParticipants = useMemo(() => {
-    const joined = meeting.participants.filter((participant) => participant.joinedAt && !participant.leftAt);
+    const joined = meeting.participants.filter(
+      (participant) => participant.joinedAt && !participant.leftAt,
+    );
     const participants = joined.length > 0 ? joined : meeting.participants;
 
     return participants.slice(0, 4);
@@ -2283,22 +3212,32 @@ function ActiveCallScreen({
   const waitingParticipants = useMemo(
     () =>
       meeting.participants.filter(
-        (participant) => participant.role !== "host" && !participant.joinedAt && !participant.leftAt
+        (participant) =>
+          participant.role !== "host" &&
+          !participant.joinedAt &&
+          !participant.leftAt,
       ),
-    [meeting.participants]
+    [meeting.participants],
   );
   const fallbackParticipants = useMemo(() => {
-    const activeIds = new Set(activeParticipants.map((participant) => participant.id));
+    const activeIds = new Set(
+      activeParticipants.map((participant) => participant.id),
+    );
     const visibleWaitingParticipants = hostMode
-      ? waitingParticipants.filter((participant) => !activeIds.has(participant.id))
+      ? waitingParticipants.filter(
+          (participant) => !activeIds.has(participant.id),
+        )
       : [];
 
     return [...activeParticipants, ...visibleWaitingParticipants].slice(0, 4);
   }, [activeParticipants, hostMode, waitingParticipants]);
-  const hostDisplayName = activeParticipants.find((participant) => participant.role === "host")?.displayName ?? "Host";
+  const hostDisplayName =
+    activeParticipants.find((participant) => participant.role === "host")
+      ?.displayName ?? "Host";
   const localDisplayName =
-    meeting.participants.find((participant) => participant.id === liveKitConnection?.identity)?.displayName ??
-    (hostMode ? hostDisplayName : "Tú");
+    meeting.participants.find(
+      (participant) => participant.id === liveKitConnection?.identity,
+    )?.displayName ?? (hostMode ? hostDisplayName : "Tú");
   const liveKitUrl = liveKitConnection?.url ?? null;
   const liveKitToken = liveKitConnection?.token ?? null;
   const liveKitWarning = liveKitConnection?.warning ?? null;
@@ -2336,7 +3275,11 @@ function ActiveCallScreen({
         .catch((error) => {
           if (cancelled) return;
           setLiveKitState("error");
-          setLiveKitError(error instanceof Error ? error.message : "No se pudo conectar LiveKit.");
+          setLiveKitError(
+            error instanceof Error
+              ? error.message
+              : "No se pudo conectar LiveKit.",
+          );
         });
     }, 250);
 
@@ -2398,12 +3341,21 @@ function ActiveCallScreen({
   useEffect(() => {
     if (!room) return;
 
-    const handleDataReceived = (payload: Uint8Array, participant?: Participant, _kind?: unknown, topic?: string) => {
+    const handleDataReceived = (
+      payload: Uint8Array,
+      participant?: Participant,
+      _kind?: unknown,
+      topic?: string,
+    ) => {
       if (topic !== CALL_CHAT_TOPIC || !participant) return;
 
       const message = decodeChatMessage(payload, participant);
       if (!message) return;
-      setChatMessages((current) => (current.some((item) => item.id === message.id) ? current : [...current, message]));
+      setChatMessages((current) =>
+        current.some((item) => item.id === message.id)
+          ? current
+          : [...current, message],
+      );
     };
 
     room.on(RoomEvent.DataReceived, handleDataReceived);
@@ -2435,7 +3387,10 @@ function ActiveCallScreen({
       if (!shouldProcessAudio) {
         setProcessedAudioState("idle");
         setProcessedAudioRuntimeStatus(null);
-        await activeRoom.localParticipant.setMicrophoneEnabled(true, audioCaptureOptions(deviceSelection.microphoneId));
+        await activeRoom.localParticipant.setMicrophoneEnabled(
+          true,
+          audioCaptureOptions(deviceSelection.microphoneId),
+        );
         setCallActionError(null);
         return;
       }
@@ -2444,7 +3399,7 @@ function ActiveCallScreen({
       await activeRoom.localParticipant.setMicrophoneEnabled(false);
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: mediaTrackAudioConstraints(deviceSelection.microphoneId),
-        video: false
+        video: false,
       });
       const [microphoneTrack] = stream.getAudioTracks();
 
@@ -2455,7 +3410,7 @@ function ActiveCallScreen({
       const pipeline = await createProcessedAudioPipeline(microphoneTrack, {
         voiceEnabled,
         aiSessionId: aiSession?.id ?? null,
-        onStatusChange: setProcessedAudioRuntimeStatus
+        onStatusChange: setProcessedAudioRuntimeStatus,
       });
 
       if (cancelled) {
@@ -2468,7 +3423,7 @@ function ActiveCallScreen({
       await activeRoom.localParticipant.publishTrack(pipeline.track, {
         name: "shape-processed-audio",
         source: Track.Source.Microphone,
-        stream: "shape-processed"
+        stream: "shape-processed",
       });
       setProcessedAudioState("published");
       setCallActionError(null);
@@ -2478,8 +3433,15 @@ function ActiveCallScreen({
       setProcessedAudioState("error");
       processedAudioRef.current?.stop();
       processedAudioRef.current = null;
-      setCallActionError(error instanceof Error ? error.message : "No se pudo publicar voz procesada.");
-      void activeRoom.localParticipant.setMicrophoneEnabled(micEnabled, audioCaptureOptions(deviceSelection.microphoneId));
+      setCallActionError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo publicar voz procesada.",
+      );
+      void activeRoom.localParticipant.setMicrophoneEnabled(
+        micEnabled,
+        audioCaptureOptions(deviceSelection.microphoneId),
+      );
     });
 
     return () => {
@@ -2490,14 +3452,22 @@ function ActiveCallScreen({
       processedAudioRef.current?.stop();
       processedAudioRef.current = null;
     };
-  }, [aiSession?.id, deviceSelection.microphoneId, hostMode, micEnabled, room, voiceEnabled]);
+  }, [
+    aiSession?.id,
+    deviceSelection.microphoneId,
+    hostMode,
+    micEnabled,
+    room,
+    voiceEnabled,
+  ]);
 
   useEffect(() => {
     if (!room) return;
 
     let cancelled = false;
     let publishedTrack: MediaStreamTrack | null = null;
-    const shouldProcessVideo = hostMode && cameraEnabled && (faceEnabled || backgroundEnabled);
+    const shouldProcessVideo =
+      hostMode && cameraEnabled && (faceEnabled || backgroundEnabled);
 
     async function publishVideo() {
       processedVideoRef.current?.stop();
@@ -2514,7 +3484,10 @@ function ActiveCallScreen({
       if (!shouldProcessVideo) {
         setProcessedVideoState("idle");
         setProcessedRuntimeStatus(null);
-        await room?.localParticipant.setCameraEnabled(true, videoCaptureOptions(deviceSelection.cameraId));
+        await room?.localParticipant.setCameraEnabled(
+          true,
+          videoCaptureOptions(deviceSelection.cameraId),
+        );
         setCallActionError(null);
         return;
       }
@@ -2523,7 +3496,7 @@ function ActiveCallScreen({
       await room?.localParticipant.setCameraEnabled(false);
       const stream = await navigator.mediaDevices.getUserMedia({
         video: mediaTrackVideoConstraints(deviceSelection.cameraId),
-        audio: false
+        audio: false,
       });
       const [cameraTrack] = stream.getVideoTracks();
 
@@ -2538,7 +3511,7 @@ function ActiveCallScreen({
         label: hostDisplayName,
         aiSessionId: aiSession?.id ?? null,
         sidecarFps: 12,
-        onStatusChange: setProcessedRuntimeStatus
+        onStatusChange: setProcessedRuntimeStatus,
       });
 
       if (cancelled) {
@@ -2551,7 +3524,7 @@ function ActiveCallScreen({
       await room?.localParticipant.publishTrack(pipeline.track, {
         name: "shape-processed-video",
         source: Track.Source.Camera,
-        stream: "shape-processed"
+        stream: "shape-processed",
       });
       setProcessedVideoState("published");
       setCallActionError(null);
@@ -2559,7 +3532,11 @@ function ActiveCallScreen({
 
     void publishVideo().catch((error) => {
       setProcessedVideoState("error");
-      setCallActionError(error instanceof Error ? error.message : "No se pudo publicar video procesado.");
+      setCallActionError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo publicar video procesado.",
+      );
       void room.localParticipant.setCameraEnabled(cameraEnabled);
     });
 
@@ -2571,7 +3548,17 @@ function ActiveCallScreen({
       processedVideoRef.current?.stop();
       processedVideoRef.current = null;
     };
-  }, [aiSession?.id, backgroundEnabled, cameraEnabled, deviceSelection.cameraId, faceEnabled, hostDisplayName, hostMode, room, voiceEnabled]);
+  }, [
+    aiSession?.id,
+    backgroundEnabled,
+    cameraEnabled,
+    deviceSelection.cameraId,
+    faceEnabled,
+    hostDisplayName,
+    hostMode,
+    room,
+    voiceEnabled,
+  ]);
 
   useEffect(() => {
     if (!hostMode || !liveKitConnection?.identity) {
@@ -2585,7 +3572,9 @@ function ActiveCallScreen({
     setAiSessionError(null);
 
     async function startLocalAiSession() {
-      const prepared = faceEnabled ? await prepareIdentityForAiSession(identity, hostToken) : { identity, cache: null };
+      const prepared = faceEnabled
+        ? await prepareIdentityForAiSession(identity, hostToken)
+        : { identity, cache: null };
       const resolvedIdentity = prepared.identity;
       const artifactCache = prepared.cache;
 
@@ -2600,22 +3589,30 @@ function ActiveCallScreen({
         identityKind: resolvedIdentity?.kind,
         identityVersion: resolvedIdentity?.version,
         identityArtifactUri: resolvedIdentity?.artifactUri ?? null,
-        identityCachedArtifactUri: artifactCache?.uri ?? resolvedIdentity?.artifactUri ?? null,
+        identityCachedArtifactUri:
+          artifactCache?.uri ?? resolvedIdentity?.artifactUri ?? null,
         identityLocalArtifactPath: artifactCache?.localPath ?? null,
-        identityArtifactSha256: artifactCache?.sha256 ?? resolvedIdentity?.artifactSha256 ?? null,
-        identityArtifactSizeBytes: artifactCache?.sizeBytes ?? resolvedIdentity?.artifactSizeBytes ?? null,
+        identityArtifactSha256:
+          artifactCache?.sha256 ?? resolvedIdentity?.artifactSha256 ?? null,
+        identityArtifactSizeBytes:
+          artifactCache?.sizeBytes ??
+          resolvedIdentity?.artifactSizeBytes ??
+          null,
         identityArtifactCacheMessage: artifactCache?.message ?? null,
         faceEnabled,
         backgroundEnabled,
-        backgroundCleanPlateDataUrl: backgroundCalibration?.cleanPlateDataUrl ?? null,
-        backgroundCleanPlateCapturedAt: backgroundCalibration?.capturedAt ?? null,
+        backgroundCleanPlateDataUrl:
+          backgroundCalibration?.cleanPlateDataUrl ?? null,
+        backgroundCleanPlateCapturedAt:
+          backgroundCalibration?.capturedAt ?? null,
         backgroundCleanPlateWidth: backgroundCalibration?.width ?? null,
         backgroundCleanPlateHeight: backgroundCalibration?.height ?? null,
-        backgroundCleanPlateCameraDeviceId: backgroundCalibration?.cameraDeviceId ?? null,
+        backgroundCleanPlateCameraDeviceId:
+          backgroundCalibration?.cameraDeviceId ?? null,
         voiceEnabled,
         targetWidth: 1280,
         targetHeight: 720,
-        targetFps: 30
+        targetFps: 30,
       });
 
       return session;
@@ -2632,7 +3629,11 @@ function ActiveCallScreen({
         setAiSession(session);
       })
       .catch((error) => {
-        setAiSessionError(error instanceof Error ? error.message : "No se pudo iniciar la sesión local de IA.");
+        setAiSessionError(
+          error instanceof Error
+            ? error.message
+            : "No se pudo iniciar la sesión local de IA.",
+        );
       });
 
     return () => {
@@ -2641,7 +3642,17 @@ function ActiveCallScreen({
         void stopAiSession(sessionId);
       }
     };
-  }, [backgroundCalibration, backgroundEnabled, faceEnabled, hostMode, hostToken, identity, liveKitConnection?.identity, meeting.code, voiceEnabled]);
+  }, [
+    backgroundCalibration,
+    backgroundEnabled,
+    faceEnabled,
+    hostMode,
+    hostToken,
+    identity,
+    liveKitConnection?.identity,
+    meeting.code,
+    voiceEnabled,
+  ]);
 
   useEffect(() => {
     if (!aiSession?.id || aiSession.status !== "running") return;
@@ -2649,7 +3660,13 @@ function ActiveCallScreen({
     const interval = window.setInterval(() => {
       void getAiSession(aiSession.id)
         .then(setAiSession)
-        .catch((error) => setAiSessionError(error instanceof Error ? error.message : "No se pudo actualizar la sesión IA."));
+        .catch((error) =>
+          setAiSessionError(
+            error instanceof Error
+              ? error.message
+              : "No se pudo actualizar la sesión IA.",
+          ),
+        );
     }, 2000);
 
     return () => window.clearInterval(interval);
@@ -2671,16 +3688,20 @@ function ActiveCallScreen({
           ? {
               audio: false,
               video: true,
-              resolution: { width: 1920, height: 1080, frameRate: 15 }
+              resolution: { width: 1920, height: 1080, frameRate: 15 },
             }
-          : undefined
+          : undefined,
       );
       setScreenShareEnabled(nextEnabled);
       setScreenShareState(nextEnabled ? "sharing" : "idle");
       setCallActionError(null);
     } catch (error) {
       setScreenShareState("error");
-      setCallActionError(error instanceof Error ? error.message : "No se pudo compartir pantalla.");
+      setCallActionError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo compartir pantalla.",
+      );
     }
   }
 
@@ -2694,7 +3715,7 @@ function ActiveCallScreen({
       displayName: localDisplayName,
       body,
       sentAt: new Date().toISOString(),
-      local: true
+      local: true,
     };
 
     setChatDraft("");
@@ -2708,11 +3729,15 @@ function ActiveCallScreen({
     try {
       await room.localParticipant.publishData(encodeChatMessage(localMessage), {
         reliable: true,
-        topic: CALL_CHAT_TOPIC
+        topic: CALL_CHAT_TOPIC,
       });
       setChatError(null);
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : "No se pudo enviar el mensaje.");
+      setChatError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo enviar el mensaje.",
+      );
     }
   }
 
@@ -2720,50 +3745,123 @@ function ActiveCallScreen({
     () =>
       defaultPipelineMetrics.map((metric) => {
         if (metric.label === "Video") {
-          if (processedVideoState === "published") return { ...metric, value: "Track IA publicado", state: "ok" };
-          if (processedVideoState === "publishing") return { ...metric, value: "Publicando IA", state: "warning" };
-          if (processedVideoState === "error") return { ...metric, value: "IA fallback", state: "warning" };
-          if (liveKitState === "connected") return { ...metric, value: "LiveKit conectado", state: "ok" };
-          if (liveKitState === "connecting") return { ...metric, value: "Conectando LiveKit", state: "warning" };
-          if (liveKitState === "error") return { ...metric, value: "LiveKit error", state: "warning" };
+          if (processedVideoState === "published")
+            return { ...metric, value: "Track IA publicado", state: "ok" };
+          if (processedVideoState === "publishing")
+            return { ...metric, value: "Publicando IA", state: "warning" };
+          if (processedVideoState === "error")
+            return { ...metric, value: "IA fallback", state: "warning" };
+          if (liveKitState === "connected")
+            return { ...metric, value: "LiveKit conectado", state: "ok" };
+          if (liveKitState === "connecting")
+            return { ...metric, value: "Conectando LiveKit", state: "warning" };
+          if (liveKitState === "error")
+            return { ...metric, value: "LiveKit error", state: "warning" };
           return { ...metric, value: "Modo local", state: "idle" };
         }
-        if (metric.label === "Rostro") return { ...metric, value: pipelineValue(aiSession, "face", faceEnabled), state: faceEnabled ? "ok" : "idle" };
-        if (metric.label === "Fondo") return { ...metric, value: pipelineValue(aiSession, "background", backgroundEnabled), state: backgroundEnabled ? "ok" : "idle" };
+        if (metric.label === "Rostro")
+          return {
+            ...metric,
+            value: pipelineValue(aiSession, "face", faceEnabled),
+            state: faceEnabled ? "ok" : "idle",
+          };
+        if (metric.label === "Fondo")
+          return {
+            ...metric,
+            value: pipelineValue(aiSession, "background", backgroundEnabled),
+            state: backgroundEnabled ? "ok" : "idle",
+          };
         if (metric.label === "Voz") {
           if (voiceEnabled && processedAudioState === "published") {
-            const latency = processedAudioRuntimeStatus?.latencyMs ? `${processedAudioRuntimeStatus.latencyMs} ms` : null;
-            return { ...metric, value: latency ? `Bridge voz · ${latency}` : "Track voz publicado", state: "ok" };
+            const latency = processedAudioRuntimeStatus?.latencyMs
+              ? `${processedAudioRuntimeStatus.latencyMs} ms`
+              : null;
+            return {
+              ...metric,
+              value: latency
+                ? `Bridge voz · ${latency}`
+                : "Track voz publicado",
+              state: "ok",
+            };
           }
-          if (voiceEnabled && processedAudioState === "publishing") return { ...metric, value: "Publicando voz", state: "warning" };
-          if (voiceEnabled && processedAudioState === "error") return { ...metric, value: "Voz fallback", state: "warning" };
-          return { ...metric, value: pipelineValue(aiSession, "voice", voiceEnabled), state: voiceEnabled ? "ok" : "idle" };
+          if (voiceEnabled && processedAudioState === "publishing")
+            return { ...metric, value: "Publicando voz", state: "warning" };
+          if (voiceEnabled && processedAudioState === "error")
+            return { ...metric, value: "Voz fallback", state: "warning" };
+          return {
+            ...metric,
+            value: pipelineValue(aiSession, "voice", voiceEnabled),
+            state: voiceEnabled ? "ok" : "idle",
+          };
         }
         return metric;
       }),
-    [aiSession, backgroundEnabled, faceEnabled, liveKitState, processedAudioRuntimeStatus?.latencyMs, processedAudioState, processedVideoState, voiceEnabled]
+    [
+      aiSession,
+      backgroundEnabled,
+      faceEnabled,
+      liveKitState,
+      processedAudioRuntimeStatus?.latencyMs,
+      processedAudioState,
+      processedVideoState,
+      voiceEnabled,
+    ],
   );
   const fallbackTiles = useMemo(
-    () => fallbackParticipants.map((participant) => fallbackTileFromMeetingParticipant(participant, liveKitConnection?.identity ?? null, { faceEnabled, backgroundEnabled, voiceEnabled })),
-    [backgroundEnabled, faceEnabled, fallbackParticipants, liveKitConnection?.identity, voiceEnabled]
+    () =>
+      fallbackParticipants.map((participant) =>
+        fallbackTileFromMeetingParticipant(
+          participant,
+          liveKitConnection?.identity ?? null,
+          { faceEnabled, backgroundEnabled, voiceEnabled },
+        ),
+      ),
+    [
+      backgroundEnabled,
+      faceEnabled,
+      fallbackParticipants,
+      liveKitConnection?.identity,
+      voiceEnabled,
+    ],
   );
   const liveKitTiles = useMemo(
     () =>
       room
-        ? buildLiveKitTiles(room, meeting, hostMode, liveKitConnection?.identity ?? null, {
-            faceEnabled,
-            backgroundEnabled,
-            voiceEnabled
-          })
+        ? buildLiveKitTiles(
+            room,
+            meeting,
+            hostMode,
+            liveKitConnection?.identity ?? null,
+            {
+              faceEnabled,
+              backgroundEnabled,
+              voiceEnabled,
+            },
+          )
         : [],
-    [backgroundEnabled, faceEnabled, hostMode, liveKitConnection?.identity, meeting, room, roomMediaVersion, voiceEnabled]
+    [
+      backgroundEnabled,
+      faceEnabled,
+      hostMode,
+      liveKitConnection?.identity,
+      meeting,
+      room,
+      roomMediaVersion,
+      voiceEnabled,
+    ],
   );
   const visibleTiles = liveKitTiles.length > 0 ? liveKitTiles : fallbackTiles;
   const [primaryTile, ...secondaryTiles] = visibleTiles;
-  const secondaryPlaceholderCount = hostMode ? Math.max(0, 2 - secondaryTiles.length) : 0;
-  const hasSecondaryColumn = secondaryTiles.length > 0 || secondaryPlaceholderCount > 0;
+  const secondaryPlaceholderCount = hostMode
+    ? Math.max(0, 2 - secondaryTiles.length)
+    : 0;
+  const hasSecondaryColumn =
+    secondaryTiles.length > 0 || secondaryPlaceholderCount > 0;
   const visibleParticipantCount = Math.max(activeParticipants.length, 1);
-  const liveKitDiagnosticDetail = liveKitState === "error" || liveKitState === "offline" || liveKitWarning ? liveKitError : null;
+  const liveKitDiagnosticDetail =
+    liveKitState === "error" || liveKitState === "offline" || liveKitWarning
+      ? liveKitError
+      : null;
 
   return (
     <section className="screen call-screen">
@@ -2772,40 +3870,83 @@ function ActiveCallScreen({
           <LogoMark />
           <div>
             <strong>{meeting.title}</strong>
-            <span>{visibleParticipantCount} participante{visibleParticipantCount === 1 ? "" : "s"} · {meeting.code}</span>
+            <span>
+              {visibleParticipantCount} participante
+              {visibleParticipantCount === 1 ? "" : "s"} · {meeting.code}
+            </span>
           </div>
         </div>
         <div className="top-actions">
-          <Button variant={sideTab === "participants" ? "soft" : "ghost"} icon={<Users />} onClick={() => setSideTab("participants")}>Participantes</Button>
-          <Button variant={sideTab === "chat" ? "soft" : "ghost"} icon={<Send />} onClick={() => setSideTab("chat")}>Chat</Button>
-          <Button variant={callDiagnosticsOpen ? "soft" : "ghost"} icon={<Settings />} onClick={() => setCallDiagnosticsOpen((value) => !value)}>Más</Button>
+          <Button
+            variant={sideTab === "participants" ? "soft" : "ghost"}
+            icon={<Users />}
+            onClick={() => setSideTab("participants")}
+          >
+            Participantes
+          </Button>
+          <Button
+            variant={sideTab === "chat" ? "soft" : "ghost"}
+            icon={<Send />}
+            onClick={() => setSideTab("chat")}
+          >
+            Chat
+          </Button>
+          <Button
+            variant={callDiagnosticsOpen ? "soft" : "ghost"}
+            icon={<Settings />}
+            onClick={() => setCallDiagnosticsOpen((value) => !value)}
+          >
+            Más
+          </Button>
         </div>
       </header>
       <div className="call-body">
         <section className="call-stage">
-          <div className={hasSecondaryColumn ? "video-grid" : "video-grid single"}>
+          <div
+            className={hasSecondaryColumn ? "video-grid" : "video-grid single"}
+          >
             {primaryTile ? <VideoTile primary tile={primaryTile} /> : null}
             {hasSecondaryColumn ? (
               <div className="secondary-video-stack">
                 {secondaryTiles.map((participant) => (
                   <VideoTile key={participant.id} tile={participant} />
                 ))}
-                {Array.from({ length: secondaryPlaceholderCount }).map((_, index) => (
-                  <EmptyVideoSlot key={`empty-slot-${index}`} />
-                ))}
+                {Array.from({ length: secondaryPlaceholderCount }).map(
+                  (_, index) => (
+                    <EmptyVideoSlot key={`empty-slot-${index}`} />
+                  ),
+                )}
               </div>
             ) : null}
           </div>
-          <RemoteAudioTracks tiles={visibleTiles} speakerId={deviceSelection.speakerId} />
+          <RemoteAudioTracks
+            tiles={visibleTiles}
+            speakerId={deviceSelection.speakerId}
+          />
           <div className="call-controls">
-            <CircleButton active={micEnabled} icon={micEnabled ? <Mic /> : <MicOff />} onClick={onToggleMic} />
-            <CircleButton active={cameraEnabled} icon={cameraEnabled ? <Video /> : <VideoOff />} onClick={onToggleCamera} />
-            <CircleButton active={sideTab === "participants"} icon={<Users />} title="Participantes" onClick={() => setSideTab("participants")} />
+            <CircleButton
+              active={micEnabled}
+              icon={micEnabled ? <Mic /> : <MicOff />}
+              onClick={onToggleMic}
+            />
+            <CircleButton
+              active={cameraEnabled}
+              icon={cameraEnabled ? <Video /> : <VideoOff />}
+              onClick={onToggleCamera}
+            />
+            <CircleButton
+              active={sideTab === "participants"}
+              icon={<Users />}
+              title="Participantes"
+              onClick={() => setSideTab("participants")}
+            />
             <CircleButton
               active={screenShareEnabled}
               disabled={!room || screenShareState === "starting"}
               icon={<ScreenShare />}
-              title={screenShareEnabled ? "Detener pantalla" : "Compartir pantalla"}
+              title={
+                screenShareEnabled ? "Detener pantalla" : "Compartir pantalla"
+              }
               onClick={() => void handleToggleScreenShare()}
             />
             <CircleButton
@@ -2814,35 +3955,59 @@ function ActiveCallScreen({
               title="Diagnóstico"
               onClick={() => setCallDiagnosticsOpen((value) => !value)}
             />
-            <CircleButton danger icon={<PhoneOff />} title={hostMode ? "Finalizar reunión" : "Salir"} onClick={onLeave} />
+            <CircleButton
+              danger
+              icon={<PhoneOff />}
+              title={hostMode ? "Finalizar reunión" : "Salir"}
+              onClick={onLeave}
+            />
           </div>
         </section>
         <aside className="call-side">
           <div className="tabs">
-            <button className={sideTab === "participants" ? "active" : ""} onClick={() => setSideTab("participants")}>Participantes</button>
-            <button className={sideTab === "chat" ? "active" : ""} onClick={() => setSideTab("chat")}>Chat</button>
+            <button
+              className={sideTab === "participants" ? "active" : ""}
+              onClick={() => setSideTab("participants")}
+            >
+              Participantes
+            </button>
+            <button
+              className={sideTab === "chat" ? "active" : ""}
+              onClick={() => setSideTab("chat")}
+            >
+              Chat
+            </button>
           </div>
           <Panel title="Participantes">
             {activeParticipants.map((participant) => (
-              <ParticipantLine key={participant.id} name={participant.displayName} meta={participant.role === "host" ? "Host" : "Invitada"} />
-            ))}
-            {hostMode && waitingParticipants.map((participant) => (
-              <WaitingParticipantLine
+              <ParticipantLine
                 key={participant.id}
-                participant={participant}
-                onAdmit={() => onAdmitParticipant(participant.id)}
+                name={participant.displayName}
+                meta={participant.role === "host" ? "Host" : "Invitada"}
               />
             ))}
+            {hostMode &&
+              waitingParticipants.map((participant) => (
+                <WaitingParticipantLine
+                  key={participant.id}
+                  participant={participant}
+                  onAdmit={() => onAdmitParticipant(participant.id)}
+                />
+              ))}
           </Panel>
           <Panel title="Chat de reunión">
             <div className="chat-list">
               {chatMessages.length > 0 ? (
-                chatMessages.map((message) => <ChatBubble key={message.id} message={message} />)
+                chatMessages.map((message) => (
+                  <ChatBubble key={message.id} message={message} />
+                ))
               ) : (
                 <div className="chat-empty">Sin mensajes.</div>
               )}
             </div>
-            {chatError ? <InlineNotice icon={<ShieldAlert />}>{chatError}</InlineNotice> : null}
+            {chatError ? (
+              <InlineNotice icon={<ShieldAlert />}>{chatError}</InlineNotice>
+            ) : null}
             <form
               className="chat-compose"
               onSubmit={(event) => {
@@ -2850,7 +4015,11 @@ function ActiveCallScreen({
                 void handleSendChatMessage();
               }}
             >
-              <input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Mensaje" />
+              <input
+                value={chatDraft}
+                onChange={(event) => setChatDraft(event.target.value)}
+                placeholder="Mensaje"
+              />
               <button disabled={!chatDraft.trim()} type="submit">
                 <Send />
               </button>
@@ -2860,30 +4029,69 @@ function ActiveCallScreen({
             <details
               className="panel debug-details call-diagnostics"
               open={callDiagnosticsOpen}
-              onToggle={(event) => setCallDiagnosticsOpen(event.currentTarget.open)}
+              onToggle={(event) =>
+                setCallDiagnosticsOpen(event.currentTarget.open)
+              }
             >
               <summary>Diagnóstico</summary>
               <div className="debug-details-body">
                 {metrics.map((metric) => (
-                  <StatusRow key={metric.label} label={metric.label} value={metric.value} tone={metric.state} />
+                  <StatusRow
+                    key={metric.label}
+                    label={metric.label}
+                    value={metric.value}
+                    tone={metric.state}
+                  />
                 ))}
                 <StatusRow
                   label="Pantalla"
-                  value={screenShareState === "sharing" ? "Compartiendo" : screenShareState === "starting" ? "Iniciando" : screenShareState === "error" ? "Error" : "Sin compartir"}
-                  tone={screenShareState === "sharing" ? "ok" : screenShareState === "error" ? "warning" : "idle"}
+                  value={
+                    screenShareState === "sharing"
+                      ? "Compartiendo"
+                      : screenShareState === "starting"
+                        ? "Iniciando"
+                        : screenShareState === "error"
+                          ? "Error"
+                          : "Sin compartir"
+                  }
+                  tone={
+                    screenShareState === "sharing"
+                      ? "ok"
+                      : screenShareState === "error"
+                        ? "warning"
+                        : "idle"
+                  }
                 />
                 {hostMode ? (
                   <StatusRow
                     label="IA local"
-                    value={aiSessionError ? "Error de sesión" : aiSession ? `${aiSession.metrics.fps} FPS · ${aiSession.metrics.latencyMs} ms` : "Iniciando sesión"}
-                    tone={aiSessionError ? "warning" : aiSession ? "ok" : "idle"}
+                    value={
+                      aiSessionError
+                        ? "Error de sesión"
+                        : aiSession
+                          ? `${aiSession.metrics.fps} FPS · ${aiSession.metrics.latencyMs} ms`
+                          : "Iniciando sesión"
+                    }
+                    tone={
+                      aiSessionError ? "warning" : aiSession ? "ok" : "idle"
+                    }
                   />
                 ) : null}
                 {processedRuntimeStatus ? (
                   <StatusRow
                     label="Bridge"
-                    value={processedRuntimeStatus.latencyMs ? `${processedRuntimeStatus.latencyMs} ms · ${processedRuntimeStatus.mode}` : processedRuntimeStatus.message}
-                    tone={processedRuntimeStatus.state === "processing" ? "ok" : processedRuntimeStatus.state === "fallback" ? "warning" : "idle"}
+                    value={
+                      processedRuntimeStatus.latencyMs
+                        ? `${processedRuntimeStatus.latencyMs} ms · ${processedRuntimeStatus.mode}`
+                        : processedRuntimeStatus.message
+                    }
+                    tone={
+                      processedRuntimeStatus.state === "processing"
+                        ? "ok"
+                        : processedRuntimeStatus.state === "fallback"
+                          ? "warning"
+                          : "idle"
+                    }
                   />
                 ) : null}
                 {processedAudioRuntimeStatus ? (
@@ -2894,15 +4102,57 @@ function ActiveCallScreen({
                         ? `${processedAudioRuntimeStatus.latencyMs} ms · ${processedAudioRuntimeStatus.processor ?? processedAudioRuntimeStatus.mode}`
                         : processedAudioRuntimeStatus.message
                     }
-                    tone={processedAudioRuntimeStatus.state === "processing" ? "ok" : processedAudioRuntimeStatus.state === "fallback" ? "warning" : "idle"}
+                    tone={
+                      processedAudioRuntimeStatus.state === "processing"
+                        ? "ok"
+                        : processedAudioRuntimeStatus.state === "fallback"
+                          ? "warning"
+                          : "idle"
+                    }
                   />
                 ) : null}
-                {liveKitDiagnosticDetail ? <StatusRow label="LiveKit" value={liveKitDiagnosticDetail} tone="warning" /> : null}
-                {mediaSyncError ? <StatusRow label="Servidor" value={mediaSyncError} tone="warning" /> : null}
-                {callActionError ? <StatusRow label="Acción" value={callActionError} tone="warning" /> : null}
-                {processedRuntimeStatus?.lastError ? <StatusRow label="Frames" value={processedRuntimeStatus.lastError} tone="warning" /> : null}
-                {processedAudioRuntimeStatus?.lastError ? <StatusRow label="Voz" value={processedAudioRuntimeStatus.lastError} tone="warning" /> : null}
-                {aiSessionError ? <StatusRow label="Sidecar" value={aiSessionError} tone="warning" /> : null}
+                {liveKitDiagnosticDetail ? (
+                  <StatusRow
+                    label="LiveKit"
+                    value={liveKitDiagnosticDetail}
+                    tone="warning"
+                  />
+                ) : null}
+                {mediaSyncError ? (
+                  <StatusRow
+                    label="Servidor"
+                    value={mediaSyncError}
+                    tone="warning"
+                  />
+                ) : null}
+                {callActionError ? (
+                  <StatusRow
+                    label="Acción"
+                    value={callActionError}
+                    tone="warning"
+                  />
+                ) : null}
+                {processedRuntimeStatus?.lastError ? (
+                  <StatusRow
+                    label="Frames"
+                    value={processedRuntimeStatus.lastError}
+                    tone="warning"
+                  />
+                ) : null}
+                {processedAudioRuntimeStatus?.lastError ? (
+                  <StatusRow
+                    label="Voz"
+                    value={processedAudioRuntimeStatus.lastError}
+                    tone="warning"
+                  />
+                ) : null}
+                {aiSessionError ? (
+                  <StatusRow
+                    label="Sidecar"
+                    value={aiSessionError}
+                    tone="warning"
+                  />
+                ) : null}
               </div>
             </details>
           ) : null}
@@ -2912,7 +4162,11 @@ function ActiveCallScreen({
   );
 }
 
-function pipelineValue(session: AiSession | null, pipelineId: "face" | "background" | "voice", enabled: boolean) {
+function pipelineValue(
+  session: AiSession | null,
+  pipelineId: "face" | "background" | "voice",
+  enabled: boolean,
+) {
   if (!enabled) return "Sin activar";
 
   const pipeline = session?.pipelines.find((item) => item.id === pipelineId);
@@ -2927,23 +4181,29 @@ function encodeChatMessage(message: CallChatMessage): Uint8Array {
       id: message.id,
       displayName: message.displayName,
       body: message.body,
-      sentAt: message.sentAt
-    })
+      sentAt: message.sentAt,
+    }),
   );
 }
 
-function decodeChatMessage(payload: Uint8Array, participant: Participant): CallChatMessage | null {
+function decodeChatMessage(
+  payload: Uint8Array,
+  participant: Participant,
+): CallChatMessage | null {
   try {
-    const parsed = JSON.parse(new TextDecoder().decode(payload)) as Partial<CallChatMessage>;
+    const parsed = JSON.parse(
+      new TextDecoder().decode(payload),
+    ) as Partial<CallChatMessage>;
     if (!parsed.id || !parsed.body || !parsed.sentAt) return null;
 
     return {
       id: parsed.id,
       participantId: participant.identity,
-      displayName: parsed.displayName || participant.name || participant.identity,
+      displayName:
+        parsed.displayName || participant.name || participant.identity,
       body: parsed.body,
       sentAt: parsed.sentAt,
-      local: false
+      local: false,
     };
   } catch {
     return null;
@@ -2954,7 +4214,7 @@ function formatChatTime(value: string) {
   return new Intl.DateTimeFormat("es-CO", {
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "America/Bogota"
+    timeZone: "America/Bogota",
   }).format(new Date(value));
 }
 
@@ -2963,26 +4223,52 @@ function buildLiveKitTiles(
   meeting: Meeting,
   hostMode: boolean,
   localIdentity: string | null,
-  effects: NonNullable<CallTile["effects"]>
+  effects: NonNullable<CallTile["effects"]>,
 ) {
-  const meetingByParticipantId = new Map(meeting.participants.map((participant) => [participant.id, participant]));
-  const liveParticipants: Array<{ participant: Participant; isLocal: boolean }> = [
+  const meetingByParticipantId = new Map(
+    meeting.participants.map((participant) => [participant.id, participant]),
+  );
+  const liveParticipants: Array<{
+    participant: Participant;
+    isLocal: boolean;
+  }> = [
     { participant: room.localParticipant, isLocal: true },
-    ...Array.from(room.remoteParticipants.values()).map((participant) => ({ participant, isLocal: false }))
+    ...Array.from(room.remoteParticipants.values()).map((participant) => ({
+      participant,
+      isLocal: false,
+    })),
   ];
   const tiles = liveParticipants.flatMap(({ participant, isLocal }) => {
     const participantTiles: CallTile[] = [];
-    const screenTile = screenTileFromLiveKitParticipant(participant, meetingByParticipantId, isLocal);
+    const screenTile = screenTileFromLiveKitParticipant(
+      participant,
+      meetingByParticipantId,
+      isLocal,
+    );
     if (screenTile) participantTiles.push(screenTile);
-    participantTiles.push(tileFromLiveKitParticipant(participant, meetingByParticipantId, isLocal, effects));
+    participantTiles.push(
+      tileFromLiveKitParticipant(
+        participant,
+        meetingByParticipantId,
+        isLocal,
+        effects,
+      ),
+    );
     return participantTiles;
   });
   const knownIdentities = new Set(tiles.map((tile) => tile.identity));
 
   meeting.participants
-    .filter((participant) => participant.joinedAt && !participant.leftAt && !knownIdentities.has(participant.id))
+    .filter(
+      (participant) =>
+        participant.joinedAt &&
+        !participant.leftAt &&
+        !knownIdentities.has(participant.id),
+    )
     .forEach((participant) => {
-      tiles.push(fallbackTileFromMeetingParticipant(participant, localIdentity, effects));
+      tiles.push(
+        fallbackTileFromMeetingParticipant(participant, localIdentity, effects),
+      );
     });
 
   return tiles
@@ -2994,11 +4280,15 @@ function tileFromLiveKitParticipant(
   participant: Participant,
   meetingByParticipantId: Map<string, Meeting["participants"][number]>,
   isLocal: boolean,
-  effects: NonNullable<CallTile["effects"]>
+  effects: NonNullable<CallTile["effects"]>,
 ): CallTile {
   const meetingParticipant = meetingByParticipantId.get(participant.identity);
-  const videoPublication = participant.getTrackPublication(Track.Source.Camera) ?? firstPublication(participant.videoTrackPublications);
-  const audioPublication = participant.getTrackPublication(Track.Source.Microphone) ?? firstPublication(participant.audioTrackPublications);
+  const videoPublication =
+    participant.getTrackPublication(Track.Source.Camera) ??
+    firstPublication(participant.videoTrackPublications);
+  const audioPublication =
+    participant.getTrackPublication(Track.Source.Microphone) ??
+    firstPublication(participant.audioTrackPublications);
   const role = meetingParticipant?.role ?? "guest";
   const videoTrack = videoPublication?.videoTrack;
   const audioTrack = audioPublication?.audioTrack;
@@ -3006,7 +4296,10 @@ function tileFromLiveKitParticipant(
   return {
     id: participant.sid || participant.identity,
     identity: participant.identity,
-    label: participant.name || meetingParticipant?.displayName || (isLocal ? "Tú" : participant.identity),
+    label:
+      participant.name ||
+      meetingParticipant?.displayName ||
+      (isLocal ? "Tú" : participant.identity),
     role,
     isLocal,
     source: "camera",
@@ -3014,14 +4307,14 @@ function tileFromLiveKitParticipant(
     micOn: Boolean(audioTrack && !audioPublication?.isMuted),
     videoTrack,
     audioTrack,
-    effects: role === "host" ? effects : undefined
+    effects: role === "host" ? effects : undefined,
   };
 }
 
 function screenTileFromLiveKitParticipant(
   participant: Participant,
   meetingByParticipantId: Map<string, Meeting["participants"][number]>,
-  isLocal: boolean
+  isLocal: boolean,
 ): CallTile | null {
   const publication = participant.getTrackPublication(Track.Source.ScreenShare);
   const videoTrack = publication?.videoTrack;
@@ -3030,7 +4323,10 @@ function screenTileFromLiveKitParticipant(
 
   const meetingParticipant = meetingByParticipantId.get(participant.identity);
   const role = meetingParticipant?.role ?? "guest";
-  const label = participant.name || meetingParticipant?.displayName || (isLocal ? "Tú" : participant.identity);
+  const label =
+    participant.name ||
+    meetingParticipant?.displayName ||
+    (isLocal ? "Tú" : participant.identity);
 
   return {
     id: `${participant.sid || participant.identity}_screen`,
@@ -3041,14 +4337,14 @@ function screenTileFromLiveKitParticipant(
     source: "screen",
     cameraOn: true,
     micOn: true,
-    videoTrack
+    videoTrack,
   };
 }
 
 function fallbackTileFromMeetingParticipant(
   participant: Meeting["participants"][number],
   localIdentity: string | null,
-  effects: NonNullable<CallTile["effects"]>
+  effects: NonNullable<CallTile["effects"]>,
 ): CallTile {
   return {
     id: participant.id,
@@ -3059,7 +4355,7 @@ function fallbackTileFromMeetingParticipant(
     source: "camera",
     cameraOn: participant.camera === "on",
     micOn: participant.mic === "on",
-    effects: participant.role === "host" ? effects : undefined
+    effects: participant.role === "host" ? effects : undefined,
   };
 }
 
@@ -3080,7 +4376,7 @@ function ScreenFrame({
   children,
   onBack,
   right,
-  showTitle
+  showTitle,
 }: {
   title: string;
   children: React.ReactNode;
@@ -3093,12 +4389,15 @@ function ScreenFrame({
       Volver
     </Button>
   ) : null;
-  const rightContent = right && backButton ? (
-    <div className="topbar-actions">
-      {right}
-      {backButton}
-    </div>
-  ) : right ?? backButton;
+  const rightContent =
+    right && backButton ? (
+      <div className="topbar-actions">
+        {right}
+        {backButton}
+      </div>
+    ) : (
+      (right ?? backButton)
+    );
 
   return (
     <section className="screen" aria-label={title}>
@@ -3153,7 +4452,13 @@ function Button({
   );
 }
 
-function CenteredPanel({ children, width }: { children: React.ReactNode; width: number }) {
+function CenteredPanel({
+  children,
+  width,
+}: {
+  children: React.ReactNode;
+  width: number;
+}) {
   return (
     <div className="center-region">
       <section className="white-panel centered" style={{ width }}>
@@ -3163,7 +4468,13 @@ function CenteredPanel({ children, width }: { children: React.ReactNode; width: 
   );
 }
 
-function AuthCard({ children, height = 480 }: { children: React.ReactNode; height?: number }) {
+function AuthCard({
+  children,
+  height = 480,
+}: {
+  children: React.ReactNode;
+  height?: number;
+}) {
   return (
     <section className="auth-card" style={{ minHeight: height }}>
       {children}
@@ -3171,7 +4482,13 @@ function AuthCard({ children, height = 480 }: { children: React.ReactNode; heigh
   );
 }
 
-function StatusIcon({ icon, tone = "primary" }: { icon: React.ReactNode; tone?: "primary" | "success" | "warning" }) {
+function StatusIcon({
+  icon,
+  tone = "primary",
+}: {
+  icon: React.ReactNode;
+  tone?: "primary" | "success" | "warning";
+}) {
   return <span className={`status-icon ${tone}`}>{icon}</span>;
 }
 
@@ -3181,7 +4498,7 @@ function TextField({
   value,
   onChange,
   type = "text",
-  autoComplete
+  autoComplete,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -3195,7 +4512,13 @@ function TextField({
       <span>{label}</span>
       <div className="input-shell">
         {icon}
-        <input value={value} readOnly={!onChange} onChange={(event) => onChange?.(event.target.value)} type={type} autoComplete={autoComplete} />
+        <input
+          value={value}
+          readOnly={!onChange}
+          onChange={(event) => onChange?.(event.target.value)}
+          type={type}
+          autoComplete={autoComplete}
+        />
       </div>
     </label>
   );
@@ -3206,7 +4529,7 @@ function SelectField({
   value,
   options,
   onChange,
-  disabled
+  disabled,
 }: {
   label: string;
   value: string;
@@ -3219,7 +4542,11 @@ function SelectField({
       <span>{label}</span>
       <div className="input-shell select-shell">
         {options ? (
-          <select value={value} onChange={(event) => onChange?.(event.target.value)} disabled={disabled}>
+          <select
+            value={value}
+            onChange={(event) => onChange?.(event.target.value)}
+            disabled={disabled}
+          >
             {options.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -3238,13 +4565,23 @@ function SelectField({
 function Checkbox({ label, checked }: { label: string; checked?: boolean }) {
   return (
     <label className="checkbox-row">
-      <span className={checked ? "checkbox checked" : "checkbox"}>{checked ? <Check /> : null}</span>
+      <span className={checked ? "checkbox checked" : "checkbox"}>
+        {checked ? <Check /> : null}
+      </span>
       <span>{label}</span>
     </label>
   );
 }
 
-function ToggleRow({ label, checked, onClick }: { label: string; checked?: boolean; onClick?: () => void }) {
+function ToggleRow({
+  label,
+  checked,
+  onClick,
+}: {
+  label: string;
+  checked?: boolean;
+  onClick?: () => void;
+}) {
   return (
     <button className="toggle-row" type="button" onClick={onClick}>
       <span>{label}</span>
@@ -3255,7 +4592,13 @@ function ToggleRow({ label, checked, onClick }: { label: string; checked?: boole
   );
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="panel">
       <h2>{title}</h2>
@@ -3269,7 +4612,7 @@ function VideoPreview({
   label,
   cameraDeviceId,
   darkFooter,
-  footerText
+  footerText,
 }: {
   enabled: boolean;
   label: string;
@@ -3277,7 +4620,10 @@ function VideoPreview({
   darkFooter?: boolean;
   footerText?: string;
 }) {
-  const { videoRef, active, error } = useCameraPreview({ enabled, deviceId: cameraDeviceId });
+  const { videoRef, active, error } = useCameraPreview({
+    enabled,
+    deviceId: cameraDeviceId,
+  });
 
   return (
     <div className="video-preview">
@@ -3306,7 +4652,7 @@ function ControlButton({
   icon,
   label,
   active = true,
-  onClick
+  onClick,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -3314,7 +4660,11 @@ function ControlButton({
   onClick?: () => void;
 }) {
   return (
-    <button className={active ? "control-button active" : "control-button"} type="button" onClick={onClick}>
+    <button
+      className={active ? "control-button active" : "control-button"}
+      type="button"
+      onClick={onClick}
+    >
       {icon}
       <span>{label}</span>
     </button>
@@ -3327,7 +4677,7 @@ function CircleButton({
   danger,
   disabled,
   title,
-  onClick
+  onClick,
 }: {
   icon: React.ReactNode;
   active?: boolean;
@@ -3337,7 +4687,13 @@ function CircleButton({
   onClick?: () => void;
 }) {
   return (
-    <button className={`circle-button ${active ? "active" : ""} ${danger ? "danger" : ""}`} disabled={disabled} title={title} type="button" onClick={onClick}>
+    <button
+      className={`circle-button ${active ? "active" : ""} ${danger ? "danger" : ""}`}
+      disabled={disabled}
+      title={title}
+      type="button"
+      onClick={onClick}
+    >
       {icon}
     </button>
   );
@@ -3355,13 +4711,7 @@ function ChatBubble({ message }: { message: CallChatMessage }) {
   );
 }
 
-function VideoTile({
-  tile,
-  primary,
-}: {
-  tile: CallTile;
-  primary?: boolean;
-}) {
+function VideoTile({ tile, primary }: { tile: CallTile; primary?: boolean }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -3377,13 +4727,13 @@ function VideoTile({
   }, [tile.videoTrack]);
 
   return (
-    <div className={`${primary ? "video-tile primary" : "video-tile"} ${tile.isLocal && tile.source === "camera" ? "local" : ""} ${tile.source === "screen" ? "screen-share" : ""}`}>
+    <div
+      className={`${primary ? "video-tile primary" : "video-tile"} ${tile.isLocal && tile.source === "camera" ? "local" : ""} ${tile.source === "screen" ? "screen-share" : ""}`}
+    >
       {tile.videoTrack && tile.cameraOn ? (
         <video className="tile-video" muted playsInline ref={videoRef} />
       ) : tile.cameraOn ? (
-        <div className="tile-avatar">
-          {initials(tile.label)}
-        </div>
+        <div className="tile-avatar">{initials(tile.label)}</div>
       ) : (
         <div className="tile-placeholder">
           <VideoOff />
@@ -3392,7 +4742,13 @@ function VideoTile({
       <div className="tile-footer">
         <div>
           <strong>{tile.label}</strong>
-          <span>{tile.source === "screen" ? "Pantalla compartida" : tile.micOn ? "Audio activo" : "Mic silenciado"}</span>
+          <span>
+            {tile.source === "screen"
+              ? "Pantalla compartida"
+              : tile.micOn
+                ? "Audio activo"
+                : "Mic silenciado"}
+          </span>
         </div>
         {tile.effects ? (
           <div className="effect-dots">
@@ -3420,19 +4776,35 @@ function EmptyVideoSlot() {
   );
 }
 
-function RemoteAudioTracks({ tiles, speakerId }: { tiles: CallTile[]; speakerId: string }) {
+function RemoteAudioTracks({
+  tiles,
+  speakerId,
+}: {
+  tiles: CallTile[];
+  speakerId: string;
+}) {
   return (
     <div className="remote-audio-layer" aria-hidden="true">
       {tiles
         .filter((tile) => tile.audioTrack && !tile.isLocal)
         .map((tile) => (
-          <RemoteAudioTrackElement key={tile.identity} speakerId={speakerId} track={tile.audioTrack!} />
+          <RemoteAudioTrackElement
+            key={tile.identity}
+            speakerId={speakerId}
+            track={tile.audioTrack!}
+          />
         ))}
     </div>
   );
 }
 
-function RemoteAudioTrackElement({ track, speakerId }: { track: LiveKitAudioTrack; speakerId: string }) {
+function RemoteAudioTrackElement({
+  track,
+  speakerId,
+}: {
+  track: LiveKitAudioTrack;
+  speakerId: string;
+}) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -3465,7 +4837,13 @@ function StepDots({ active }: { active: number }) {
   );
 }
 
-function InlineNotice({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+function InlineNotice({
+  icon,
+  children,
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="inline-notice">
       {icon}
@@ -3502,19 +4880,26 @@ function ParticipantLine({ name, meta }: { name: string; meta: string }) {
 
 function WaitingParticipantLine({
   participant,
-  onAdmit
+  onAdmit,
 }: {
   participant: Meeting["participants"][number];
   onAdmit: () => void;
 }) {
   return (
     <div className="waiting-participant-line">
-      <span className="participant-avatar">{participant.displayName.slice(0, 1)}</span>
+      <span className="participant-avatar">
+        {participant.displayName.slice(0, 1)}
+      </span>
       <div>
         <strong>{participant.displayName}</strong>
         <span>{participant.admittedAt ? "Admitido" : "En espera"}</span>
       </div>
-      <button className="admit-button" disabled={Boolean(participant.admittedAt)} type="button" onClick={onAdmit}>
+      <button
+        className="admit-button"
+        disabled={Boolean(participant.admittedAt)}
+        type="button"
+        onClick={onAdmit}
+      >
         {participant.admittedAt ? "Listo" : "Admitir"}
       </button>
     </div>
@@ -3524,7 +4909,7 @@ function WaitingParticipantLine({
 function StatusRow({
   label,
   value,
-  tone = "idle"
+  tone = "idle",
 }: {
   label: string;
   value: string;
@@ -3533,7 +4918,9 @@ function StatusRow({
   return (
     <div className="status-row">
       <span>{label}</span>
-      <strong className={tone} title={value}>{value}</strong>
+      <strong className={tone} title={value}>
+        {value}
+      </strong>
     </div>
   );
 }
