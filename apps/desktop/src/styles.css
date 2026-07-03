@@ -304,6 +304,30 @@ svg {
   gap: 18px;
 }
 
+.create-meeting-region {
+  align-items: flex-start;
+  padding-top: 59px;
+}
+
+.create-meeting-panel {
+  min-height: 566px;
+  align-content: start;
+}
+
+.create-options {
+  display: grid;
+  gap: 12px;
+}
+
+.create-options .toggle-row {
+  min-height: 42px;
+  padding: 0;
+}
+
+.create-meeting-panel .form-actions .button {
+  width: 220px;
+}
+
 .auth-card {
   width: 500px;
   margin: 170px auto 0;

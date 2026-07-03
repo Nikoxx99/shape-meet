@@ -1624,9 +1624,12 @@ function CreateMeetingScreen({
   onCreate: (input: MeetingCreateInput) => Promise<void>;
 }) {
   const [title, setTitle] = useState(DEMO_DATA_ENABLED ? "Revisión con Luxora" : "");
-  const [startsAt, setStartsAt] = useState(defaultMeetingStartInput);
+  const [startsAt] = useState(defaultMeetingStartInput);
   const [access, setAccess] = useState<MeetingCreateInput["access"]>("INVITE_ONLY");
   const [invitedEmails, setInvitedEmails] = useState(DEMO_DATA_ENABLED ? "maria@luxora.co" : "");
+  const [waitingRoomEnabled, setWaitingRoomEnabled] = useState(true);
+  const [chatEnabled, setChatEnabled] = useState(true);
+  const [internalRecordingEnabled, setInternalRecordingEnabled] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function submit() {
@@ -1653,27 +1656,33 @@ function CreateMeetingScreen({
 
   return (
     <ScreenFrame title="Crear reunión" onBack={onBack}>
-      <CenteredPanel width={620}>
-        <h1>Configura lo básico</h1>
-        <TextField label="Nombre de la reunión" icon={<Calendar />} value={title} onChange={setTitle} />
-        <TextField label="Fecha y hora" icon={<Calendar />} value={startsAt} onChange={setStartsAt} type="datetime-local" />
-        <SelectField
-          label="Acceso"
-          value={access}
-          onChange={(value) => setAccess(value as MeetingCreateInput["access"])}
-          options={[
-            { value: "INVITE_ONLY", label: "Solo invitados" },
-            { value: "PUBLIC_LINK", label: "Enlace público" }
-          ]}
-        />
-        {access === "INVITE_ONLY" ? <TextField label="Invitados" icon={<Users />} value={invitedEmails} onChange={setInvitedEmails} /> : null}
-        {error ? <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice> : null}
-        <div className="form-actions">
-          <Button icon={<Check />} onClick={() => void submit()} disabled={submitting || title.length < 3}>
-            {submitting ? "Creando" : "Crear reunión"}
-          </Button>
-        </div>
-      </CenteredPanel>
+      <div className="center-region create-meeting-region">
+        <section className="white-panel centered create-meeting-panel" style={{ width: 620 }}>
+          <h1>Configura lo básico</h1>
+          <TextField label="Nombre de la reunión" icon={<Calendar />} value={title} onChange={setTitle} />
+          <SelectField
+            label="Acceso"
+            value={access}
+            onChange={(value) => setAccess(value as MeetingCreateInput["access"])}
+            options={[
+              { value: "INVITE_ONLY", label: "Solo invitados" },
+              { value: "PUBLIC_LINK", label: "Enlace público" }
+            ]}
+          />
+          <TextField label="Invitados" icon={<Users />} value={invitedEmails} onChange={setInvitedEmails} />
+          <div className="create-options">
+            <ToggleRow label="Sala de espera" checked={waitingRoomEnabled} onClick={() => setWaitingRoomEnabled((current) => !current)} />
+            <ToggleRow label="Permitir chat" checked={chatEnabled} onClick={() => setChatEnabled((current) => !current)} />
+            <ToggleRow label="Grabar en modo interno" checked={internalRecordingEnabled} onClick={() => setInternalRecordingEnabled((current) => !current)} />
+          </div>
+          {error ? <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice> : null}
+          <div className="form-actions">
+            <Button icon={<Check />} onClick={() => void submit()} disabled={submitting || title.length < 3}>
+              {submitting ? "Creando" : "Crear reunión"}
+            </Button>
+          </div>
+        </section>
+      </div>
     </ScreenFrame>
   );
 }
