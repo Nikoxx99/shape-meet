@@ -71,6 +71,14 @@ export interface NativeAiSidecarRuntime {
   lastExit: string | null;
 }
 
+export interface NativeAiRuntimeEnvFile {
+  path: string;
+  exists: boolean;
+  content: string;
+  configuredKeys: string[];
+  warnings: string[];
+}
+
 export interface NativeIdentityArtifactCacheResult {
   identityId: string;
   cached: boolean;
@@ -162,6 +170,36 @@ export async function stopAiSidecar(): Promise<NativeAiSidecarRuntime> {
     return {
       ...browserSidecarRuntime(service),
       message: service.online ? "El navegador no puede detener el sidecar externo." : "Disponible solo dentro de Tauri."
+    };
+  }
+}
+
+export async function getAiRuntimeEnv(): Promise<NativeAiRuntimeEnvFile> {
+  try {
+    return await invoke<NativeAiRuntimeEnvFile>("get_ai_runtime_env");
+  } catch {
+    return {
+      path: "",
+      exists: false,
+      content: "",
+      configuredKeys: [],
+      warnings: ["Config IA local disponible solo dentro de Tauri."]
+    };
+  }
+}
+
+export async function saveAiRuntimeEnv(content: string): Promise<NativeAiRuntimeEnvFile> {
+  try {
+    return await invoke<NativeAiRuntimeEnvFile>("save_ai_runtime_env", {
+      input: { content }
+    });
+  } catch (error) {
+    return {
+      path: "",
+      exists: false,
+      content,
+      configuredKeys: [],
+      warnings: [error instanceof Error ? error.message : "No se pudo guardar la config IA local."]
     };
   }
 }

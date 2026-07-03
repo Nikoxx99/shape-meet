@@ -111,6 +111,18 @@ inyecta variables como `SHAPE_FRAME_INPUT_PATH`, `SHAPE_FRAME_OUTPUT_PATH`,
 `SHAPE_AUDIO_FORMAT`. Si el comando falta o falla, devuelve passthrough con
 warnings para que LiveKit siga publicando.
 
+En la app Tauri, estas variables también pueden vivir en `shape-ai-runtime.env`.
+Por defecto se busca en:
+
+- Windows: `%LOCALAPPDATA%\\Shape Meet\\shape-ai-runtime.env`
+- macOS: `~/Library/Application Support/Shape Meet/shape-ai-runtime.env`
+- Linux: `$XDG_DATA_HOME/shape-meet/shape-ai-runtime.env` o
+  `~/.local/share/shape-meet/shape-ai-runtime.env`
+
+Puedes cambiar la ruta con `SHAPE_AI_RUNTIME_ENV_FILE`. La app carga ese archivo
+al iniciar el sidecar gestionado y lo reporta en el debug bundle solo como ruta,
+claves configuradas y warnings, sin valores.
+
 Si `SENTRY_DSN` está configurado y `sentry-sdk` está instalado, el sidecar envía
 errores de adaptadores externos con tags de runtime. No envía frames, audio,
 imagenes fuente ni artefactos de modelos.

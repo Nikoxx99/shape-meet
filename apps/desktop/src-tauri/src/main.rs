@@ -112,6 +112,22 @@ struct AiSidecarRuntime {
     last_exit: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiRuntimeEnvFile {
+    path: String,
+    exists: bool,
+    content: String,
+    configured_keys: Vec<String>,
+    warnings: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveAiRuntimeEnvInput {
+    content: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CacheIdentityArtifactInput {
@@ -203,6 +219,17 @@ fn stop_ai_sidecar(state: State<'_, SidecarState>) -> Result<AiSidecarRuntime, S
 }
 
 #[tauri::command]
+fn get_ai_runtime_env() -> Result<AiRuntimeEnvFile, String> {
+    read_ai_runtime_env_file()
+}
+
+#[tauri::command]
+fn save_ai_runtime_env(input: SaveAiRuntimeEnvInput) -> Result<AiRuntimeEnvFile, String> {
+    write_ai_runtime_env_file(&input.content)?;
+    read_ai_runtime_env_file()
+}
+
+#[tauri::command]
 fn cache_identity_artifact(
     input: CacheIdentityArtifactInput,
 ) -> Result<IdentityArtifactCacheResult, String> {
@@ -263,15 +290,13 @@ pub fn run() {
 
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(
-            |app, argv, _cwd| {
-                println!("Shape Meet received a new app instance request: {argv:?}");
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                }
-            },
-        ));
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            println!("Shape Meet received a new app instance request: {argv:?}");
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }));
     }
 
     builder
@@ -286,6 +311,8 @@ pub fn run() {
             get_ai_sidecar_runtime,
             start_ai_sidecar,
             stop_ai_sidecar,
+            get_ai_runtime_env,
+            save_ai_runtime_env,
             cache_identity_artifact,
             evict_identity_artifact,
             export_debug_bundle
@@ -776,13 +803,27 @@ impl SidecarSupervisor {
         append_sidecar_log("starting sidecar")?;
 
         let (program, args, description) = sidecar_command()?;
+        let runtime_env = load_ai_runtime_env()?;
+        if !runtime_env.is_empty() {
+            append_sidecar_log(&format!(
+                "loading AI runtime env keys: {}",
+                runtime_env
+                    .iter()
+                    .map(|(key, _)| key.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))?;
+        }
         let stdout_log = open_sidecar_log_file()?;
         let stderr_log = stdout_log.try_clone().map_err(|error| error.to_string())?;
-        let child = Command::new(&program)
+        let mut command = Command::new(&program);
+        command
             .args(&args)
+            .envs(runtime_env.iter().map(|(key, value)| (key, value)))
             .stdout(Stdio::from(stdout_log))
             .stderr(Stdio::from(stderr_log))
-            .stdin(Stdio::null())
+            .stdin(Stdio::null());
+        let child = command
             .spawn()
             .map_err(|error| format!("No se pudo iniciar sidecar con {description}: {error}"))?;
 
@@ -1137,10 +1178,14 @@ fn identity_cache_dir() -> Result<PathBuf, String> {
         return Ok(path);
     }
 
+    Ok(shape_meet_data_dir()?.join("identities"))
+}
+
+fn shape_meet_data_dir() -> Result<PathBuf, String> {
     if cfg!(windows) {
         return env::var("LOCALAPPDATA")
-            .map(|base| PathBuf::from(base).join("Shape Meet").join("identities"))
-            .map_err(|_| "LOCALAPPDATA no está disponible para cache de identidades.".to_string());
+            .map(|base| PathBuf::from(base).join("Shape Meet"))
+            .map_err(|_| "LOCALAPPDATA no está disponible para datos de Shape Meet.".to_string());
     }
 
     if cfg!(target_os = "macos") {
@@ -1150,15 +1195,12 @@ fn identity_cache_dir() -> Result<PathBuf, String> {
                     .join("Library")
                     .join("Application Support")
                     .join("Shape Meet")
-                    .join("identities")
             })
-            .map_err(|_| "HOME no está disponible para cache de identidades.".to_string());
+            .map_err(|_| "HOME no está disponible para datos de Shape Meet.".to_string());
     }
 
     if let Some(data_home) = env_non_empty("XDG_DATA_HOME") {
-        return Ok(PathBuf::from(data_home)
-            .join("shape-meet")
-            .join("identities"));
+        return Ok(PathBuf::from(data_home).join("shape-meet"));
     }
 
     env::var("HOME")
@@ -1167,9 +1209,180 @@ fn identity_cache_dir() -> Result<PathBuf, String> {
                 .join(".local")
                 .join("share")
                 .join("shape-meet")
-                .join("identities")
         })
-        .map_err(|_| "No se pudo resolver directorio de cache de identidades.".to_string())
+        .map_err(|_| "No se pudo resolver directorio de datos de Shape Meet.".to_string())
+}
+
+fn ai_runtime_env_path() -> Result<PathBuf, String> {
+    if let Some(path) = env_non_empty("SHAPE_AI_RUNTIME_ENV_FILE").map(PathBuf::from) {
+        return Ok(path);
+    }
+
+    Ok(shape_meet_data_dir()?.join("shape-ai-runtime.env"))
+}
+
+fn read_ai_runtime_env_file() -> Result<AiRuntimeEnvFile, String> {
+    let path = ai_runtime_env_path()?;
+    let exists = path.exists();
+    let content = if exists {
+        fs::read_to_string(&path).map_err(|error| error.to_string())?
+    } else {
+        default_ai_runtime_env_template()
+    };
+    let parsed = if exists {
+        parse_ai_runtime_env(&content)
+    } else {
+        ParsedAiRuntimeEnv {
+            values: Vec::new(),
+            keys: Vec::new(),
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        }
+    };
+
+    Ok(AiRuntimeEnvFile {
+        path: path.display().to_string(),
+        exists,
+        content,
+        configured_keys: parsed.keys,
+        warnings: parsed.warnings,
+    })
+}
+
+fn write_ai_runtime_env_file(content: &str) -> Result<(), String> {
+    let parsed = parse_ai_runtime_env(content);
+    if !parsed.errors.is_empty() {
+        return Err(parsed.errors.join("; "));
+    }
+
+    let path = ai_runtime_env_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+
+    fs::write(path, content).map_err(|error| error.to_string())
+}
+
+fn load_ai_runtime_env() -> Result<Vec<(String, String)>, String> {
+    let path = ai_runtime_env_path()?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let parsed = parse_ai_runtime_env(&content);
+    if !parsed.errors.is_empty() {
+        return Err(parsed.errors.join("; "));
+    }
+
+    Ok(parsed.values)
+}
+
+struct ParsedAiRuntimeEnv {
+    values: Vec<(String, String)>,
+    keys: Vec<String>,
+    warnings: Vec<String>,
+    errors: Vec<String>,
+}
+
+fn parse_ai_runtime_env(content: &str) -> ParsedAiRuntimeEnv {
+    let mut values = Vec::new();
+    let mut keys = Vec::new();
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+
+    for (index, raw_line) in content.lines().enumerate() {
+        let line_number = index + 1;
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let Some((raw_key, raw_value)) = line.split_once('=') else {
+            warnings.push(format!("Línea {line_number}: falta '='."));
+            continue;
+        };
+
+        let key = raw_key.trim();
+        if !valid_env_key(key) {
+            warnings.push(format!("Línea {line_number}: clave inválida '{key}'."));
+            continue;
+        }
+        if !allowed_ai_runtime_env_key(key) {
+            warnings.push(format!("Línea {line_number}: clave no permitida '{key}'."));
+            continue;
+        }
+
+        let value = unquote_env_value(raw_value.trim());
+        if value.is_empty() {
+            continue;
+        }
+
+        if keys.iter().any(|existing| existing == key) {
+            errors.push(format!("Línea {line_number}: clave duplicada '{key}'."));
+            continue;
+        }
+
+        keys.push(key.to_string());
+        values.push((key.to_string(), value));
+    }
+
+    ParsedAiRuntimeEnv {
+        values,
+        keys,
+        warnings,
+        errors,
+    }
+}
+
+fn valid_env_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.chars().all(|character| {
+            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
+        })
+        && key
+            .chars()
+            .next()
+            .map(|character| character.is_ascii_uppercase() || character == '_')
+            .unwrap_or(false)
+}
+
+fn allowed_ai_runtime_env_key(key: &str) -> bool {
+    key.starts_with("SHAPE_")
+        || key == "CUDA_VISIBLE_DEVICES"
+        || key == "NVIDIA_VISIBLE_DEVICES"
+        || key == "NVIDIA_DRIVER_CAPABILITIES"
+        || key.starts_with("ORT_")
+        || key.starts_with("OMP_")
+}
+
+fn unquote_env_value(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() >= 2
+        && ((trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\'')))
+    {
+        return trimmed[1..trimmed.len() - 1].to_string();
+    }
+
+    trimmed.to_string()
+}
+
+fn default_ai_runtime_env_template() -> String {
+    [
+        "# Shape Meet local AI runtime",
+        "# Set these when connecting local model wrappers.",
+        "SHAPE_AI_MODE=adapter-contract",
+        "SHAPE_FACE_ENGINE=facefusion",
+        "SHAPE_BACKGROUND_ENGINE=backgroundmattingv2",
+        "SHAPE_VOICE_ENGINE=vcclient000",
+        "# SHAPE_VIDEO_PROCESSOR_COMMAND=shape-ai-processor --kind video --port 7860",
+        "# SHAPE_VIDEO_FRAME_COMMAND=C:\\\\shape-models\\\\video-wrapper.exe --input {input} --output {output} --identity {identity} --clean-plate {clean_plate}",
+        "# SHAPE_AUDIO_PROCESSOR_COMMAND=shape-ai-processor --kind audio --port 7861",
+        "# SHAPE_AUDIO_CHUNK_COMMAND=C:\\\\shape-models\\\\voice-wrapper.exe --input {input} --output {output} --sample-rate {sample_rate}",
+        "",
+    ]
+    .join("\n")
 }
 
 fn identity_artifact_result(
@@ -1592,10 +1805,17 @@ fn first_socket_addr(host: &str, port: u16) -> Result<SocketAddr, String> {
 }
 
 fn redacted_environment() -> Value {
+    let runtime_env = read_ai_runtime_env_file().ok();
     json!({
         "sentryDsnConfigured": sentry_dsn().is_some(),
         "aiServiceUrl": ai_endpoint(),
         "identityArtifactCacheDir": identity_cache_dir().map(|path| path.display().to_string()).unwrap_or_else(|error| error),
+        "aiRuntimeEnv": runtime_env.map(|file| json!({
+            "path": file.path,
+            "exists": file.exists,
+            "configuredKeys": file.configured_keys,
+            "warnings": file.warnings
+        })),
         "sentryEnvironment": sentry_environment(),
         "sentryRelease": sentry_release()
     })
@@ -1647,4 +1867,67 @@ fn utc_timestamp() -> Result<String, String> {
     time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_allowed_ai_runtime_env_keys() {
+        let parsed = parse_ai_runtime_env(
+            r#"
+            # comment
+            SHAPE_AI_MODE=adapter-contract
+            SHAPE_VIDEO_FRAME_COMMAND="C:\models\video.exe --input {input} --output {output}"
+            CUDA_VISIBLE_DEVICES=0
+            ORT_LOGGING_LEVEL=3
+            "#,
+        );
+
+        assert!(parsed.errors.is_empty());
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(
+            parsed.keys,
+            vec![
+                "SHAPE_AI_MODE",
+                "SHAPE_VIDEO_FRAME_COMMAND",
+                "CUDA_VISIBLE_DEVICES",
+                "ORT_LOGGING_LEVEL"
+            ]
+        );
+        assert_eq!(
+            parsed.values[1].1,
+            r"C:\models\video.exe --input {input} --output {output}"
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_ai_runtime_env_keys() {
+        let parsed = parse_ai_runtime_env(
+            r#"
+            SHAPE_AI_MODE=adapter-contract
+            SHAPE_AI_MODE=development-passthrough
+            "#,
+        );
+
+        assert_eq!(parsed.errors.len(), 1);
+        assert!(parsed.errors[0].contains("duplicada"));
+    }
+
+    #[test]
+    fn warns_on_unrelated_ai_runtime_env_keys() {
+        let parsed = parse_ai_runtime_env(
+            r#"
+            DATABASE_URL=postgres://example
+            SHAPE_VOICE_ENGINE=vcclient000
+            "#,
+        );
+
+        assert!(parsed.errors.is_empty());
+        assert_eq!(parsed.values.len(), 1);
+        assert_eq!(parsed.values[0].0, "SHAPE_VOICE_ENGINE");
+        assert_eq!(parsed.warnings.len(), 1);
+        assert!(parsed.warnings[0].contains("no permitida"));
+    }
 }

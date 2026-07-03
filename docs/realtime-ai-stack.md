@@ -256,6 +256,10 @@ Variables del supervisor nativo:
   `shape_processor_command.py --kind audio`. Recibe placeholders `{input}`,
   `{output}`, `{sample_rate}`, `{channels}`, `{format}` y `{session_id}`, ademas
   de variables `SHAPE_AUDIO_*`.
+- `shape-ai-runtime.env`: archivo local cargado por la app Tauri antes de iniciar
+  el sidecar gestionado. Windows usa `%LOCALAPPDATA%\Shape Meet`, macOS usa
+  `~/Library/Application Support/Shape Meet` y Linux usa XDG data dir. Puede
+  sobreescribirse con `SHAPE_AI_RUNTIME_ENV_FILE`.
 
 Prioridad de arranque: comando explicito, binario explicito, sidecar empaquetado
 por Tauri y script de desarrollo.
