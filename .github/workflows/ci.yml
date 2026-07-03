@@ -57,5 +57,8 @@ jobs:
       - name: Build AI sidecar package smoke
         run: pnpm build:ai-sidecar
 
+      - name: Smoke AI sidecar adapter contract
+        run: pnpm smoke:ai-contract
+
       - name: Validate Coolify compose
         run: pnpm check:coolify infra/env.coolify.example
