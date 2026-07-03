@@ -78,31 +78,36 @@ try {
   assertEngineReady(engines, "background");
   assertEngineReady(engines, "voice");
 
+  const preflight = await request("/preflight", {
+    method: "POST",
+    body: stagePayload(),
+  });
+  assert(preflight.status === 200, `preflight returned ${preflight.status}`);
+  assert(
+    preflight.data.preflight?.status === "passed",
+    "preflight did not pass with staged commands",
+  );
+  assert(
+    preflight.data.preflight?.checks?.some(
+      (check) =>
+        check.id === "video" &&
+        check.processor === "shape-video-model-chain:face+background",
+    ),
+    "preflight did not use face/background command chain",
+  );
+  assert(
+    preflight.data.preflight?.checks?.some(
+      (check) =>
+        check.id === "audio" &&
+        check.processor === "shape-voice-command-adapter",
+    ),
+    "preflight did not use voice command",
+  );
+  console.log("stage preflight ok");
+
   const session = await request("/sessions", {
     method: "POST",
-    body: {
-      meetingCode: "SM-222-333",
-      participantId: "host_stage",
-      identityId: "identity_stage",
-      identityKind: "PHOTO_IDENTITY",
-      identityVersion: "v1",
-      identityArtifactUri: "file:///tmp/identity-stage.jpg",
-      identityCachedArtifactUri: "file:///tmp/identity-stage.jpg",
-      identityLocalArtifactPath: "/tmp/identity-stage.jpg",
-      identityArtifactSha256: "abc123",
-      identityArtifactSizeBytes: 123,
-      faceEnabled: true,
-      backgroundEnabled: true,
-      backgroundCleanPlateDataUrl: "data:image/jpeg;base64,BBBB",
-      backgroundCleanPlateCapturedAt: new Date().toISOString(),
-      backgroundCleanPlateWidth: 1280,
-      backgroundCleanPlateHeight: 720,
-      backgroundCleanPlateCameraDeviceId: "camera_stage",
-      voiceEnabled: true,
-      targetWidth: 1280,
-      targetHeight: 720,
-      targetFps: 30,
-    },
+    body: stagePayload(),
   });
   assert(session.status === 201, `session create returned ${session.status}`);
   const sessionId = session.data.session?.id;
@@ -172,6 +177,32 @@ function processorCommand(kind, port) {
 
 function copyCommand(kind) {
   return `${JSON.stringify(process.execPath)} ${JSON.stringify(copyScript)} ${kind}`;
+}
+
+function stagePayload() {
+  return {
+    meetingCode: "SM-222-333",
+    participantId: "host_stage",
+    identityId: "identity_stage",
+    identityKind: "PHOTO_IDENTITY",
+    identityVersion: "v1",
+    identityArtifactUri: "file:///tmp/identity-stage.jpg",
+    identityCachedArtifactUri: "file:///tmp/identity-stage.jpg",
+    identityLocalArtifactPath: "/tmp/identity-stage.jpg",
+    identityArtifactSha256: "abc123",
+    identityArtifactSizeBytes: 123,
+    faceEnabled: true,
+    backgroundEnabled: true,
+    backgroundCleanPlateDataUrl: "data:image/jpeg;base64,BBBB",
+    backgroundCleanPlateCapturedAt: new Date().toISOString(),
+    backgroundCleanPlateWidth: 1280,
+    backgroundCleanPlateHeight: 720,
+    backgroundCleanPlateCameraDeviceId: "camera_stage",
+    voiceEnabled: true,
+    targetWidth: 1280,
+    targetHeight: 720,
+    targetFps: 30,
+  };
 }
 
 async function request(path, options = {}) {

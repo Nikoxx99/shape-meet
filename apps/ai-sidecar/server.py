@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import atexit
+import base64
 import json
 import logging
 import os
@@ -86,6 +87,16 @@ EXTERNAL_PROCESSOR_TIMEOUT_SECS = 0.8
 MANAGED_PROCESSORS = {}
 MANAGED_PROCESSOR_LOG_LIMIT = 60
 SENTRY = None
+PREFLIGHT_FRAME_DATA_URL = (
+    "data:image/jpeg;base64,"
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////"
+    "2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/"
+    "8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/"
+    "9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/"
+    "xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/"
+    "EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH//EABQQAQAAAAAAAAAAAAAAAAAAABD/"
+    "2gAIAQEAAT8QH//Z"
+)
 
 
 class ShapeMeetHandler(BaseHTTPRequestHandler):
@@ -144,60 +155,23 @@ class ShapeMeetHandler(BaseHTTPRequestHandler):
             self._handle_audio(audio_match.group(1))
             return
 
+        if path == "/preflight":
+            payload = self._read_json()
+            if payload is None:
+                self._json({"error": "invalid_json"}, status=400)
+                return
+            self._json({"preflight": run_preflight(payload)})
+            return
+
         if path == "/sessions":
             payload = self._read_json()
             if payload is None:
                 self._json({"error": "invalid_json"}, status=400)
                 return
 
-            session_id = f"ai_{uuid.uuid4().hex[:12]}"
-            now = now_iso()
-            session = {
-                "id": session_id,
-                "meetingCode": str(payload.get("meetingCode", "")),
-                "participantId": str(payload.get("participantId", "")),
-                "identityId": payload.get("identityId"),
-                "identity": {
-                    "id": payload.get("identityId"),
-                    "kind": payload.get("identityKind"),
-                    "version": payload.get("identityVersion"),
-                    "artifactUri": payload.get("identityArtifactUri"),
-                    "cachedArtifactUri": payload.get("identityCachedArtifactUri"),
-                    "localArtifactPath": payload.get("identityLocalArtifactPath"),
-                    "artifactSha256": payload.get("identityArtifactSha256"),
-                    "artifactSizeBytes": payload.get("identityArtifactSizeBytes"),
-                    "artifactCacheMessage": payload.get("identityArtifactCacheMessage"),
-                },
-                "enabled": {
-                    "face": bool(payload.get("faceEnabled", False)),
-                    "background": bool(payload.get("backgroundEnabled", False)),
-                    "voice": bool(payload.get("voiceEnabled", False)),
-                },
-                "background": background_payload_from_session_start(payload),
-                "status": "running",
-                "mode": ai_mode(),
-                "target": {
-                    "width": int(payload.get("targetWidth", DEFAULT_WIDTH) or DEFAULT_WIDTH),
-                    "height": int(payload.get("targetHeight", DEFAULT_HEIGHT) or DEFAULT_HEIGHT),
-                    "fps": int(payload.get("targetFps", DEFAULT_FPS) or DEFAULT_FPS),
-                },
-                "startedAt": now,
-                "updatedAt": now,
-                "framesProcessed": 0,
-                "lastTick": time.time(),
-                "frameBridgeActive": False,
-                "lastFrameAt": None,
-                "lastFrameLatencyMs": None,
-                "lastFrameSequence": None,
-                "audioBridgeActive": False,
-                "audioChunksProcessed": 0,
-                "lastAudioAt": None,
-                "lastAudioLatencyMs": None,
-                "lastAudioSequence": None,
-                "lastAdapterError": None,
-            }
+            session = session_from_start_payload(payload)
             session["warnings"] = session_warnings(session)
-            SESSIONS[session_id] = session
+            SESSIONS[session["id"]] = session
             self._json({"session": session_payload(session)}, status=201)
             return
 
@@ -227,52 +201,7 @@ class ShapeMeetHandler(BaseHTTPRequestHandler):
             self._json({"error": "invalid_frame"}, status=400)
             return
 
-        started = time.perf_counter()
-        sequence = int(payload.get("sequence", 0) or 0)
-        effects = payload.get("effects") if isinstance(payload.get("effects"), dict) else {}
-        session["enabled"] = {
-            "face": bool(effects.get("face", session["enabled"]["face"])),
-            "background": bool(effects.get("background", session["enabled"]["background"])),
-            "voice": bool(effects.get("voice", session["enabled"]["voice"])),
-        }
-        session["frameBridgeActive"] = True
-        session["framesProcessed"] += 1
-        session["lastFrameAt"] = now_iso()
-        session["lastFrameSequence"] = sequence
-        latency_ms = max(1, int((time.perf_counter() - started) * 1000) + estimated_model_latency(session))
-        session["lastFrameLatencyMs"] = latency_ms
-        session["updatedAt"] = now_iso()
-        session["warnings"] = session_warnings(session)
-
-        width = int(payload.get("width", session["target"]["width"]) or session["target"]["width"])
-        height = int(payload.get("height", session["target"]["height"]) or session["target"]["height"])
-        mode = ai_mode()
-        external_frame = proxy_video_frame(session, payload, width, height)
-
-        if external_frame:
-            self._json({"frame": external_frame})
-            return
-
-        status = "passthrough"
-        processor = "development-passthrough" if mode == "development-passthrough" else "adapter-contract"
-
-        self._json(
-            {
-                "frame": {
-                    "sequence": sequence,
-                    "status": status,
-                    "processor": processor,
-                    "frame": {
-                        "dataUrl": frame_data,
-                        "width": width,
-                        "height": height,
-                        "format": "image/jpeg",
-                    },
-                    "metrics": session_metrics(session),
-                    "warnings": frame_warnings(session, mode),
-                }
-            }
-        )
+        self._json({"frame": process_frame_for_session(session, payload)})
 
     def _handle_audio(self, session_id):
         session = SESSIONS.get(session_id)
@@ -298,39 +227,7 @@ class ShapeMeetHandler(BaseHTTPRequestHandler):
             self._json({"error": "invalid_audio"}, status=400)
             return
 
-        started = time.perf_counter()
-        sequence = int(payload.get("sequence", 0) or 0)
-        session["audioBridgeActive"] = True
-        session["audioChunksProcessed"] += 1
-        session["lastAudioAt"] = now_iso()
-        session["lastAudioSequence"] = sequence
-        latency_ms = max(1, int((time.perf_counter() - started) * 1000) + 4)
-        session["lastAudioLatencyMs"] = latency_ms
-        session["updatedAt"] = now_iso()
-        session["warnings"] = session_warnings(session)
-
-        external_audio = proxy_audio_chunk(session, payload)
-        if external_audio:
-            self._json({"audio": external_audio})
-            return
-
-        self._json(
-            {
-                "audio": {
-                    "sequence": sequence,
-                    "status": "passthrough",
-                    "processor": "development-passthrough" if ai_mode() == "development-passthrough" else "adapter-contract",
-                    "audio": {
-                        "audioDataBase64": audio_data,
-                        "sampleRate": int(payload.get("sampleRate", 48000) or 48000),
-                        "channels": int(payload.get("channels", 1) or 1),
-                        "format": str(payload.get("format", "pcm_f32le")),
-                    },
-                    "metrics": audio_metrics(session, len(audio_data)),
-                    "warnings": audio_warnings(session),
-                }
-            }
-        )
+        self._json({"audio": process_audio_for_session(session, payload)})
 
     def do_DELETE(self):
         path = request_path(self.path)
@@ -373,6 +270,232 @@ class ShapeMeetHandler(BaseHTTPRequestHandler):
             return json.loads(self.rfile.read(length).decode("utf-8"))
         except json.JSONDecodeError:
             return None
+
+
+def session_from_start_payload(payload, session_id=None):
+    now = now_iso()
+    return {
+        "id": session_id or f"ai_{uuid.uuid4().hex[:12]}",
+        "meetingCode": str(payload.get("meetingCode", "")),
+        "participantId": str(payload.get("participantId", "")),
+        "identityId": payload.get("identityId"),
+        "identity": {
+            "id": payload.get("identityId"),
+            "kind": payload.get("identityKind"),
+            "version": payload.get("identityVersion"),
+            "artifactUri": payload.get("identityArtifactUri"),
+            "cachedArtifactUri": payload.get("identityCachedArtifactUri"),
+            "localArtifactPath": payload.get("identityLocalArtifactPath"),
+            "artifactSha256": payload.get("identityArtifactSha256"),
+            "artifactSizeBytes": payload.get("identityArtifactSizeBytes"),
+            "artifactCacheMessage": payload.get("identityArtifactCacheMessage"),
+        },
+        "enabled": {
+            "face": bool(payload.get("faceEnabled", False)),
+            "background": bool(payload.get("backgroundEnabled", False)),
+            "voice": bool(payload.get("voiceEnabled", False)),
+        },
+        "background": background_payload_from_session_start(payload),
+        "status": "running",
+        "mode": ai_mode(),
+        "target": {
+            "width": int(payload.get("targetWidth", DEFAULT_WIDTH) or DEFAULT_WIDTH),
+            "height": int(payload.get("targetHeight", DEFAULT_HEIGHT) or DEFAULT_HEIGHT),
+            "fps": int(payload.get("targetFps", DEFAULT_FPS) or DEFAULT_FPS),
+        },
+        "startedAt": now,
+        "updatedAt": now,
+        "framesProcessed": 0,
+        "lastTick": time.time(),
+        "frameBridgeActive": False,
+        "lastFrameAt": None,
+        "lastFrameLatencyMs": None,
+        "lastFrameSequence": None,
+        "audioBridgeActive": False,
+        "audioChunksProcessed": 0,
+        "lastAudioAt": None,
+        "lastAudioLatencyMs": None,
+        "lastAudioSequence": None,
+        "lastAdapterError": None,
+    }
+
+
+def process_frame_for_session(session, payload):
+    started = time.perf_counter()
+    sequence = int(payload.get("sequence", 0) or 0)
+    effects = payload.get("effects") if isinstance(payload.get("effects"), dict) else {}
+    session["enabled"] = {
+        "face": bool(effects.get("face", session["enabled"]["face"])),
+        "background": bool(effects.get("background", session["enabled"]["background"])),
+        "voice": bool(effects.get("voice", session["enabled"]["voice"])),
+    }
+    session["frameBridgeActive"] = True
+    session["framesProcessed"] += 1
+    session["lastFrameAt"] = now_iso()
+    session["lastFrameSequence"] = sequence
+    latency_ms = max(1, int((time.perf_counter() - started) * 1000) + estimated_model_latency(session))
+    session["lastFrameLatencyMs"] = latency_ms
+    session["updatedAt"] = now_iso()
+    session["warnings"] = session_warnings(session)
+
+    width = int(payload.get("width", session["target"]["width"]) or session["target"]["width"])
+    height = int(payload.get("height", session["target"]["height"]) or session["target"]["height"])
+    mode = ai_mode()
+    external_frame = proxy_video_frame(session, payload, width, height)
+
+    if external_frame:
+        return external_frame
+
+    frame_data = payload.get("frameDataUrl")
+    return {
+        "sequence": sequence,
+        "status": "passthrough",
+        "processor": "development-passthrough" if mode == "development-passthrough" else "adapter-contract",
+        "frame": {
+            "dataUrl": frame_data,
+            "width": width,
+            "height": height,
+            "format": "image/jpeg",
+        },
+        "metrics": session_metrics(session),
+        "warnings": frame_warnings(session, mode),
+    }
+
+
+def process_audio_for_session(session, payload):
+    started = time.perf_counter()
+    sequence = int(payload.get("sequence", 0) or 0)
+    audio_data = payload.get("audioDataBase64")
+    session["audioBridgeActive"] = True
+    session["audioChunksProcessed"] += 1
+    session["lastAudioAt"] = now_iso()
+    session["lastAudioSequence"] = sequence
+    latency_ms = max(1, int((time.perf_counter() - started) * 1000) + 4)
+    session["lastAudioLatencyMs"] = latency_ms
+    session["updatedAt"] = now_iso()
+    session["warnings"] = session_warnings(session)
+
+    external_audio = proxy_audio_chunk(session, payload)
+    if external_audio:
+        return external_audio
+
+    return {
+        "sequence": sequence,
+        "status": "passthrough",
+        "processor": "development-passthrough" if ai_mode() == "development-passthrough" else "adapter-contract",
+        "audio": {
+            "audioDataBase64": audio_data,
+            "sampleRate": int(payload.get("sampleRate", 48000) or 48000),
+            "channels": int(payload.get("channels", 1) or 1),
+            "format": str(payload.get("format", "pcm_f32le")),
+        },
+        "metrics": audio_metrics(session, len(audio_data)),
+        "warnings": audio_warnings(session),
+    }
+
+
+def run_preflight(payload):
+    started = time.perf_counter()
+    session = session_from_start_payload(payload, session_id=f"preflight_{uuid.uuid4().hex[:10]}")
+    session["warnings"] = session_warnings(session)
+    checks = []
+
+    if session["enabled"].get("face") or session["enabled"].get("background"):
+        frame_data_url = payload.get("frameDataUrl")
+        if not isinstance(frame_data_url, str) or not frame_data_url.startswith("data:image/"):
+            frame_data_url = PREFLIGHT_FRAME_DATA_URL
+
+        frame = process_frame_for_session(
+            session,
+            {
+                "sequence": 1,
+                "timestampMs": int(time.time() * 1000),
+                "width": session["target"]["width"],
+                "height": session["target"]["height"],
+                "frameDataUrl": frame_data_url,
+                "effects": {
+                    "face": session["enabled"].get("face"),
+                    "background": session["enabled"].get("background"),
+                    "voice": session["enabled"].get("voice"),
+                },
+            },
+        )
+        checks.append(preflight_check_from_frame(frame))
+
+    if session["enabled"].get("voice"):
+        audio_base64 = payload.get("audioDataBase64")
+        if not isinstance(audio_base64, str) or not audio_base64:
+            audio_base64 = base64.b64encode(bytes(4096)).decode("ascii")
+
+        audio = process_audio_for_session(
+            session,
+            {
+                "sequence": 1,
+                "timestampMs": int(time.time() * 1000),
+                "sampleRate": int(payload.get("audioSampleRate", 48000) or 48000),
+                "channels": 1,
+                "format": "pcm_f32le",
+                "audioDataBase64": audio_base64,
+            },
+        )
+        checks.append(preflight_check_from_audio(audio))
+
+    if not checks:
+        checks.append(
+            {
+                "id": "runtime",
+                "label": "Runtime",
+                "status": "skipped",
+                "processor": None,
+                "latencyMs": None,
+                "warnings": ["no_effects_enabled"],
+            }
+        )
+
+    warnings = unique_warnings(session.get("warnings", []) + [warning for check in checks for warning in check["warnings"]])
+    status = preflight_status(checks, warnings)
+    return {
+        "status": status,
+        "checkedAt": now_iso(),
+        "durationMs": elapsed_ms(started),
+        "mode": session["mode"],
+        "checks": checks,
+        "warnings": warnings,
+        "session": session_payload(session),
+    }
+
+
+def preflight_check_from_frame(frame):
+    return {
+        "id": "video",
+        "label": "Video",
+        "status": frame.get("status", "unknown"),
+        "processor": frame.get("processor"),
+        "latencyMs": (frame.get("metrics") or {}).get("latencyMs"),
+        "warnings": frame.get("warnings", []),
+    }
+
+
+def preflight_check_from_audio(audio):
+    return {
+        "id": "audio",
+        "label": "Audio",
+        "status": audio.get("status", "unknown"),
+        "processor": audio.get("processor"),
+        "latencyMs": (audio.get("metrics") or {}).get("latencyMs"),
+        "warnings": audio.get("warnings", []),
+    }
+
+
+def preflight_status(checks, warnings):
+    if any(check["status"] == "error" for check in checks):
+        return "failed"
+    active_checks = [check for check in checks if check["status"] != "skipped"]
+    if active_checks and all(check["status"] == "processed" for check in active_checks):
+        return "passed"
+    if ai_mode() == "development-passthrough" and not warnings:
+        return "passed"
+    return "warning"
 
 
 def session_payload(session):
@@ -1078,6 +1201,10 @@ def safe_float(value, default):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def elapsed_ms(started):
+    return max(1, int((time.perf_counter() - started) * 1000))
 
 
 def env_bool(key, default):

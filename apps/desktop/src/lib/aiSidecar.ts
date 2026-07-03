@@ -199,13 +199,41 @@ export interface AiDiagnostics {
   };
 }
 
-export async function startAiSession(input: AiSessionStartInput): Promise<AiSession> {
+export type AiPreflightInput = AiSessionStartInput & {
+  frameDataUrl?: string | null;
+  audioDataBase64?: string | null;
+  audioSampleRate?: number | null;
+};
+
+export interface AiPreflightResult {
+  status: "passed" | "warning" | "failed" | string;
+  checkedAt: string;
+  durationMs: number;
+  mode: string;
+  checks: Array<{
+    id: "video" | "audio" | "runtime" | string;
+    label: string;
+    status: string;
+    processor: string | null;
+    latencyMs: number | null;
+    warnings: string[];
+  }>;
+  warnings: string[];
+  session: AiSession;
+}
+
+export async function startAiSession(
+  input: AiSessionStartInput,
+): Promise<AiSession> {
   const response = await fetch(`${aiSidecarUrl()}/sessions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(input)
+    body: JSON.stringify(input),
   });
-  const data = (await response.json().catch(() => ({}))) as { session?: AiSession; error?: string };
+  const data = (await response.json().catch(() => ({}))) as {
+    session?: AiSession;
+    error?: string;
+  };
 
   if (!response.ok || !data.session) {
     throw new Error(data.error ?? "No se pudo iniciar la sesión local de IA.");
@@ -216,27 +244,71 @@ export async function startAiSession(input: AiSessionStartInput): Promise<AiSess
 
 export async function getAiDiagnostics(): Promise<AiDiagnostics> {
   const response = await fetch(`${aiSidecarUrl()}/diagnostics`);
-  const data = (await response.json().catch(() => ({}))) as { diagnostics?: AiDiagnostics; error?: string };
+  const data = (await response.json().catch(() => ({}))) as {
+    diagnostics?: AiDiagnostics;
+    error?: string;
+  };
 
   if (!response.ok || !data.diagnostics) {
-    throw new Error(data.error ?? "No se pudo consultar diagnostics del sidecar.");
+    throw new Error(
+      data.error ?? "No se pudo consultar diagnostics del sidecar.",
+    );
   }
 
   return data.diagnostics;
 }
 
-export async function processAiFrame(sessionId: string, input: AiFrameProcessInput): Promise<AiFrameProcessResult> {
+export async function runAiPreflight(
+  input: AiPreflightInput,
+): Promise<AiPreflightResult> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+
+  try {
+    const response = await fetch(`${aiSidecarUrl()}/preflight`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+      signal: controller.signal,
+    });
+    const data = (await response.json().catch(() => ({}))) as {
+      preflight?: AiPreflightResult;
+      error?: string;
+    };
+
+    if (!response.ok || !data.preflight) {
+      throw new Error(
+        data.error ?? "No se pudo probar el runtime local de IA.",
+      );
+    }
+
+    return data.preflight;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+export async function processAiFrame(
+  sessionId: string,
+  input: AiFrameProcessInput,
+): Promise<AiFrameProcessResult> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 900);
 
   try {
-    const response = await fetch(`${aiSidecarUrl()}/sessions/${encodeURIComponent(sessionId)}/frames`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
-      signal: controller.signal
-    });
-    const data = (await response.json().catch(() => ({}))) as { frame?: AiFrameProcessResult; error?: string };
+    const response = await fetch(
+      `${aiSidecarUrl()}/sessions/${encodeURIComponent(sessionId)}/frames`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: controller.signal,
+      },
+    );
+    const data = (await response.json().catch(() => ({}))) as {
+      frame?: AiFrameProcessResult;
+      error?: string;
+    };
 
     if (!response.ok || !data.frame) {
       throw new Error(data.error ?? "El sidecar no pudo procesar el frame.");
@@ -248,18 +320,27 @@ export async function processAiFrame(sessionId: string, input: AiFrameProcessInp
   }
 }
 
-export async function processAiAudio(sessionId: string, input: AiAudioProcessInput): Promise<AiAudioProcessResult> {
+export async function processAiAudio(
+  sessionId: string,
+  input: AiAudioProcessInput,
+): Promise<AiAudioProcessResult> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 500);
 
   try {
-    const response = await fetch(`${aiSidecarUrl()}/sessions/${encodeURIComponent(sessionId)}/audio`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
-      signal: controller.signal
-    });
-    const data = (await response.json().catch(() => ({}))) as { audio?: AiAudioProcessResult; error?: string };
+    const response = await fetch(
+      `${aiSidecarUrl()}/sessions/${encodeURIComponent(sessionId)}/audio`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: controller.signal,
+      },
+    );
+    const data = (await response.json().catch(() => ({}))) as {
+      audio?: AiAudioProcessResult;
+      error?: string;
+    };
 
     if (!response.ok || !data.audio) {
       throw new Error(data.error ?? "El sidecar no pudo procesar audio.");
@@ -272,11 +353,18 @@ export async function processAiAudio(sessionId: string, input: AiAudioProcessInp
 }
 
 export async function getAiSession(sessionId: string): Promise<AiSession> {
-  const response = await fetch(`${aiSidecarUrl()}/sessions/${encodeURIComponent(sessionId)}`);
-  const data = (await response.json().catch(() => ({}))) as { session?: AiSession; error?: string };
+  const response = await fetch(
+    `${aiSidecarUrl()}/sessions/${encodeURIComponent(sessionId)}`,
+  );
+  const data = (await response.json().catch(() => ({}))) as {
+    session?: AiSession;
+    error?: string;
+  };
 
   if (!response.ok || !data.session) {
-    throw new Error(data.error ?? "No se pudo consultar la sesión local de IA.");
+    throw new Error(
+      data.error ?? "No se pudo consultar la sesión local de IA.",
+    );
   }
 
   return data.session;
@@ -284,10 +372,13 @@ export async function getAiSession(sessionId: string): Promise<AiSession> {
 
 export async function stopAiSession(sessionId: string): Promise<void> {
   await fetch(`${aiSidecarUrl()}/sessions/${encodeURIComponent(sessionId)}`, {
-    method: "DELETE"
+    method: "DELETE",
   }).catch(() => undefined);
 }
 
 export function aiSidecarUrl() {
-  return (import.meta.env.VITE_SHAPE_AI_SERVICE_URL as string | undefined) ?? DEFAULT_AI_SIDECAR_URL;
+  return (
+    (import.meta.env.VITE_SHAPE_AI_SERVICE_URL as string | undefined) ??
+    DEFAULT_AI_SIDECAR_URL
+  );
 }

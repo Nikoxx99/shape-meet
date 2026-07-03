@@ -36,6 +36,8 @@ Endpoints:
 - `GET /health`: estado general y pipelines disponibles.
 - `GET /diagnostics`: GPU, plataforma, motores configurados y límites de payload.
 - `GET /pipelines`: lista de pipelines declarados.
+- `POST /preflight`: ejecuta una prueba sintética de video/audio con la misma
+  configuración de una sesión, sin dejar una sesión persistente.
 - `POST /sessions`: inicia una sesión local de IA para una reunión/participante.
 - `GET /sessions/{id}`: consulta métricas y estado de la sesión.
 - `POST /sessions/{id}/frames`: recibe un frame codificado como data URL y devuelve el frame procesado.
@@ -149,6 +151,11 @@ Por defecto se busca en:
 Puedes cambiar la ruta con `SHAPE_AI_RUNTIME_ENV_FILE`. La app carga ese archivo
 al iniciar el sidecar gestionado y lo reporta en el debug bundle solo como ruta,
 claves configuradas y warnings, sin valores.
+
+Desde `Runtime IA local`, el botón `Probar IA` llama a `/preflight` con la
+identidad, clean plate y efectos activos. Si hay cámara disponible, envía un
+frame real de la cámara seleccionada; si no, el sidecar usa un JPEG mínimo para
+validar conectividad y comandos.
 
 Si `SENTRY_DSN` está configurado y `sentry-sdk` está instalado, el sidecar envía
 errores de adaptadores externos con tags de runtime. No envía frames, audio,

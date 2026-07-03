@@ -89,6 +89,8 @@ usa `--prefer-bundled` para forzar el binario local.
 Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`
 y volver a la llamada. Esa ruta escribe el mismo archivo runtime desde la app y
 reinicia el sidecar gestionado para aplicar los procesadores demo.
+`Probar IA` ejecuta un preflight local con la identidad, fondo y voz activos
+antes de entrar a la reunión.
 
 `pnpm demo:ui` abre Chromium con cámara/micrófono falsos y recorre la UI real:
 invitado por enlace público, sala de espera, login de host, configuración de

@@ -81,9 +81,11 @@ import {
 import {
   getAiDiagnostics,
   getAiSession,
+  runAiPreflight,
   startAiSession,
   stopAiSession,
   type AiDiagnostics,
+  type AiPreflightResult,
   type AiSession,
 } from "./lib/aiSidecar";
 import { connectLiveKitRoom } from "./lib/livekit";
@@ -454,7 +456,17 @@ function serviceTone(online?: boolean): "ok" | "warning" | "idle" {
 function statusTone(status?: string | null): "ok" | "warning" | "idle" {
   if (!status) return "idle";
   const normalized = status.toLowerCase();
-  if (["ready", "running", "standby", "ok", "healthy"].includes(normalized))
+  if (
+    [
+      "ready",
+      "running",
+      "standby",
+      "ok",
+      "healthy",
+      "passed",
+      "processed",
+    ].includes(normalized)
+  )
     return "ok";
   if (
     [
@@ -465,10 +477,21 @@ function statusTone(status?: string | null): "ok" | "warning" | "idle" {
       "limited",
       "stopped",
       "dead",
+      "warning",
     ].includes(normalized)
   )
     return "warning";
   return "idle";
+}
+
+function preflightTone(status?: string | null): "ok" | "warning" | "idle" {
+  return statusTone(status);
+}
+
+function preflightMessage(result: AiPreflightResult) {
+  if (result.status === "passed") return "Prueba IA completada.";
+  if (result.status === "warning") return "Prueba IA completada con avisos.";
+  return "Prueba IA falló.";
 }
 
 function boolStatus(value?: boolean) {
@@ -624,6 +647,39 @@ function mediaTrackVideoConstraints(deviceId: string): MediaTrackConstraints {
   };
 }
 
+async function captureAiPreflightFrame(
+  deviceId: string,
+): Promise<string | null> {
+  if (!navigator.mediaDevices?.getUserMedia) return null;
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: mediaTrackVideoConstraints(deviceId),
+    audio: false,
+  });
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = stream;
+
+  try {
+    await video.play();
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.drawImage(video, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.82);
+  } finally {
+    stream.getTracks().forEach((track) => track.stop());
+    video.pause();
+    video.srcObject = null;
+  }
+}
+
 async function prepareIdentityForAiSession(
   identity: HostIdentity | null,
   hostToken: string | null,
@@ -676,6 +732,23 @@ function evictUnauthorizedIdentityArtifacts(
   );
 }
 
+function runtimeIdentityFor(
+  identities: HostIdentity[],
+  selectedIdentityId: string | null,
+) {
+  const pushedIdentities = identities.filter(
+    (identity) =>
+      identity.status === "AVAILABLE" && identity.deliveryStatus === "PUSHED",
+  );
+  const identityOptions =
+    pushedIdentities.length > 0 ? pushedIdentities : identities;
+  return (
+    identityOptions.find((identity) => identity.id === selectedIdentityId) ??
+    identityOptions[0] ??
+    null
+  );
+}
+
 export default function App() {
   const [route, setRoute] = useState<Route>(
     initialDeepLinkCode ? "join" : "home",
@@ -725,6 +798,10 @@ export default function App() {
   const [observabilityStatus, setObservabilityStatus] =
     useState<NativeObservabilityStatus | null>(null);
   const mediaDevices = useMediaDevices();
+  const selectedRuntimeIdentity = useMemo(
+    () => runtimeIdentityFor(identities, selectedIdentityId),
+    [identities, selectedIdentityId],
+  );
 
   useEffect(() => {
     void getGpuProfile().then(setGpuProfile);
@@ -1587,9 +1664,17 @@ export default function App() {
         <AiRuntimeScreen
           aiServiceStatus={aiServiceStatus}
           aiSidecarRuntime={aiSidecarRuntime}
+          backgroundCalibration={backgroundCalibration}
+          backgroundEnabled={backgroundEnabled}
+          cameraEnabled={cameraEnabled}
+          deviceSelection={deviceSelection}
           debugMessage={debugMessage}
+          faceEnabled={faceEnabled}
           gpuProfile={gpuProfile}
+          hostToken={hostSession?.token ?? null}
+          identity={selectedRuntimeIdentity}
           observabilityStatus={observabilityStatus}
+          voiceEnabled={voiceEnabled}
           onBack={() => navigate("host-settings")}
           onExportDebug={handleDebugBundle}
           onNativeDebugEvent={handleNativeDebugEvent}
@@ -2643,9 +2728,17 @@ function HostSettingsScreen({
 function AiRuntimeScreen({
   aiServiceStatus,
   aiSidecarRuntime,
+  backgroundCalibration,
+  backgroundEnabled,
+  cameraEnabled,
+  deviceSelection,
   debugMessage,
+  faceEnabled,
   gpuProfile,
+  hostToken,
+  identity,
   observabilityStatus,
+  voiceEnabled,
   onBack,
   onExportDebug,
   onNativeDebugEvent,
@@ -2655,9 +2748,17 @@ function AiRuntimeScreen({
 }: {
   aiServiceStatus: NativeAiServiceStatus | null;
   aiSidecarRuntime: NativeAiSidecarRuntime | null;
+  backgroundCalibration: BackgroundCalibration | null;
+  backgroundEnabled: boolean;
+  cameraEnabled: boolean;
+  deviceSelection: DeviceSelection;
   debugMessage: string | null;
+  faceEnabled: boolean;
   gpuProfile: NativeGpuProfile | null;
+  hostToken: string | null;
+  identity: HostIdentity | null;
   observabilityStatus: NativeObservabilityStatus | null;
+  voiceEnabled: boolean;
   onBack: () => void;
   onExportDebug: () => Promise<void> | void;
   onNativeDebugEvent: () => Promise<void> | void;
@@ -2668,7 +2769,9 @@ function AiRuntimeScreen({
   const [envFile, setEnvFile] = useState<NativeAiRuntimeEnvFile | null>(null);
   const [content, setContent] = useState("");
   const [diagnostics, setDiagnostics] = useState<AiDiagnostics | null>(null);
+  const [preflight, setPreflight] = useState<AiPreflightResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [preflightRunning, setPreflightRunning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [runtimeMessage, setRuntimeMessage] = useState<string | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
@@ -2759,6 +2862,74 @@ function AiRuntimeScreen({
     setRuntimeMessage(null);
     await onStopSidecar();
     await loadRuntimeState();
+  }
+
+  async function handlePreflight() {
+    setPreflightRunning(true);
+    setRuntimeMessage(null);
+    setRuntimeError(null);
+
+    try {
+      if (!aiSidecarRuntime?.running) {
+        await onStartSidecar();
+      }
+
+      const prepared = faceEnabled
+        ? await prepareIdentityForAiSession(identity, hostToken)
+        : { identity, cache: null };
+      const resolvedIdentity = prepared.identity;
+      const artifactCache = prepared.cache;
+      const frameDataUrl = cameraEnabled
+        ? await captureAiPreflightFrame(deviceSelection.cameraId).catch(
+            () => null,
+          )
+        : null;
+      const result = await runAiPreflight({
+        meetingCode: "PREFLIGHT",
+        participantId: "runtime-preflight",
+        identityId: resolvedIdentity?.id ?? null,
+        identityKind: resolvedIdentity?.kind,
+        identityVersion: resolvedIdentity?.version,
+        identityArtifactUri: resolvedIdentity?.artifactUri ?? null,
+        identityCachedArtifactUri:
+          artifactCache?.uri ?? resolvedIdentity?.artifactUri ?? null,
+        identityLocalArtifactPath: artifactCache?.localPath ?? null,
+        identityArtifactSha256:
+          artifactCache?.sha256 ?? resolvedIdentity?.artifactSha256 ?? null,
+        identityArtifactSizeBytes:
+          artifactCache?.sizeBytes ??
+          resolvedIdentity?.artifactSizeBytes ??
+          null,
+        identityArtifactCacheMessage: artifactCache?.message ?? null,
+        faceEnabled,
+        backgroundEnabled,
+        backgroundCleanPlateDataUrl:
+          backgroundCalibration?.cleanPlateDataUrl ?? null,
+        backgroundCleanPlateCapturedAt:
+          backgroundCalibration?.capturedAt ?? null,
+        backgroundCleanPlateWidth: backgroundCalibration?.width ?? null,
+        backgroundCleanPlateHeight: backgroundCalibration?.height ?? null,
+        backgroundCleanPlateCameraDeviceId:
+          backgroundCalibration?.cameraDeviceId ?? null,
+        voiceEnabled,
+        targetWidth: 1280,
+        targetHeight: 720,
+        targetFps: 30,
+        frameDataUrl,
+      });
+
+      setPreflight(result);
+      setRuntimeMessage(preflightMessage(result));
+      await loadRuntimeState();
+    } catch (error) {
+      setRuntimeError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo probar el runtime IA.",
+      );
+    } finally {
+      setPreflightRunning(false);
+    }
   }
 
   const engines = diagnostics?.engines ?? [];
@@ -2864,6 +3035,14 @@ function AiRuntimeScreen({
               Cargar demo
             </Button>
             <Button
+              variant="outline"
+              icon={<ShieldCheck />}
+              onClick={() => void handlePreflight()}
+              disabled={loading || saving || preflightRunning}
+            >
+              {preflightRunning ? "Probando" : "Probar IA"}
+            </Button>
+            <Button
               icon={<Check />}
               onClick={() => void handleSave()}
               disabled={saving}
@@ -2913,6 +3092,38 @@ function AiRuntimeScreen({
                 tone={diagnostics ? "warning" : "idle"}
               />
             )}
+          </Panel>
+          <Panel title="Prueba IA">
+            <StatusRow
+              label="Resultado"
+              value={
+                preflightRunning
+                  ? "Ejecutando"
+                  : (preflight?.status ?? "Sin prueba")
+              }
+              tone={preflightTone(
+                preflightRunning ? "running" : preflight?.status,
+              )}
+            />
+            {preflight?.checks.map((check) => (
+              <StatusRow
+                key={check.id}
+                label={check.label}
+                value={[
+                  check.status,
+                  check.processor,
+                  check.latencyMs ? `${check.latencyMs} ms` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                tone={preflightTone(check.status)}
+              />
+            ))}
+            {preflight?.warnings.slice(0, 3).map((warning) => (
+              <InlineNotice icon={<ShieldAlert />} key={warning}>
+                {warning}
+              </InlineNotice>
+            ))}
           </Panel>
           <Panel title="Observabilidad">
             <StatusRow
