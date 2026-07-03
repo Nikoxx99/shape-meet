@@ -24,8 +24,9 @@ pnpm build:desktop
 ```
 
 El script genera `apps/desktop/src-tauri/binaries/shape-ai-sidecar-${targetTriple}`
-y `apps/desktop/src-tauri/tauri.sidecar.conf.json`. Ambos son artefactos locales:
-se regeneran en cada máquina o runner y no se versionan.
+y `apps/desktop/src-tauri/binaries/shape-ai-processor-${targetTriple}`, además de
+`apps/desktop/src-tauri/tauri.sidecar.conf.json`. Son artefactos locales: se
+regeneran en cada máquina o runner y no se versionan.
 
 PyInstaller debe correr en el sistema operativo de destino. Windows requiere un
 runner Windows; macOS requiere un runner macOS.
@@ -64,9 +65,12 @@ SHAPE_VOICE_ENGINE=vcclient000
 SHAPE_VIDEO_PROCESSOR_COMMAND=
 SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame
 SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7860/health
+SHAPE_VIDEO_FRAME_COMMAND=
 SHAPE_AUDIO_PROCESSOR_COMMAND=
 SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio
 SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health
+SHAPE_AUDIO_CHUNK_COMMAND=
+SHAPE_MODEL_COMMAND_TIMEOUT_SECS=2.0
 SHAPE_PROCESSOR_TIMEOUT_SECS=0.8
 ```
 
@@ -88,6 +92,24 @@ FaceFusion/BackgroundMattingV2 y vcclient000 sin cambiar el contrato de la
 desktop. Si no defines endpoint, el sidecar usa
 `http://127.0.0.1:7860/process-frame` para video y
 `http://127.0.0.1:7861/process-audio` para audio.
+
+El repo incluye un adaptador HTTP de comandos para conectar motores locales sin
+crear otro servidor:
+
+```bash
+SHAPE_VIDEO_PROCESSOR_COMMAND="python3 apps/ai-sidecar/processors/shape_processor_command.py --kind video --port 7860"
+SHAPE_VIDEO_FRAME_COMMAND="/path/to/video-wrapper --input {input} --output {output} --identity {identity} --clean-plate {clean_plate}"
+
+SHAPE_AUDIO_PROCESSOR_COMMAND="python3 apps/ai-sidecar/processors/shape_processor_command.py --kind audio --port 7861"
+SHAPE_AUDIO_CHUNK_COMMAND="/path/to/voice-wrapper --input {input} --output {output} --sample-rate {sample_rate}"
+```
+
+El adaptador escribe archivos temporales y ejecuta el comando sin shell. Tambien
+inyecta variables como `SHAPE_FRAME_INPUT_PATH`, `SHAPE_FRAME_OUTPUT_PATH`,
+`SHAPE_IDENTITY_PATH`, `SHAPE_CLEAN_PLATE_PATH`, `SHAPE_AUDIO_INPUT_PATH`,
+`SHAPE_AUDIO_OUTPUT_PATH`, `SHAPE_AUDIO_SAMPLE_RATE`, `SHAPE_AUDIO_CHANNELS` y
+`SHAPE_AUDIO_FORMAT`. Si el comando falta o falla, devuelve passthrough con
+warnings para que LiveKit siga publicando.
 
 Si `SENTRY_DSN` está configurado y `sentry-sdk` está instalado, el sidecar envía
 errores de adaptadores externos con tags de runtime. No envía frames, audio,
@@ -113,6 +135,7 @@ Smoke automatizado del contrato de adaptadores:
 ```bash
 pnpm smoke:ai-contract
 pnpm smoke:ai-managed
+pnpm smoke:ai-command
 ```
 
 El script arranca el sidecar en un puerto libre, levanta mocks HTTP para video y
@@ -122,6 +145,8 @@ fondo, flags activos y datos procesables.
 
 `smoke:ai-managed` valida además que el sidecar pueda iniciar procesadores por
 comando, reportarlos en diagnostics y delegar frame/audio a esos procesos.
+`smoke:ai-command` valida la ruta completa usando el adaptador de comandos:
+sidecar gestionado -> procesador HTTP -> comando de modelo -> output procesado.
 
 Ejemplo:
 

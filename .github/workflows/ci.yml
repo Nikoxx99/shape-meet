@@ -63,5 +63,8 @@ jobs:
       - name: Smoke AI managed processors
         run: pnpm smoke:ai-managed
 
+      - name: Smoke AI command adapters
+        run: pnpm smoke:ai-command
+
       - name: Validate Coolify compose
         run: pnpm check:coolify infra/env.coolify.example

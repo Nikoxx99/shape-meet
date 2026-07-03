@@ -19,6 +19,7 @@
     "smoke:meeting-flow": "node scripts/smoke-meeting-flow.mjs",
     "smoke:ai-contract": "node scripts/smoke-ai-sidecar-contract.mjs",
     "smoke:ai-managed": "node scripts/smoke-ai-managed-processors.mjs",
+    "smoke:ai-command": "node scripts/smoke-ai-command-adapters.mjs",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "format:check": "prettier --check ."

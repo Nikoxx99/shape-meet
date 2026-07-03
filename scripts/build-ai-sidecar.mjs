@@ -7,17 +7,22 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const desktopTauriDir = join(repoRoot, "apps", "desktop", "src-tauri");
 const sidecarSource = join(repoRoot, "apps", "ai-sidecar", "server.py");
+const processorSource = join(repoRoot, "apps", "ai-sidecar", "processors", "shape_processor_command.py");
 const requirementsFile = join(repoRoot, "apps", "ai-sidecar", "requirements-packaging.txt");
 const binariesDir = join(desktopTauriDir, "binaries");
 const outputDir = join(repoRoot, "output", "ai-sidecar-build");
 const venvDir = join(outputDir, "venv");
 const targetTriple = process.env.TAURI_TARGET_TRIPLE || readRustHostTriple();
 const binaryBaseName = "shape-ai-sidecar";
+const processorBaseName = "shape-ai-processor";
 const targetBinaryName = `${binaryBaseName}-${targetTriple}${process.platform === "win32" ? ".exe" : ""}`;
+const targetProcessorName = `${processorBaseName}-${targetTriple}${process.platform === "win32" ? ".exe" : ""}`;
 const targetBinaryPath = join(binariesDir, targetBinaryName);
+const targetProcessorPath = join(binariesDir, targetProcessorName);
 const configPath = join(desktopTauriDir, "tauri.sidecar.conf.json");
 
 ensureFile(sidecarSource);
+ensureFile(processorSource);
 ensureFile(requirementsFile);
 mkdirSync(binariesDir, { recursive: true });
 mkdirSync(outputDir, { recursive: true });
@@ -25,10 +30,12 @@ mkdirSync(outputDir, { recursive: true });
 ensureVenv();
 const python = venvPython();
 installPackagingRequirements(python);
-buildSidecar(python);
+buildPyInstallerBinary(python, sidecarSource, targetBinaryName, targetBinaryPath, "construir sidecar PyInstaller");
+buildPyInstallerBinary(python, processorSource, targetProcessorName, targetProcessorPath, "construir procesador IA PyInstaller");
 writeTauriSidecarConfig();
 
 console.log(`AI sidecar listo: ${targetBinaryPath}`);
+console.log(`AI processor listo: ${targetProcessorPath}`);
 console.log(`Config Tauri temporal: ${configPath}`);
 
 function ensureVenv() {
@@ -51,8 +58,8 @@ function installPackagingRequirements(python) {
   });
 }
 
-function buildSidecar(python) {
-  rmSync(targetBinaryPath, { force: true });
+function buildPyInstallerBinary(python, source, targetName, targetPath, label) {
+  rmSync(targetPath, { force: true });
   run(
     python,
     [
@@ -62,23 +69,23 @@ function buildSidecar(python) {
       "--clean",
       "--noconfirm",
       "--name",
-      targetBinaryName.replace(/\.exe$/, ""),
+      targetName.replace(/\.exe$/, ""),
       "--distpath",
       binariesDir,
       "--workpath",
       join(outputDir, "pyinstaller-work"),
       "--specpath",
       join(outputDir, "pyinstaller-spec"),
-      sidecarSource
+      source
     ],
     {
       cwd: repoRoot,
-      label: "construir sidecar PyInstaller"
+      label
     }
   );
 
-  if (!existsSync(targetBinaryPath)) {
-    throw new Error(`PyInstaller terminó sin crear ${targetBinaryPath}`);
+  if (!existsSync(targetPath)) {
+    throw new Error(`PyInstaller terminó sin crear ${targetPath}`);
   }
 }
 
@@ -94,7 +101,7 @@ function writeTauriSidecarConfig() {
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      externalBin: [`binaries/${binaryBaseName}`]
+      externalBin: [`binaries/${binaryBaseName}`, `binaries/${processorBaseName}`]
     }
   };
 

@@ -219,6 +219,7 @@ Implementacion actual:
 - el sidecar actual es liviano y no carga modelos; su funcion es fijar el contrato que recibira FaceFusion/DFM, BackgroundMattingV2 y vcclient000;
 - Tauri incluye un supervisor nativo para iniciar/detener el sidecar, detectar un sidecar externo, guardar logs locales e incluirlos en el bundle de debug;
 - `pnpm build:ai-sidecar` empaqueta el sidecar con PyInstaller en `apps/desktop/src-tauri/binaries/shape-ai-sidecar-${targetTriple}`;
+- el mismo build empaqueta el adaptador de comandos como `shape-ai-processor-${targetTriple}` para que los wrappers de modelo puedan correr desde builds Tauri;
 - `pnpm build:desktop` regenera ese sidecar y ejecuta `tauri build` con una configuracion local que incluye `bundle.externalBin`;
 - PyInstaller no hace cross-compile real: Windows debe construirse en Windows/CI Windows y macOS en macOS/CI macOS.
 - el sidecar inicializa `sentry-sdk` si `SENTRY_DSN` existe y reporta errores de adaptadores externos sin adjuntar frames, audio, imagenes fuente ni artefactos.
@@ -230,6 +231,10 @@ Implementacion actual:
   `SHAPE_AUDIO_PROCESSOR_COMMAND`, los reporta en diagnostics y delega frame/audio
   a esos procesos. Los wrappers reales de FaceFusion/BackgroundMattingV2 y
   vcclient000 deben exponer el mismo contrato HTTP.
+- `pnpm smoke:ai-command` verifica la ruta de adaptadores de comando incluida en
+  el repo: el sidecar levanta `shape_processor_command.py`, ese procesador
+  ejecuta un comando de modelo por frame/chunk y devuelve el output al pipeline
+  WebRTC.
 
 Variables del supervisor nativo:
 
@@ -243,6 +248,14 @@ Variables del supervisor nativo:
 - `SHAPE_AUDIO_PROCESSOR_COMMAND`: comando del wrapper local de voz.
 - `SHAPE_AUDIO_PROCESSOR_ENDPOINT`: endpoint del wrapper de voz; si falta, el
   sidecar usa `http://127.0.0.1:7861/process-audio` cuando hay comando.
+- `SHAPE_VIDEO_FRAME_COMMAND`: comando local invocado por
+  `shape_processor_command.py --kind video`. Recibe placeholders `{input}`,
+  `{output}`, `{identity}`, `{clean_plate}`, `{width}`, `{height}`, `{fps}` y
+  `{session_id}`, ademas de variables `SHAPE_FRAME_*`.
+- `SHAPE_AUDIO_CHUNK_COMMAND`: comando local invocado por
+  `shape_processor_command.py --kind audio`. Recibe placeholders `{input}`,
+  `{output}`, `{sample_rate}`, `{channels}`, `{format}` y `{session_id}`, ademas
+  de variables `SHAPE_AUDIO_*`.
 
 Prioridad de arranque: comando explicito, binario explicito, sidecar empaquetado
 por Tauri y script de desarrollo.
