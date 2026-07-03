@@ -49,6 +49,12 @@ hacen falta, corre `demo:prepare` y deja vivos los procesos iniciados:
 pnpm demo:up
 ```
 
+Para levantar/verificar servicios y recorrer la UI real con Playwright:
+
+```bash
+pnpm demo:verify
+```
+
 Para diagnosticar sin levantar procesos:
 
 ```bash
@@ -63,6 +69,7 @@ Prepara datos y valida el demo:
 ```bash
 pnpm demo:prepare
 pnpm demo:check
+pnpm demo:verify
 pnpm demo:ai-runtime
 pnpm demo:ui:install
 pnpm demo:ui

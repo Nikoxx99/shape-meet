@@ -22,6 +22,7 @@
     "demo:ai-runtime": "node scripts/prepare-ai-runtime-demo.mjs",
     "demo:prepare": "node scripts/prepare-local-demo.mjs",
     "demo:up": "node scripts/run-local-demo-stack.mjs",
+    "demo:verify": "node scripts/run-local-demo-stack.mjs --verify-ui",
     "demo:ui": "node scripts/smoke-demo-ui.mjs",
     "demo:ui:install": "playwright install chromium",
     "smoke:admin": "node scripts/smoke-admin-api.mjs",

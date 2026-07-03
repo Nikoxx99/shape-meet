@@ -6,6 +6,7 @@ const doctorOnly = args.has("--doctor");
 const noDocker = args.has("--no-docker");
 const noPrepare = args.has("--no-prepare");
 const strict = args.has("--strict");
+const verifyUi = args.has("--verify-ui");
 const env = {
   ...process.env,
   ...readEnvFile("infra/env.local.example"),
@@ -39,6 +40,12 @@ try {
 }
 
 async function main() {
+  if (verifyUi && noPrepare) {
+    throw new Error(
+      "`--verify-ui` ejecuta demo:ui, que prepara datos. Quita `--no-prepare`.",
+    );
+  }
+
   console.log("Shape Meet demo");
   console.log(`Admin/API: ${adminUrl}`);
   console.log(`Desktop: ${appUrl}`);
@@ -78,7 +85,15 @@ async function main() {
   const ready = await waitForReady();
   printServiceReport(ready);
 
-  if (!noPrepare) {
+  if (verifyUi) {
+    const verified = runPnpmCapture(["demo:ui"]);
+    const link =
+      verified.stdout.match(/Demo limpio listo:\s+(\S+)/)?.[1] ??
+      verified.stdout.match(/Public link:\s+(\S+)/)?.[1] ??
+      appUrl;
+    console.log("");
+    console.log(`Demo verificado: ${link}`);
+  } else if (!noPrepare) {
     const prepared = runPnpmCapture(["demo:prepare"]);
     const link = prepared.stdout.match(/Public link:\s+(\S+)/)?.[1] ?? appUrl;
     console.log("");
