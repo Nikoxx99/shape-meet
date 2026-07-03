@@ -56,6 +56,7 @@ async function main() {
   if (!skipAiRuntime) {
     runPnpm("smoke:ai-runtime");
     runPnpm("smoke:ai-model-runtime");
+    runPnpm("smoke:ai-model-wrappers");
     runPnpm("smoke:ai-demo-sidecar");
   }
   if (!skipAiManaged) {

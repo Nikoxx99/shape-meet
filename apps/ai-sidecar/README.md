@@ -143,13 +143,16 @@ Para wrappers reales, genera el mismo archivo runtime con:
 
 ```bash
 pnpm models:runtime -- \
-  --face-command "python wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}" \
-  --background-command "python wrappers/backgroundmattingv2_frame.py --input {input} --output {output} --clean-plate {clean_plate}" \
-  --voice-command "python wrappers/vcclient000_chunk.py --input {input} --output {output} --sample-rate {sample_rate}"
+  --face-command "python apps/ai-sidecar/wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}" \
+  --background-command "python apps/ai-sidecar/wrappers/backgroundmattingv2_frame.py --input {input} --output {output} --clean-plate {clean_plate}" \
+  --voice-command "python apps/ai-sidecar/wrappers/vcclient000_chunk.py --input {input} --output {output} --sample-rate {sample_rate} --channels {channels} --format {format}"
 ```
 
 Usa `--video-frame-command` si prefieres un solo wrapper combinado para rostro y
 fondo, y `--audio-chunk-command` si prefieres un wrapper combinado para voz.
+Los wrappers versionados están en `apps/ai-sidecar/wrappers`; aceptan variables
+como `FACEFUSION_DIR`, `BMV2_REPO_DIR`, `BMV2_MODEL_CHECKPOINT` y
+`VCCLIENT000_CHUNK_COMMAND`.
 
 El adaptador escribe archivos temporales y ejecuta el comando sin shell. Tambien
 inyecta variables como `SHAPE_FRAME_INPUT_PATH`, `SHAPE_FRAME_OUTPUT_PATH`,
@@ -201,6 +204,7 @@ pnpm smoke:ai-contract
 pnpm smoke:ai-demo
 pnpm smoke:ai-runtime
 pnpm smoke:ai-model-runtime
+pnpm smoke:ai-model-wrappers
 pnpm smoke:ai-demo-sidecar
 pnpm smoke:ai-managed
 pnpm smoke:ai-command

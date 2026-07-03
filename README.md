@@ -71,7 +71,7 @@ pnpm demo:prepare
 pnpm demo:check
 pnpm demo:verify
 pnpm demo:ai-runtime
-pnpm models:runtime -- --face-command "python wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}"
+pnpm models:runtime -- --face-command "python apps/ai-sidecar/wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}"
 pnpm demo:ui:install
 pnpm demo:ui
 pnpm check:sentry
@@ -125,6 +125,8 @@ Tauri ni de `shape-ai-runtime.env`.
 `--background-command` y `--voice-command` para comandos separados. Los comandos
 reciben placeholders como `{input}`, `{output}`, `{identity}`, `{clean_plate}`,
 `{sample_rate}` y `{session_id}`.
+Los wrappers de referencia viven en `apps/ai-sidecar/wrappers` y cubren
+FaceFusion, BackgroundMattingV2 y vcclient000.
 
 Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`
 y volver a la llamada. Esa ruta escribe el mismo archivo runtime desde la app y

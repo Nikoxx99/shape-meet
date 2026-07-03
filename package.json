@@ -33,6 +33,7 @@
     "smoke:ai-demo": "node scripts/smoke-ai-demo-processor.mjs",
     "smoke:ai-runtime": "node scripts/smoke-ai-runtime-env.mjs",
     "smoke:ai-model-runtime": "node scripts/smoke-ai-model-runtime-env.mjs",
+    "smoke:ai-model-wrappers": "node scripts/smoke-ai-model-wrappers.mjs",
     "smoke:ai-demo-sidecar": "node scripts/smoke-ai-demo-sidecar-runner.mjs",
     "smoke:ai-managed": "node scripts/smoke-ai-managed-processors.mjs",
     "smoke:ai-command": "node scripts/smoke-ai-command-adapters.mjs",

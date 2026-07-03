@@ -235,6 +235,11 @@ Implementacion actual:
   el repo: el sidecar levanta `shape_processor_command.py`, ese procesador
   ejecuta un comando de modelo por frame/chunk y devuelve el output al pipeline
   WebRTC.
+- `apps/ai-sidecar/wrappers` contiene wrappers CLI de referencia para
+  FaceFusion, BackgroundMattingV2 y vcclient000. Estos wrappers son el puente
+  inicial para máquinas de demo con modelos instalados; para producción de baja
+  latencia deben evolucionar a procesos persistentes que mantengan pesos cargados
+  y expongan `SHAPE_VIDEO_PROCESSOR_ENDPOINT` / `SHAPE_AUDIO_PROCESSOR_ENDPOINT`.
 
 Variables del supervisor nativo:
 
