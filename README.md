@@ -134,7 +134,8 @@ usar `VITE_SHAPE_DEMO_DATA=false`, `VITE_SHAPE_API_URL` apuntando al admin y
 Los enlaces públicos usan `/r/{codigo}`, por ejemplo
 `https://meet.tudominio.com/r/SM-123-456`; la desktop también acepta
 `?code=SM-123-456`, `shapemeet://r/SM-123-456`, `shape-meet://r/SM-123-456`
-y códigos pegados manualmente.
+y códigos pegados manualmente. El admin Next sirve `/r/{codigo}` como launcher
+público para abrir la app instalada o copiar el código.
 
 ## Flujo de reuniones
 

@@ -247,6 +247,5 @@ En producción debe apuntar al dominio público del admin/API.
 `VITE_SHAPE_MEETING_URL` controla los enlaces públicos copiados por hosts; la
 desktop entiende `/r/SM-123-456`, `?code=SM-123-456`,
 `shapemeet://r/SM-123-456`, `shape-meet://r/SM-123-456` y códigos pegados
-manualmente. Si ese dominio sirve una SPA web, debe tener fallback hacia
-`index.html` para que `/r/{codigo}` abra directo en el flujo de invitado; si
-sirve una landing web, esa página puede ofrecer abrir el esquema nativo.
+manualmente. El admin Next sirve `/r/{codigo}` como launcher público: muestra
+la reunión, intenta abrir la app instalada y deja copiar el código.
