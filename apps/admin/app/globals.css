@@ -429,6 +429,26 @@ p {
   background: #fee2e2;
 }
 
+.confirmation-icon.info {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.confirmation-icon.ok {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
+.confirmation-icon.warning {
+  color: #d97706;
+  background: #fef3c7;
+}
+
+.confirmation-icon.danger {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
 .confirmation-body h2 {
   margin: 0 0 4px;
   color: #0f172a;

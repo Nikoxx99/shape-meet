@@ -67,6 +67,10 @@ type IdentityConfirmation =
   | { action: "revoke"; identity: AdminIdentity }
   | { action: "unpush"; identity: AdminIdentity };
 
+type UserConfirmation =
+  | { action: "promote" | "degrade"; user: ShapeUser; nextRank: UserRank }
+  | { action: "activate" | "disable"; user: ShapeUser; nextStatus: UserStatus };
+
 const initialUserForm = {
   username: "",
   email: "",
@@ -122,6 +126,8 @@ export function UsersClient() {
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [identityDialogOpen, setIdentityDialogOpen] = useState(false);
   const [meetingToEnd, setMeetingToEnd] = useState<AdminMeeting | null>(null);
+  const [userConfirmation, setUserConfirmation] =
+    useState<UserConfirmation | null>(null);
   const [identityConfirmation, setIdentityConfirmation] =
     useState<IdentityConfirmation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -284,8 +290,11 @@ export function UsersClient() {
     }
   }
 
-  async function changeRank(user: ShapeUser, nextRank: UserRank) {
-    if (user.rank === nextRank) return;
+  async function changeRank(
+    user: ShapeUser,
+    nextRank: UserRank,
+  ): Promise<boolean> {
+    if (user.rank === nextRank) return true;
 
     try {
       setMessage(null);
@@ -302,17 +311,22 @@ export function UsersClient() {
           : "Usuario degradado.",
       );
       await reloadAudit();
+      return true;
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
           : "No se pudo actualizar el rango.",
       );
+      return false;
     }
   }
 
-  async function changeUserStatus(user: ShapeUser, nextStatus: UserStatus) {
-    if (user.status === nextStatus) return;
+  async function changeUserStatus(
+    user: ShapeUser,
+    nextStatus: UserStatus,
+  ): Promise<boolean> {
+    if (user.status === nextStatus) return true;
 
     try {
       setMessage(null);
@@ -327,13 +341,47 @@ export function UsersClient() {
         nextStatus === "ACTIVE" ? "Usuario activado." : "Usuario desactivado.",
       );
       await reloadAudit();
+      return true;
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
           : "No se pudo actualizar el estado.",
       );
+      return false;
     }
+  }
+
+  function requestRankChange(user: ShapeUser, nextRank: UserRank) {
+    if (user.rank === nextRank) return;
+    setUserConfirmation({
+      action: nextRank === "HOST" ? "promote" : "degrade",
+      user,
+      nextRank,
+    });
+  }
+
+  function requestUserStatusChange(user: ShapeUser, nextStatus: UserStatus) {
+    if (user.status === nextStatus) return;
+    setUserConfirmation({
+      action: nextStatus === "ACTIVE" ? "activate" : "disable",
+      user,
+      nextStatus,
+    });
+  }
+
+  async function confirmUserAction() {
+    if (!userConfirmation) return;
+
+    const succeeded =
+      "nextRank" in userConfirmation
+        ? await changeRank(userConfirmation.user, userConfirmation.nextRank)
+        : await changeUserStatus(
+            userConfirmation.user,
+            userConfirmation.nextStatus,
+          );
+
+    if (succeeded) setUserConfirmation(null);
   }
 
   async function logoutAdmin() {
@@ -641,8 +689,8 @@ export function UsersClient() {
           <UsersSection
             loading={loading}
             users={users}
-            onRankChange={changeRank}
-            onStatusChange={changeUserStatus}
+            onRankChange={requestRankChange}
+            onStatusChange={requestUserStatusChange}
           />
         )}
         {section === "meetings" && (
@@ -697,6 +745,58 @@ export function UsersClient() {
           onChange={setIdentityForm}
           onSubmit={createIdentity}
         />
+      </Modal>
+
+      <Modal
+        open={Boolean(userConfirmation)}
+        title={
+          userConfirmation
+            ? userConfirmationTitle(userConfirmation)
+            : "Actualizar usuario"
+        }
+        onClose={() => setUserConfirmation(null)}
+      >
+        {userConfirmation ? (
+          <div className="confirmation-body">
+            <div
+              className={`confirmation-icon ${userConfirmationTone(
+                userConfirmation,
+              )}`}
+            >
+              {userConfirmationIcon(userConfirmation)}
+            </div>
+            <div>
+              <h2>{userConfirmation.user.username}</h2>
+              <p>
+                {userConfirmation.user.email} ·{" "}
+                {userConfirmationDetail(userConfirmation)}
+              </p>
+            </div>
+            <div className="confirmation-actions">
+              <button
+                className="secondary-button"
+                disabled={saving}
+                type="button"
+                onClick={() => setUserConfirmation(null)}
+              >
+                Mantener
+              </button>
+              <button
+                className={
+                  userConfirmation.action === "disable"
+                    ? "danger-button"
+                    : "primary-button"
+                }
+                disabled={saving}
+                type="button"
+                onClick={() => void confirmUserAction()}
+              >
+                {userConfirmationIcon(userConfirmation)}
+                {saving ? "Procesando" : userConfirmationCta(userConfirmation)}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </Modal>
 
       <Modal
@@ -1589,6 +1689,43 @@ function rankLabel(rank: UserRank) {
   if (rank === "USER") return "Usuario";
   if (rank === "HOST") return "Host";
   return "Admin";
+}
+
+function userConfirmationTitle(confirmation: UserConfirmation) {
+  if (confirmation.action === "promote") return "Promover a host";
+  if (confirmation.action === "degrade") return "Degradar host";
+  if (confirmation.action === "activate") return "Activar usuario";
+  return "Desactivar usuario";
+}
+
+function userConfirmationDetail(confirmation: UserConfirmation) {
+  if (confirmation.action === "promote") return "rango Host";
+  if (confirmation.action === "degrade") return "rango Usuario";
+  if (confirmation.action === "activate") return "estado Activo";
+  return "estado Inactivo";
+}
+
+function userConfirmationCta(confirmation: UserConfirmation) {
+  if (confirmation.action === "promote") return "Promover";
+  if (confirmation.action === "degrade") return "Degradar";
+  if (confirmation.action === "activate") return "Activar";
+  return "Desactivar";
+}
+
+function userConfirmationTone(
+  confirmation: UserConfirmation,
+): "info" | "ok" | "warning" | "danger" {
+  if (confirmation.action === "promote") return "info";
+  if (confirmation.action === "activate") return "ok";
+  if (confirmation.action === "degrade") return "warning";
+  return "danger";
+}
+
+function userConfirmationIcon(confirmation: UserConfirmation) {
+  if (confirmation.action === "promote") return <ShieldCheck />;
+  if (confirmation.action === "activate") return <CheckCircle2 />;
+  if (confirmation.action === "degrade") return <Shield />;
+  return <Lock />;
 }
 
 function identityKindLabel(kind: IdentityKind) {
