@@ -12,6 +12,7 @@ const warnings = [];
 const checks = [];
 const desktopTauriDir = join(repoRoot, "apps", "desktop", "src-tauri");
 const binariesDir = join(desktopTauriDir, "binaries");
+const wrappersResourceDir = join(desktopTauriDir, "resources", "ai-wrappers");
 const sidecarSource = join(repoRoot, "apps", "ai-sidecar", "server.py");
 const processorSource = join(
   repoRoot,
@@ -48,6 +49,7 @@ function main() {
   checkPythonSyntax();
   checkTauriConfig();
   checkSidecarConfig();
+  checkWrapperResources();
   checkBuiltSidecars();
   printReport();
 
@@ -166,7 +168,40 @@ function checkSidecarConfig() {
       fail(`tauri.sidecar.conf.json no incluye ${expected}.`);
     }
   }
+  const resources = config.bundle?.resources;
+  if (
+    !Array.isArray(resources) ||
+    !resources.includes("resources/ai-wrappers")
+  ) {
+    fail("tauri.sidecar.conf.json no incluye resources/ai-wrappers.");
+    return;
+  }
   ok("tauri.sidecar.conf.json incluye sidecar y processor");
+}
+
+function checkWrapperResources() {
+  for (const source of wrapperSources) {
+    const target = join(wrappersResourceDir, source.split(/[/\\]/).pop());
+    if (!existsSync(target)) {
+      const message = `Wrapper no copiado a recursos desktop: ${relative(target)}. Ejecuta pnpm build:ai-sidecar.`;
+      if (strict) fail(message);
+      else warn(message);
+      continue;
+    }
+
+    const sourceStat = statSync(source);
+    const targetStat = statSync(target);
+    if (targetStat.size <= 0) {
+      fail(`Wrapper de recurso vacío: ${relative(target)}`);
+      continue;
+    }
+    if (targetStat.mtimeMs < sourceStat.mtimeMs) {
+      const message = `Wrapper de recurso desactualizado frente a ${relative(source)}. Ejecuta pnpm build:ai-sidecar.`;
+      if (strict) fail(message);
+      else warn(message);
+    }
+  }
+  ok("wrappers IA configurados como recursos desktop");
 }
 
 function checkBuiltSidecars() {

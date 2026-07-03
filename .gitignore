@@ -12,6 +12,8 @@ src-tauri/target
 **/src-tauri/gen
 apps/desktop/src-tauri/binaries/*
 !apps/desktop/src-tauri/binaries/.gitkeep
+apps/desktop/src-tauri/resources/ai-wrappers/*
+!apps/desktop/src-tauri/resources/ai-wrappers/.gitkeep
 apps/desktop/src-tauri/tauri.sidecar.conf.json
 __pycache__
 **/__pycache__

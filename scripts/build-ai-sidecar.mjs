@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -7,8 +14,28 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const desktopTauriDir = join(repoRoot, "apps", "desktop", "src-tauri");
 const sidecarSource = join(repoRoot, "apps", "ai-sidecar", "server.py");
-const processorSource = join(repoRoot, "apps", "ai-sidecar", "processors", "shape_processor_command.py");
-const requirementsFile = join(repoRoot, "apps", "ai-sidecar", "requirements-packaging.txt");
+const processorSource = join(
+  repoRoot,
+  "apps",
+  "ai-sidecar",
+  "processors",
+  "shape_processor_command.py",
+);
+const requirementsFile = join(
+  repoRoot,
+  "apps",
+  "ai-sidecar",
+  "requirements-packaging.txt",
+);
+const wrappersSourceDir = join(repoRoot, "apps", "ai-sidecar", "wrappers");
+const wrapperFiles = [
+  "shape_wrapper_common.py",
+  "facefusion_frame.py",
+  "backgroundmattingv2_frame.py",
+  "vcclient000_chunk.py",
+];
+const resourcesDir = join(desktopTauriDir, "resources");
+const wrappersResourceDir = join(resourcesDir, "ai-wrappers");
 const binariesDir = join(desktopTauriDir, "binaries");
 const outputDir = join(repoRoot, "output", "ai-sidecar-build");
 const venvDir = join(outputDir, "venv");
@@ -24,14 +51,28 @@ const configPath = join(desktopTauriDir, "tauri.sidecar.conf.json");
 ensureFile(sidecarSource);
 ensureFile(processorSource);
 ensureFile(requirementsFile);
+for (const file of wrapperFiles) ensureFile(join(wrappersSourceDir, file));
 mkdirSync(binariesDir, { recursive: true });
 mkdirSync(outputDir, { recursive: true });
 
 ensureVenv();
 const python = venvPython();
 installPackagingRequirements(python);
-buildPyInstallerBinary(python, sidecarSource, targetBinaryName, targetBinaryPath, "construir sidecar PyInstaller");
-buildPyInstallerBinary(python, processorSource, targetProcessorName, targetProcessorPath, "construir procesador IA PyInstaller");
+buildPyInstallerBinary(
+  python,
+  sidecarSource,
+  targetBinaryName,
+  targetBinaryPath,
+  "construir sidecar PyInstaller",
+);
+buildPyInstallerBinary(
+  python,
+  processorSource,
+  targetProcessorName,
+  targetProcessorPath,
+  "construir procesador IA PyInstaller",
+);
+copyWrapperResources();
 writeTauriSidecarConfig();
 
 console.log(`AI sidecar listo: ${targetBinaryPath}`);
@@ -43,18 +84,18 @@ function ensureVenv() {
 
   run(pythonCommand(), ["-m", "venv", venvDir], {
     cwd: repoRoot,
-    label: "crear venv de empaquetado"
+    label: "crear venv de empaquetado",
   });
 }
 
 function installPackagingRequirements(python) {
   run(python, ["-m", "pip", "install", "--upgrade", "pip"], {
     cwd: repoRoot,
-    label: "actualizar pip del venv"
+    label: "actualizar pip del venv",
   });
   run(python, ["-m", "pip", "install", "-r", requirementsFile], {
     cwd: repoRoot,
-    label: "instalar PyInstaller"
+    label: "instalar PyInstaller",
   });
 }
 
@@ -76,12 +117,12 @@ function buildPyInstallerBinary(python, source, targetName, targetPath, label) {
       join(outputDir, "pyinstaller-work"),
       "--specpath",
       join(outputDir, "pyinstaller-spec"),
-      source
+      source,
     ],
     {
       cwd: repoRoot,
-      label
-    }
+      label,
+    },
   );
 
   if (!existsSync(targetPath)) {
@@ -99,23 +140,41 @@ function writeTauriSidecarConfig() {
         "icons/128x128.png",
         "icons/128x128@2x.png",
         "icons/icon.icns",
-        "icons/icon.ico"
+        "icons/icon.ico",
       ],
-      externalBin: [`binaries/${binaryBaseName}`, `binaries/${processorBaseName}`]
-    }
+      externalBin: [
+        `binaries/${binaryBaseName}`,
+        `binaries/${processorBaseName}`,
+      ],
+      resources: ["resources/ai-wrappers"],
+    },
   };
 
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
+function copyWrapperResources() {
+  rmSync(wrappersResourceDir, { recursive: true, force: true });
+  mkdirSync(wrappersResourceDir, { recursive: true });
+
+  for (const file of wrapperFiles) {
+    copyFileSync(
+      join(wrappersSourceDir, file),
+      join(wrappersResourceDir, file),
+    );
+  }
+}
+
 function readRustHostTriple() {
   const result = spawnSync("rustc", ["-Vv"], {
     cwd: repoRoot,
-    encoding: "utf8"
+    encoding: "utf8",
   });
 
   if (result.status !== 0) {
-    throw new Error(`No se pudo consultar rustc -Vv: ${result.stderr || result.stdout}`);
+    throw new Error(
+      `No se pudo consultar rustc -Vv: ${result.stderr || result.stdout}`,
+    );
   }
 
   const hostLine = result.stdout
@@ -131,7 +190,10 @@ function readRustHostTriple() {
 }
 
 function pythonCommand() {
-  return process.env.SHAPE_AI_PYTHON || (process.platform === "win32" ? "python" : "python3");
+  return (
+    process.env.SHAPE_AI_PYTHON ||
+    (process.platform === "win32" ? "python" : "python3")
+  );
 }
 
 function venvPython() {
@@ -157,10 +219,12 @@ function run(command, args, { cwd, label }) {
   const result = spawnSync(command, args, {
     cwd,
     stdio: "inherit",
-    env: process.env
+    env: process.env,
   });
 
   if (result.status !== 0) {
-    throw new Error(`${label} falló con código ${result.status ?? "desconocido"}`);
+    throw new Error(
+      `${label} falló con código ${result.status ?? "desconocido"}`,
+    );
   }
 }

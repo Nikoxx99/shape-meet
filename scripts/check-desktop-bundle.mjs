@@ -15,6 +15,12 @@ const releaseDir = join(
 const issues = [];
 const warnings = [];
 const checks = [];
+const wrapperFiles = [
+  "shape_wrapper_common.py",
+  "facefusion_frame.py",
+  "backgroundmattingv2_frame.py",
+  "vcclient000_chunk.py",
+];
 
 main();
 
@@ -46,6 +52,10 @@ function checkMacBundle() {
     join(macosDir, "shape-ai-processor"),
     "bundled AI processor",
   );
+  requireBundledWrapperResources([
+    join(appDir, "Contents", "Resources", "resources", "ai-wrappers"),
+    join(appDir, "Contents", "Resources", "ai-wrappers"),
+  ]);
   checkMacInfoPlist(infoPlist);
   requireAnyFile(
     join(releaseDir, "bundle", "dmg"),
@@ -61,6 +71,10 @@ function checkWindowsBundle() {
     join(releaseDir, "shape-ai-processor.exe"),
     "Windows AI processor",
   );
+  requireBundledWrapperResources([
+    join(releaseDir, "resources", "ai-wrappers"),
+    join(releaseDir, "ai-wrappers"),
+  ]);
   requireAnyFile(
     join(releaseDir, "bundle"),
     (name) => /\.(msi|exe)$/.test(name),
@@ -71,12 +85,35 @@ function checkWindowsBundle() {
 
 function checkGenericBundle() {
   requireFile(join(releaseDir, "shape-meet"), "desktop executable");
+  requireBundledWrapperResources([
+    join(releaseDir, "resources", "ai-wrappers"),
+    join(releaseDir, "ai-wrappers"),
+  ]);
   requireAnyFile(
     join(releaseDir, "bundle"),
     (name) => /shape|meet/i.test(name),
     "desktop bundle artifact",
     { recursive: true },
   );
+}
+
+function requireBundledWrapperResources(candidateDirs) {
+  const directMatch = candidateDirs.find((dir) =>
+    wrapperFiles.every((file) => existsSync(join(dir, file))),
+  );
+  if (directMatch) {
+    ok(`wrappers IA empaquetados: ${relative(directMatch)}`);
+    return;
+  }
+
+  for (const file of wrapperFiles) {
+    requireAnyFile(
+      releaseDir,
+      (name, path) => name === file && path.includes("ai-wrappers"),
+      `wrapper IA ${file}`,
+      { recursive: true },
+    );
+  }
 }
 
 function checkMacInfoPlist(path) {

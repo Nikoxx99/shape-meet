@@ -1838,19 +1838,57 @@ fn wrapper_script_path(file_name: &str) -> Option<PathBuf> {
         }
     }
 
-    let current_dir = env::current_dir().ok()?;
-    for ancestor in current_dir.ancestors() {
-        let candidate = ancestor
-            .join("apps")
-            .join("ai-sidecar")
-            .join("wrappers")
-            .join(file_name);
+    for dir in bundled_wrapper_search_dirs() {
+        let candidate = dir.join(file_name);
         if candidate.is_file() {
             return Some(candidate);
         }
     }
 
     None
+}
+
+fn bundled_wrapper_search_dirs() -> Vec<PathBuf> {
+    let mut search_dirs = Vec::new();
+
+    if let Ok(current_exe) = env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            search_dirs.push(parent.join("resources").join("ai-wrappers"));
+            search_dirs.push(parent.join("ai-wrappers"));
+
+            if let Some(contents_dir) = parent.parent() {
+                search_dirs.push(contents_dir.join("Resources").join("ai-wrappers"));
+                search_dirs.push(
+                    contents_dir
+                        .join("Resources")
+                        .join("resources")
+                        .join("ai-wrappers"),
+                );
+            }
+        }
+    }
+
+    if let Ok(current_dir) = env::current_dir() {
+        for ancestor in current_dir.ancestors() {
+            search_dirs.push(
+                ancestor
+                    .join("apps")
+                    .join("desktop")
+                    .join("src-tauri")
+                    .join("resources")
+                    .join("ai-wrappers"),
+            );
+            search_dirs.push(
+                ancestor
+                    .join("src-tauri")
+                    .join("resources")
+                    .join("ai-wrappers"),
+            );
+            search_dirs.push(ancestor.join("apps").join("ai-sidecar").join("wrappers"));
+        }
+    }
+
+    search_dirs
 }
 
 fn binary_is_fresh(binary: &Path, source: &Path) -> bool {
