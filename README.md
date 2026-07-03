@@ -39,6 +39,8 @@ Prepara datos y valida el demo:
 ```bash
 pnpm demo:prepare
 pnpm demo:check
+pnpm demo:ui:install
+pnpm demo:ui
 pnpm check:sentry
 
 SHAPE_SMOKE_API_URL=http://127.0.0.1:13000 \
@@ -72,6 +74,12 @@ quieres conservar reuniones anteriores. El flujo esperado para enseñar es:
 `pnpm demo:check` verifica admin/API, sidecar IA, Sentry local, prepara datos,
 corre el smoke de reunión, valida el contrato IA y vuelve a dejar una reunión
 demo limpia lista para enseñar.
+
+`pnpm demo:ui` abre Chromium con cámara/micrófono falsos y recorre la UI real:
+invitado por enlace público, sala de espera, login de host, configuración de
+host, admisión y entrada de ambos participantes. Requiere que la desktop web
+esté viva en `http://localhost:1420` o en `SHAPE_DEMO_APP_URL`. En una máquina
+nueva corre primero `pnpm demo:ui:install`.
 
 Para desarrollo rápido por procesos locales:
 

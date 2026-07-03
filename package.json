@@ -18,6 +18,8 @@
     "coolify:env": "node scripts/render-coolify-env.mjs",
     "demo:check": "node scripts/smoke-local-demo.mjs",
     "demo:prepare": "node scripts/prepare-local-demo.mjs",
+    "demo:ui": "node scripts/smoke-demo-ui.mjs",
+    "demo:ui:install": "playwright install chromium",
     "smoke:admin": "node scripts/smoke-admin-api.mjs",
     "smoke:launcher": "node scripts/smoke-public-launcher.mjs",
     "smoke:meeting-flow": "node scripts/smoke-meeting-flow.mjs",
@@ -29,6 +31,7 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "playwright": "^1.61.1",
     "prettier": "latest",
     "typescript": "latest"
   }
