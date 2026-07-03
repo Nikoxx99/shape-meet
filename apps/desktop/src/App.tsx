@@ -97,6 +97,7 @@ import {
   getAiServiceStatus,
   getGpuProfile,
   getObservabilityStatus,
+  prepareDemoAiRuntimeEnv,
   saveAiRuntimeEnv,
   startAiSidecar,
   stopAiSidecar,
@@ -2716,6 +2717,26 @@ function AiRuntimeScreen({
     }
   }
 
+  async function handlePrepareDemo() {
+    setSaving(true);
+    try {
+      const prepared = await prepareDemoAiRuntimeEnv();
+      setEnvFile(prepared);
+      setContent(prepared.content);
+      setRuntimeMessage("Config demo IA guardada.");
+      setRuntimeError(null);
+      await onRefresh();
+    } catch (error) {
+      setRuntimeError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo preparar config demo IA.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleRefresh() {
     setRuntimeMessage(null);
     await loadRuntimeState();
@@ -2826,6 +2847,14 @@ function AiRuntimeScreen({
               disabled={loading}
             >
               Iniciar
+            </Button>
+            <Button
+              variant="outline"
+              icon={<Wand2 />}
+              onClick={() => void handlePrepareDemo()}
+              disabled={saving}
+            >
+              Cargar demo
             </Button>
             <Button
               icon={<Check />}

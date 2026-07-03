@@ -97,7 +97,8 @@ export async function getGpuProfile(): Promise<NativeGpuProfile> {
       platform: "browser",
       arch: "unknown",
       gpuTier: "limited",
-      message: "Modo UI: el diagnostico GPU completo esta disponible dentro de Tauri.",
+      message:
+        "Modo UI: el diagnostico GPU completo esta disponible dentro de Tauri.",
       nvidiaSmiAvailable: false,
       cudaAvailable: false,
       cudaVersion: null,
@@ -107,7 +108,7 @@ export async function getGpuProfile(): Promise<NativeGpuProfile> {
       minimumRequiredVramMb: 8192,
       recommendedVramMb: 24576,
       devices: [],
-      warnings: ["Runtime nativo no disponible."]
+      warnings: ["Runtime nativo no disponible."],
     };
   }
 }
@@ -116,10 +117,12 @@ export async function getObservabilityStatus(): Promise<NativeObservabilityStatu
   const frontend = frontendObservabilityStatus();
 
   try {
-    const native = await invoke<Omit<NativeObservabilityStatus, "frontendSentryEnabled">>("get_observability_status");
+    const native = await invoke<
+      Omit<NativeObservabilityStatus, "frontendSentryEnabled">
+    >("get_observability_status");
     return {
       ...native,
-      frontendSentryEnabled: frontend.enabled
+      frontendSentryEnabled: frontend.enabled,
     };
   } catch {
     return {
@@ -128,7 +131,7 @@ export async function getObservabilityStatus(): Promise<NativeObservabilityStatu
       environment: frontend.environment,
       release: frontend.release,
       tracesSampleRate: frontend.tracesSampleRate,
-      debug: false
+      debug: false,
     };
   }
 }
@@ -157,7 +160,9 @@ export async function startAiSidecar(): Promise<NativeAiSidecarRuntime> {
     const service = await getBrowserAiServiceStatus();
     return {
       ...browserSidecarRuntime(service),
-      message: service.online ? "Sidecar externo detectado." : "Disponible solo dentro de Tauri."
+      message: service.online
+        ? "Sidecar externo detectado."
+        : "Disponible solo dentro de Tauri.",
     };
   }
 }
@@ -169,7 +174,9 @@ export async function stopAiSidecar(): Promise<NativeAiSidecarRuntime> {
     const service = await getBrowserAiServiceStatus();
     return {
       ...browserSidecarRuntime(service),
-      message: service.online ? "El navegador no puede detener el sidecar externo." : "Disponible solo dentro de Tauri."
+      message: service.online
+        ? "El navegador no puede detener el sidecar externo."
+        : "Disponible solo dentro de Tauri.",
     };
   }
 }
@@ -183,15 +190,17 @@ export async function getAiRuntimeEnv(): Promise<NativeAiRuntimeEnvFile> {
       exists: false,
       content: "",
       configuredKeys: [],
-      warnings: ["Config IA local disponible solo dentro de Tauri."]
+      warnings: ["Config IA local disponible solo dentro de Tauri."],
     };
   }
 }
 
-export async function saveAiRuntimeEnv(content: string): Promise<NativeAiRuntimeEnvFile> {
+export async function saveAiRuntimeEnv(
+  content: string,
+): Promise<NativeAiRuntimeEnvFile> {
   try {
     return await invoke<NativeAiRuntimeEnvFile>("save_ai_runtime_env", {
-      input: { content }
+      input: { content },
     });
   } catch (error) {
     return {
@@ -199,23 +208,53 @@ export async function saveAiRuntimeEnv(content: string): Promise<NativeAiRuntime
       exists: false,
       content,
       configuredKeys: [],
-      warnings: [error instanceof Error ? error.message : "No se pudo guardar la config IA local."]
+      warnings: [
+        error instanceof Error
+          ? error.message
+          : "No se pudo guardar la config IA local.",
+      ],
     };
   }
 }
 
-export async function cacheIdentityArtifact(identity: Pick<HostIdentity, "id" | "artifactUri" | "artifactSha256" | "artifactSizeBytes">): Promise<NativeIdentityArtifactCacheResult> {
+export async function prepareDemoAiRuntimeEnv(): Promise<NativeAiRuntimeEnvFile> {
+  try {
+    return await invoke<NativeAiRuntimeEnvFile>("prepare_demo_ai_runtime_env");
+  } catch (error) {
+    return {
+      path: "",
+      exists: false,
+      content: "",
+      configuredKeys: [],
+      warnings: [
+        error instanceof Error
+          ? error.message
+          : "Demo IA local disponible solo dentro de Tauri.",
+      ],
+    };
+  }
+}
+
+export async function cacheIdentityArtifact(
+  identity: Pick<
+    HostIdentity,
+    "id" | "artifactUri" | "artifactSha256" | "artifactSizeBytes"
+  >,
+): Promise<NativeIdentityArtifactCacheResult> {
   const artifactUri = identity.artifactUri?.trim() || null;
 
   try {
-    return await invoke<NativeIdentityArtifactCacheResult>("cache_identity_artifact", {
-      input: {
-        identityId: identity.id,
-        artifactUri,
-        artifactSha256: identity.artifactSha256 ?? null,
-        artifactSizeBytes: identity.artifactSizeBytes ?? null
-      }
-    });
+    return await invoke<NativeIdentityArtifactCacheResult>(
+      "cache_identity_artifact",
+      {
+        input: {
+          identityId: identity.id,
+          artifactUri,
+          artifactSha256: identity.artifactSha256 ?? null,
+          artifactSizeBytes: identity.artifactSizeBytes ?? null,
+        },
+      },
+    );
   } catch (error) {
     if (artifactUri?.startsWith("shape://")) {
       return {
@@ -225,7 +264,7 @@ export async function cacheIdentityArtifact(identity: Pick<HostIdentity, "id" | 
         uri: artifactUri,
         sha256: identity.artifactSha256 ?? null,
         sizeBytes: identity.artifactSizeBytes ?? null,
-        message: "Artefacto de desarrollo sin descarga local."
+        message: "Artefacto de desarrollo sin descarga local.",
       };
     }
 
@@ -236,16 +275,24 @@ export async function cacheIdentityArtifact(identity: Pick<HostIdentity, "id" | 
       uri: artifactUri,
       sha256: identity.artifactSha256 ?? null,
       sizeBytes: identity.artifactSizeBytes ?? null,
-      message: error instanceof Error ? error.message : "Cache local disponible dentro de Tauri."
+      message:
+        error instanceof Error
+          ? error.message
+          : "Cache local disponible dentro de Tauri.",
     };
   }
 }
 
-export async function evictIdentityArtifact(identityId: string): Promise<NativeIdentityArtifactCacheResult> {
+export async function evictIdentityArtifact(
+  identityId: string,
+): Promise<NativeIdentityArtifactCacheResult> {
   try {
-    return await invoke<NativeIdentityArtifactCacheResult>("evict_identity_artifact", {
-      input: { identityId }
-    });
+    return await invoke<NativeIdentityArtifactCacheResult>(
+      "evict_identity_artifact",
+      {
+        input: { identityId },
+      },
+    );
   } catch (error) {
     return {
       identityId,
@@ -254,14 +301,21 @@ export async function evictIdentityArtifact(identityId: string): Promise<NativeI
       uri: null,
       sha256: null,
       sizeBytes: null,
-      message: error instanceof Error ? error.message : "Evicción local disponible dentro de Tauri."
+      message:
+        error instanceof Error
+          ? error.message
+          : "Evicción local disponible dentro de Tauri.",
     };
   }
 }
 
-export async function captureNativeDebugEvent(message: string): Promise<NativeDebugEventResult> {
+export async function captureNativeDebugEvent(
+  message: string,
+): Promise<NativeDebugEventResult> {
   try {
-    return await invoke<NativeDebugEventResult>("capture_native_debug_event", { message });
+    return await invoke<NativeDebugEventResult>("capture_native_debug_event", {
+      message,
+    });
   } catch {
     if (frontendObservabilityStatus().enabled) {
       const eventId = Sentry.captureMessage(message, "info");
@@ -269,14 +323,14 @@ export async function captureNativeDebugEvent(message: string): Promise<NativeDe
       return {
         captured: true,
         eventId,
-        message: `Evento Sentry frontend enviado: ${eventId}`
+        message: `Evento Sentry frontend enviado: ${eventId}`,
       };
     }
 
     return {
       captured: false,
       eventId: null,
-      message: "Evento nativo disponible solo dentro de Tauri."
+      message: "Evento nativo disponible solo dentro de Tauri.",
     };
   }
 }
@@ -290,13 +344,19 @@ export async function exportDebugBundle(): Promise<string> {
 }
 
 function frontendObservabilityStatus() {
-  const tracesSampleRate = Number(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE ?? "1");
+  const tracesSampleRate = Number(
+    import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE ?? "1",
+  );
 
   return {
     enabled: Boolean(import.meta.env.VITE_SENTRY_DSN),
-    environment: (import.meta.env.VITE_SENTRY_ENVIRONMENT as string | undefined) ?? import.meta.env.MODE,
-    release: (import.meta.env.VITE_SENTRY_RELEASE as string | undefined) ?? "shape-meet-desktop@0.1.0",
-    tracesSampleRate: Number.isFinite(tracesSampleRate) ? tracesSampleRate : 1
+    environment:
+      (import.meta.env.VITE_SENTRY_ENVIRONMENT as string | undefined) ??
+      import.meta.env.MODE,
+    release:
+      (import.meta.env.VITE_SENTRY_RELEASE as string | undefined) ??
+      "shape-meet-desktop@0.1.0",
+    tracesSampleRate: Number.isFinite(tracesSampleRate) ? tracesSampleRate : 1,
   };
 }
 
@@ -308,9 +368,11 @@ async function getBrowserAiServiceStatus(): Promise<NativeAiServiceStatus> {
 
   try {
     const response = await fetch(`${endpoint.replace(/\/$/, "")}/health`, {
-      signal: controller.signal
+      signal: controller.signal,
     });
-    const data = (await response.json().catch(() => ({}))) as Partial<NativeAiServiceStatus>;
+    const data = (await response
+      .json()
+      .catch(() => ({}))) as Partial<NativeAiServiceStatus>;
 
     if (!response.ok) {
       throw new Error("health_not_ok");
@@ -323,7 +385,9 @@ async function getBrowserAiServiceStatus(): Promise<NativeAiServiceStatus> {
       status: data.status ?? "ready",
       message: data.message ?? "Servicio local de IA conectado.",
       checkedAt,
-      pipelines: Array.isArray(data.pipelines) ? data.pipelines : defaultBrowserPipelines("standby")
+      pipelines: Array.isArray(data.pipelines)
+        ? data.pipelines
+        : defaultBrowserPipelines("standby"),
     };
   } catch (error) {
     return {
@@ -331,17 +395,23 @@ async function getBrowserAiServiceStatus(): Promise<NativeAiServiceStatus> {
       online: false,
       mode: "browser",
       status: "offline",
-      message: error instanceof Error && error.name === "AbortError" ? "Sidecar local no respondió." : "Sidecar local no disponible.",
+      message:
+        error instanceof Error && error.name === "AbortError"
+          ? "Sidecar local no respondió."
+          : "Sidecar local no disponible.",
       checkedAt,
-      pipelines: defaultBrowserPipelines("offline")
+      pipelines: defaultBrowserPipelines("offline"),
     };
   } finally {
     window.clearTimeout(timeoutId);
   }
 }
 
-function defaultBrowserPipelines(status: "standby" | "offline"): NativeAiPipelineStatus[] {
-  const detail = status === "offline" ? "Esperando sidecar local." : "Contrato local listo.";
+function defaultBrowserPipelines(
+  status: "standby" | "offline",
+): NativeAiPipelineStatus[] {
+  const detail =
+    status === "offline" ? "Esperando sidecar local." : "Contrato local listo.";
 
   return [
     {
@@ -350,7 +420,7 @@ function defaultBrowserPipelines(status: "standby" | "offline"): NativeAiPipelin
       status,
       model: "FaceFusion / DFM",
       detail,
-      latencyMs: null
+      latencyMs: null,
     },
     {
       id: "background",
@@ -358,7 +428,7 @@ function defaultBrowserPipelines(status: "standby" | "offline"): NativeAiPipelin
       status,
       model: "BackgroundMattingV2",
       detail,
-      latencyMs: null
+      latencyMs: null,
     },
     {
       id: "voice",
@@ -366,16 +436,21 @@ function defaultBrowserPipelines(status: "standby" | "offline"): NativeAiPipelin
       status,
       model: "vcclient000",
       detail,
-      latencyMs: null
-    }
+      latencyMs: null,
+    },
   ];
 }
 
 function frontendAiSidecarUrl() {
-  return (import.meta.env.VITE_SHAPE_AI_SERVICE_URL as string | undefined) ?? "http://127.0.0.1:7851";
+  return (
+    (import.meta.env.VITE_SHAPE_AI_SERVICE_URL as string | undefined) ??
+    "http://127.0.0.1:7851"
+  );
 }
 
-function browserSidecarRuntime(service: NativeAiServiceStatus): NativeAiSidecarRuntime {
+function browserSidecarRuntime(
+  service: NativeAiServiceStatus,
+): NativeAiSidecarRuntime {
   return {
     endpoint: service.endpoint,
     managed: false,
@@ -384,6 +459,6 @@ function browserSidecarRuntime(service: NativeAiServiceStatus): NativeAiSidecarR
     command: null,
     logPath: "",
     message: service.online ? "Sidecar externo detectado." : service.message,
-    lastExit: null
+    lastExit: null,
   };
 }

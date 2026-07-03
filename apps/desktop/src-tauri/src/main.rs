@@ -18,6 +18,7 @@ const DEFAULT_AI_ENDPOINT: &str = "http://127.0.0.1:7851";
 const HTTP_TIMEOUT_MS: u64 = 1200;
 const ARTIFACT_DOWNLOAD_TIMEOUT_SECS: u64 = 900;
 const AI_SIDECAR_BINARY_NAME: &str = "shape-ai-sidecar";
+const AI_PROCESSOR_BINARY_NAME: &str = "shape-ai-processor";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -230,6 +231,13 @@ fn save_ai_runtime_env(input: SaveAiRuntimeEnvInput) -> Result<AiRuntimeEnvFile,
 }
 
 #[tauri::command]
+fn prepare_demo_ai_runtime_env() -> Result<AiRuntimeEnvFile, String> {
+    let content = demo_ai_runtime_env_content(&processor_command_for_demo()?);
+    write_ai_runtime_env_file(&content)?;
+    read_ai_runtime_env_file()
+}
+
+#[tauri::command]
 fn cache_identity_artifact(
     input: CacheIdentityArtifactInput,
 ) -> Result<IdentityArtifactCacheResult, String> {
@@ -313,6 +321,7 @@ pub fn run() {
             stop_ai_sidecar,
             get_ai_runtime_env,
             save_ai_runtime_env,
+            prepare_demo_ai_runtime_env,
             cache_identity_artifact,
             evict_identity_artifact,
             export_debug_bundle
@@ -1387,6 +1396,31 @@ fn default_ai_runtime_env_template() -> String {
     .join("\n")
 }
 
+fn demo_ai_runtime_env_content(processor_command: &str) -> String {
+    [
+        "# Shape Meet demo AI runtime",
+        "# Procesadores locales para validar el pipeline sin modelos reales.",
+        "SHAPE_AI_MODE=adapter-contract",
+        "SHAPE_FACE_ENGINE=shape-demo-facefusion",
+        "SHAPE_BACKGROUND_ENGINE=shape-demo-backgroundmattingv2",
+        "SHAPE_VOICE_ENGINE=shape-demo-vcclient000",
+        "SHAPE_PROCESSOR_DEMO_EFFECTS=true",
+        "SHAPE_PROCESSOR_TIMEOUT_SECS=2",
+        &format!(
+            "SHAPE_VIDEO_PROCESSOR_COMMAND={processor_command} --kind video --host 127.0.0.1 --port 7860"
+        ),
+        "SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame",
+        "SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7860/health",
+        &format!(
+            "SHAPE_AUDIO_PROCESSOR_COMMAND={processor_command} --kind audio --host 127.0.0.1 --port 7861"
+        ),
+        "SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio",
+        "SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health",
+        "",
+    ]
+    .join("\n")
+}
+
 fn identity_artifact_result(
     identity_id: &str,
     cached: bool,
@@ -1577,6 +1611,26 @@ fn sidecar_command() -> Result<(String, Vec<String>, String), String> {
 }
 
 fn bundled_sidecar_binary_path() -> Option<PathBuf> {
+    for dir in bundled_binary_search_dirs() {
+        if let Some(path) = find_sidecar_binary_in(&dir) {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+fn bundled_processor_binary_path() -> Option<PathBuf> {
+    for dir in bundled_binary_search_dirs() {
+        if let Some(path) = find_processor_binary_in(&dir) {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+fn bundled_binary_search_dirs() -> Vec<PathBuf> {
     let mut search_dirs = Vec::new();
 
     if let Ok(current_exe) = env::current_exe() {
@@ -1604,17 +1658,19 @@ fn bundled_sidecar_binary_path() -> Option<PathBuf> {
         }
     }
 
-    for dir in search_dirs {
-        if let Some(path) = find_sidecar_binary_in(&dir) {
-            return Some(path);
-        }
-    }
-
-    None
+    search_dirs
 }
 
 fn find_sidecar_binary_in(dir: &Path) -> Option<PathBuf> {
-    let exact = dir.join(sidecar_runtime_binary_name());
+    find_named_binary_in(dir, AI_SIDECAR_BINARY_NAME)
+}
+
+fn find_processor_binary_in(dir: &Path) -> Option<PathBuf> {
+    find_named_binary_in(dir, AI_PROCESSOR_BINARY_NAME)
+}
+
+fn find_named_binary_in(dir: &Path, base_name: &str) -> Option<PathBuf> {
+    let exact = dir.join(runtime_binary_name(base_name));
     if exact.is_file() {
         return Some(exact);
     }
@@ -1627,7 +1683,7 @@ fn find_sidecar_binary_in(dir: &Path) -> Option<PathBuf> {
         }
 
         let file_name = path.file_name()?.to_string_lossy();
-        if file_name.starts_with(&format!("{AI_SIDECAR_BINARY_NAME}-"))
+        if file_name.starts_with(&format!("{base_name}-"))
             && (!cfg!(windows) || file_name.ends_with(".exe"))
         {
             return Some(path);
@@ -1637,11 +1693,98 @@ fn find_sidecar_binary_in(dir: &Path) -> Option<PathBuf> {
     None
 }
 
-fn sidecar_runtime_binary_name() -> String {
+fn runtime_binary_name(base_name: &str) -> String {
     if cfg!(windows) {
-        format!("{AI_SIDECAR_BINARY_NAME}.exe")
+        format!("{base_name}.exe")
     } else {
-        AI_SIDECAR_BINARY_NAME.to_string()
+        base_name.to_string()
+    }
+}
+
+fn processor_command_for_demo() -> Result<String, String> {
+    if let Some(command) = env_non_empty("SHAPE_DEMO_PROCESSOR_COMMAND") {
+        return Ok(command);
+    }
+
+    let source = processor_script_path();
+
+    if let Some(binary) = bundled_processor_binary_path() {
+        if source
+            .as_ref()
+            .map(|source_path| binary_is_fresh(&binary, source_path))
+            .unwrap_or(true)
+        {
+            return Ok(shell_quote_path(&binary));
+        }
+    }
+
+    let script = source.ok_or_else(|| {
+        "No se encontró procesador IA local. Ejecuta pnpm build:ai-sidecar o define SHAPE_DEMO_PROCESSOR_COMMAND.".to_string()
+    })?;
+    let python = env_non_empty("SHAPE_AI_PYTHON").unwrap_or_else(default_python_command);
+    Ok(format!(
+        "{} {}",
+        shell_quote(&python),
+        shell_quote_path(&script)
+    ))
+}
+
+fn processor_script_path() -> Option<PathBuf> {
+    if let Some(path) = env_non_empty("SHAPE_AI_PROCESSOR_SCRIPT").map(PathBuf::from) {
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    let current_dir = env::current_dir().ok()?;
+    for ancestor in current_dir.ancestors() {
+        let candidate = ancestor
+            .join("apps")
+            .join("ai-sidecar")
+            .join("processors")
+            .join("shape_processor_command.py");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn binary_is_fresh(binary: &Path, source: &Path) -> bool {
+    let Ok(binary_modified) = binary.metadata().and_then(|metadata| metadata.modified()) else {
+        return false;
+    };
+    let Ok(source_modified) = source.metadata().and_then(|metadata| metadata.modified()) else {
+        return true;
+    };
+
+    binary_modified >= source_modified
+}
+
+fn shell_quote_path(path: &Path) -> String {
+    shell_quote(&path.display().to_string())
+}
+
+fn shell_quote(value: &str) -> String {
+    if value
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || "_./:=@+-".contains(character))
+    {
+        return value.to_string();
+    }
+
+    if cfg!(windows) {
+        format!("\"{}\"", value.replace('"', "\\\""))
+    } else {
+        format!(
+            "\"{}\"",
+            value
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('$', "\\$")
+                .replace('`', "\\`")
+        )
     }
 }
 
@@ -2020,5 +2163,28 @@ mod tests {
         assert_eq!(parsed.values[0].0, "SHAPE_VOICE_ENGINE");
         assert_eq!(parsed.warnings.len(), 1);
         assert!(parsed.warnings[0].contains("no permitida"));
+    }
+
+    #[test]
+    fn demo_ai_runtime_env_is_parseable() {
+        let content = demo_ai_runtime_env_content("python3 /tmp/shape_processor_command.py");
+        let parsed = parse_ai_runtime_env(&content);
+
+        assert!(parsed.errors.is_empty());
+        assert!(parsed.warnings.is_empty());
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_PROCESSOR_DEMO_EFFECTS" && value == "true"));
+        assert!(parsed.values.iter().any(|(key, value)| {
+            key == "SHAPE_VIDEO_PROCESSOR_COMMAND"
+                && value.contains("--kind video")
+                && value.contains("--port 7860")
+        }));
+        assert!(parsed.values.iter().any(|(key, value)| {
+            key == "SHAPE_AUDIO_PROCESSOR_COMMAND"
+                && value.contains("--kind audio")
+                && value.contains("--port 7861")
+        }));
     }
 }
