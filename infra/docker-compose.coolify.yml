@@ -96,7 +96,6 @@ services:
     command:
       - --log-file=stdout
       - --fingerprint
-      - --lt-cred-mech
       - --use-auth-secret
       - --static-auth-secret=${LIVEKIT_TURN_SHARED_SECRET:-shape-turn-dev-secret}
       - --realm=${LIVEKIT_TURN_REALM:-shape-meet}
@@ -105,8 +104,6 @@ services:
       - --tls-listening-port=${LIVEKIT_TURN_TLS_PORT:-5349}
       - --min-port=${LIVEKIT_TURN_RELAY_RANGE_START:-30000}
       - --max-port=${LIVEKIT_TURN_RELAY_RANGE_END:-30100}
-      - --no-cli
-      - --no-loopback-peers
       - --no-multicast-peers
       - --stale-nonce=600
     ports:
