@@ -41,6 +41,23 @@ En una tercera terminal, deja viva la desktop web:
 pnpm --filter @shape-meet/desktop dev:vite
 ```
 
+También puedes dejar el demo local listo con un solo comando. Este levanta
+Docker si el admin/API no responde, arranca sidecar IA demo y desktop web si
+hacen falta, corre `demo:prepare` y deja vivos los procesos iniciados:
+
+```bash
+pnpm demo:up
+```
+
+Para diagnosticar sin levantar procesos:
+
+```bash
+pnpm demo:doctor
+```
+
+Si `demo:doctor` muestra `IA local: online sin demo`, detén el sidecar actual y
+vuelve a correr `pnpm demo:up` o arranca `pnpm dev:ai:demo`.
+
 Prepara datos y valida el demo:
 
 ```bash
