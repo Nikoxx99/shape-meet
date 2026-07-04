@@ -11,10 +11,19 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+# The engines package lives at apps/ai-sidecar/engines; ensure it is importable
+# when this file is launched directly as apps/ai-sidecar/processors/...py.
+_AI_SIDECAR_DIR = Path(__file__).resolve().parents[1]
+if str(_AI_SIDECAR_DIR) not in sys.path:
+    sys.path.insert(0, str(_AI_SIDECAR_DIR))
+
+import engines as engines_pkg  # noqa: E402  (stdlib-only import surface)
 
 
 MAX_BODY_BYTES = 12 * 1024 * 1024
@@ -28,6 +37,9 @@ STATE = {
 
 class ShapeModelEndpointHandler(BaseHTTPRequestHandler):
     server_version = "ShapeMeetModelEndpoint/0.1"
+    # HTTP/1.1 keeps the loopback connection alive between frames (keep-alive);
+    # every response sends an accurate Content-Length so this is safe.
+    protocol_version = "HTTP/1.1"
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -61,7 +73,14 @@ class ShapeModelEndpointHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = request_path(self.path)
-        if path not in {"/video-frame", "/face", "/background", "/voice"}:
+        if path not in {
+            "/video-frame",
+            "/face",
+            "/background",
+            "/voice",
+            "/process-frame",
+            "/process-audio",
+        }:
             self._json({"error": "not_found"}, status=404)
             return
 
@@ -75,7 +94,14 @@ class ShapeModelEndpointHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            if path == "/voice":
+            # /process-frame and /process-audio speak the sidecar contract that
+            # server.py already knows (wrapped in {frame} / {audio}); they collapse
+            # the shape_processor_command hop away.
+            if path == "/process-frame":
+                self._json({"frame": process_video_frame(payload)})
+            elif path == "/process-audio":
+                self._json({"audio": process_voice(payload)})
+            elif path == "/voice":
                 self._json(process_voice(payload))
             elif path == "/video-frame":
                 self._json(process_video_frame(payload))
@@ -128,6 +154,13 @@ def process_video(stage, payload):
     fps = safe_int(target.get("fps")) or 30
     sequence = safe_int(payload.get("sequence")) or safe_int(frame.get("sequence")) or 0
     warnings = []
+
+    if inproc_enabled():
+        stage_enabled = {stage: True} if stage in {"face", "background"} else {"face": True, "background": True}
+        return process_video_frame_inproc(
+            payload, frame, identity, background, stage_enabled, width, height, fps, sequence, started,
+            processor=f"shape-{stage}-endpoint-server",
+        )
 
     with tempfile.TemporaryDirectory(prefix=f"shape-model-{stage}-") as workdir:
         input_path = resolve_input_file(
@@ -184,6 +217,11 @@ def process_video_frame(payload):
     fps = safe_int(target.get("fps")) or 30
     sequence = safe_int(payload.get("sequence")) or safe_int(frame.get("sequence")) or 0
     warnings = []
+
+    if inproc_enabled():
+        return process_video_frame_inproc(
+            payload, frame, identity, background, enabled, width, height, fps, sequence, started
+        )
 
     with tempfile.TemporaryDirectory(prefix="shape-model-video-frame-") as workdir:
         workdir_path = Path(workdir)
@@ -272,6 +310,136 @@ def run_video_frame_wrappers(input_path, output_path, identity, background, enab
     return completed
 
 
+def inproc_enabled():
+    return engines_pkg.engine_mode() == "inproc"
+
+
+def session_id_from_payload(payload):
+    session = payload.get("session") if isinstance(payload.get("session"), dict) else {}
+    return str(session.get("id") or payload.get("sessionId") or "default")
+
+
+def frame_input_bytes(frame):
+    input_path = frame.get("inputPath")
+    if isinstance(input_path, str) and input_path:
+        path = Path(input_path)
+        if path.is_file():
+            return path.read_bytes()
+    data_url = frame.get("dataUrl") or frame.get("frameDataUrl")
+    if isinstance(data_url, str) and "," in data_url:
+        return base64.b64decode(data_url.split(",", 1)[1])
+    raise ValueError("video input no disponible.")
+
+
+def audio_input_bytes(audio):
+    input_path = audio.get("inputPath")
+    if isinstance(input_path, str) and input_path:
+        path = Path(input_path)
+        if path.is_file():
+            return path.read_bytes()
+    encoded = audio.get("audioDataBase64")
+    if isinstance(encoded, str) and encoded:
+        return base64.b64decode(encoded)
+    raise ValueError("audio input no disponible.")
+
+
+def process_video_frame_inproc(
+    payload,
+    frame,
+    identity,
+    background,
+    enabled,
+    width,
+    height,
+    fps,
+    sequence,
+    started,
+    processor="shape-inproc-endpoint-server",
+):
+    runtime = engines_pkg.get_inproc_runtime()
+    session_id = session_id_from_payload(payload)
+    input_bgr = engines_pkg.runtime.decode_image_bgr(frame_input_bytes(frame))
+    result = runtime.process_frame(session_id, input_bgr, identity, background, enabled)
+
+    output_data_url = engines_pkg.runtime.bgr_to_data_url(result["output"])
+    output_path = frame.get("outputPath")
+    if isinstance(output_path, str) and output_path:
+        try:
+            write_data_url(output_data_url, output_path)
+        except Exception:
+            pass
+
+    applied = [stage["id"] for stage in result["stages"] if stage["changed"]]
+    warnings = list(result["warnings"])
+    if applied:
+        warnings.insert(0, "video_frame_inproc_chain:" + "+".join(applied))
+
+    vram_mb = max(
+        [safe_int(stage.get("vramMb")) or 0 for stage in result["stages"]] + [0]
+    )
+    latency_ms = elapsed_ms(started)
+    update_state(latency_ms, warnings[0] if warnings else None)
+    return {
+        "sequence": sequence,
+        "status": result["status"],
+        "processor": processor,
+        "frame": {
+            "dataUrl": output_data_url,
+            "width": width,
+            "height": height,
+            "format": data_url_mime_type(output_data_url),
+        },
+        "metrics": {
+            "latencyMs": latency_ms,
+            "fps": fps,
+            "vramMb": vram_mb or (safe_int(os.environ.get("SHAPE_MODEL_ENDPOINT_VRAM_MB")) or 0),
+            "resolution": f"{width}x{height}",
+        },
+        "warnings": warnings,
+        "stages": result["stages"],
+    }
+
+
+def process_voice_inproc(payload, audio, identity, sample_rate, channels, audio_format, sequence, started):
+    runtime = engines_pkg.get_inproc_runtime()
+    session_id = session_id_from_payload(payload)
+    audio_bytes = audio_input_bytes(audio)
+    result = runtime.process_audio(
+        session_id, audio_bytes, identity, sample_rate, channels, audio_format, {"voice": True}
+    )
+
+    output_base64 = base64.b64encode(result["output"]).decode("ascii")
+    output_path = audio.get("outputPath")
+    if isinstance(output_path, str) and output_path:
+        try:
+            write_base64(output_base64, output_path)
+        except Exception:
+            pass
+
+    warnings = list(result["warnings"])
+    if result["status"] == "processed":
+        warnings.insert(0, "voice_inproc_processed")
+    latency_ms = elapsed_ms(started)
+    update_state(latency_ms, warnings[0] if warnings else None)
+    return {
+        "sequence": sequence,
+        "status": result["status"],
+        "processor": "shape-voice-inproc-endpoint-server",
+        "audio": {
+            "audioDataBase64": output_base64,
+            "sampleRate": sample_rate,
+            "channels": channels,
+            "format": audio_format,
+        },
+        "metrics": {
+            "latencyMs": latency_ms,
+            "inputBytes": len(output_base64),
+        },
+        "warnings": warnings,
+        "stages": result["stages"],
+    }
+
+
 def process_voice(payload):
     started = time.perf_counter()
     audio = payload.get("audio") if isinstance(payload.get("audio"), dict) else {}
@@ -281,6 +449,11 @@ def process_voice(payload):
     audio_format = str(audio.get("format") or "pcm_f32le")
     sequence = safe_int(payload.get("sequence")) or safe_int(audio.get("sequence")) or 0
     warnings = []
+
+    if inproc_enabled():
+        return process_voice_inproc(
+            payload, audio, identity, sample_rate, channels, audio_format, sequence, started
+        )
 
     with tempfile.TemporaryDirectory(prefix="shape-model-voice-") as workdir:
         input_path = resolve_audio_input(
@@ -696,6 +869,9 @@ def data_url_mime_type(data_url):
 
 
 def diagnostics_payload():
+    if inproc_enabled():
+        return inproc_diagnostics_payload()
+
     stages = endpoint_stage_diagnostics()
     return {
         "ready": all(stage["ready"] for stage in stages),
@@ -725,6 +901,95 @@ def diagnostics_payload():
         },
         "stages": stages,
     }
+
+
+def inproc_diagnostics_payload():
+    runtime = engines_pkg.get_inproc_runtime()
+    runtime.ensure_loaded()
+    health = runtime.health()
+    engines_health = health.get("engines", {})
+    load_reports = health.get("loadReports", {})
+
+    def stage_entry(stage_id, label, kind, engine_state, load_report):
+        state = engine_state.get("state")
+        ready = state in {"active", "degraded"}
+        status = "ready" if state == "active" else ("degraded" if state == "degraded" else "error")
+        issues = [] if ready else [engine_state.get("detail") or engine_state.get("reason") or "engine no cargado"]
+        warnings = list((load_report or {}).get("warnings", [])) if isinstance(load_report, dict) else []
+        return {
+            "id": stage_id,
+            "label": label,
+            "kind": kind,
+            "ready": ready,
+            "status": status,
+            "mode": "inproc",
+            "engine": engine_state,
+            "loadReport": load_report,
+            "issues": issues,
+            "warnings": warnings,
+        }
+
+    face = stage_entry("face", "Face swap", "video", engines_health.get("face", {}), load_reports.get("face"))
+    background = stage_entry(
+        "background", "Background matting", "video", engines_health.get("background", {}), load_reports.get("background")
+    )
+    voice = stage_entry("voice", "Cambio de voz", "audio", engines_health.get("voice", {}), load_reports.get("voice"))
+
+    video_ready = face["ready"] and background["ready"]
+    video = {
+        "id": "video-frame",
+        "label": "Video frame",
+        "kind": "video",
+        "ready": video_ready,
+        "status": "ready" if video_ready else "limited",
+        "mode": "inproc",
+        "engine": {
+            "state": _worse_state(face["engine"].get("state"), background["engine"].get("state")),
+            "device": health.get("device"),
+        },
+        "issues": [*[f"face: {issue}" for issue in face["issues"]], *[f"background: {issue}" for issue in background["issues"]]],
+        "warnings": [],
+    }
+
+    stages = [video, face, background, voice]
+    return {
+        "ready": video_ready,
+        "mode": "inproc",
+        "startedAt": STATE["startedAt"],
+        "requests": STATE["requests"],
+        "lastLatencyMs": STATE["lastLatencyMs"],
+        "lastWarning": STATE["lastWarning"],
+        "stageStatus": {stage["id"]: stage["status"] for stage in stages},
+        "runtime": {
+            "python": sys.executable,
+            "engine": "inproc",
+            "device": health.get("device"),
+            "backgroundEngine": health.get("backgroundEngine"),
+            "loaded": health.get("loaded"),
+            "capabilities": health.get("capabilities"),
+            "loadTimeoutSeconds": engines_pkg.load_timeout_seconds(),
+            "repoRoot": str(repo_root()),
+            "maxBodyBytes": MAX_BODY_BYTES,
+        },
+        "configuration": {
+            "engine": "inproc",
+            "passthrough": False,
+            "demoEffects": False,
+            "accessLog": access_log_enabled(),
+            "backgroundEngine": health.get("backgroundEngine"),
+            "vramMb": safe_int(os.environ.get("SHAPE_MODEL_ENDPOINT_VRAM_MB")) or 0,
+        },
+        "loadReport": load_reports,
+        "stages": stages,
+    }
+
+
+def _worse_state(*states):
+    order = {"failed": 0, "degraded": 1, "active": 2, None: 3}
+    present = [s for s in states if s is not None]
+    if not present:
+        return "failed"
+    return min(present, key=lambda s: order.get(s, 3))
 
 
 def endpoint_stage_diagnostics():
@@ -919,11 +1184,7 @@ def command_available_status(command):
 
 
 def endpoint_mode():
-    if passthrough_enabled():
-        return "passthrough"
-    if demo_effects_enabled():
-        return "demo-effects"
-    return "wrappers"
+    return engines_pkg.engine_mode()
 
 
 def env_non_empty(name):
@@ -1036,16 +1297,32 @@ def main():
     parser.add_argument("--port", type=int, default=safe_int(os.environ.get("SHAPE_MODEL_ENDPOINT_PORT")) or 9100)
     parser.add_argument("--passthrough", action="store_true", help="Copy input to output instead of calling wrappers.")
     parser.add_argument("--demo-effects", action="store_true", help="Return lightweight visible demo frame effects.")
+    parser.add_argument("--engine", default=None, help="Engine mode: inproc|wrappers|passthrough|demo-effects.")
     args = parser.parse_args()
 
+    if args.engine:
+        os.environ["SHAPE_MODEL_ENDPOINT_ENGINE"] = args.engine
     if args.passthrough:
         os.environ["SHAPE_MODEL_ENDPOINT_PASSTHROUGH"] = "true"
     if args.demo_effects:
         os.environ["SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS"] = "true"
 
     STATE["startedAt"] = datetime.now(timezone.utc).isoformat()
+
+    if endpoint_mode() == "inproc":
+        # Load the resident engines once at startup (in a background thread so
+        # the socket comes up immediately); /health reports "limited" until the
+        # models finish loading, "ready" afterwards.
+        def _warmup_engines():
+            try:
+                engines_pkg.get_inproc_runtime().warmup(engines_pkg.load_timeout_seconds())
+            except Exception as error:  # pragma: no cover - defensive
+                print(f"[shape-model-endpoint] fallo al cargar motores inproc: {error}")
+
+        threading.Thread(target=_warmup_engines, daemon=True).start()
+
     server = ThreadingHTTPServer((args.host, args.port), ShapeModelEndpointHandler)
-    print(f"[shape-model-endpoint] listening on http://{args.host}:{args.port}")
+    print(f"[shape-model-endpoint] listening on http://{args.host}:{args.port} (engine={endpoint_mode()})")
     server.serve_forever()
 
 
