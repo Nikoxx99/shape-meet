@@ -60,6 +60,19 @@ struct ObservabilityStatus {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct DesktopRuntimeConfig {
+    api_base_url: String,
+    app_base_url: String,
+    meeting_base_url: String,
+    ai_service_url: String,
+    host_identifier: Option<String>,
+    demo_data_enabled: bool,
+    config_path: Option<String>,
+    warnings: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DebugEventResult {
     captured: bool,
     event_id: Option<String>,
@@ -180,6 +193,11 @@ fn get_observability_status() -> ObservabilityStatus {
         traces_sample_rate: sentry_traces_sample_rate(),
         debug: sentry_debug(),
     }
+}
+
+#[tauri::command]
+fn get_desktop_runtime_config() -> DesktopRuntimeConfig {
+    desktop_runtime_config()
 }
 
 #[tauri::command]
@@ -333,6 +351,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_gpu_profile,
             get_observability_status,
+            get_desktop_runtime_config,
             capture_native_debug_event,
             get_ai_service_status,
             get_ai_sidecar_runtime,
@@ -2150,9 +2169,20 @@ fn first_socket_addr(host: &str, port: u16) -> Result<SocketAddr, String> {
 
 fn redacted_environment() -> Value {
     let runtime_env = read_ai_runtime_env_file().ok();
+    let desktop_config = desktop_runtime_config();
     json!({
         "sentryDsnConfigured": sentry_dsn().is_some(),
         "aiServiceUrl": ai_endpoint(),
+        "desktopRuntimeConfig": {
+            "apiBaseUrl": desktop_config.api_base_url,
+            "appBaseUrl": desktop_config.app_base_url,
+            "meetingBaseUrl": desktop_config.meeting_base_url,
+            "aiServiceUrl": desktop_config.ai_service_url,
+            "hostIdentifierConfigured": desktop_config.host_identifier.is_some(),
+            "demoDataEnabled": desktop_config.demo_data_enabled,
+            "configPath": desktop_config.config_path,
+            "warnings": desktop_config.warnings
+        },
         "identityArtifactCacheDir": identity_cache_dir().map(|path| path.display().to_string()).unwrap_or_else(|error| error),
         "aiRuntimeEnv": runtime_env.map(|file| json!({
             "path": file.path,
@@ -2163,6 +2193,48 @@ fn redacted_environment() -> Value {
         "sentryEnvironment": sentry_environment(),
         "sentryRelease": sentry_release()
     })
+}
+
+fn desktop_runtime_config() -> DesktopRuntimeConfig {
+    let api_base_url = local_config_value(&["SHAPE_API_URL", "VITE_SHAPE_API_URL"])
+        .unwrap_or_else(|| "http://localhost:3000".to_string());
+    let app_base_url = local_config_value(&["SHAPE_APP_URL", "VITE_SHAPE_APP_URL"])
+        .unwrap_or_else(|| "https://meet.shape.local".to_string());
+    let meeting_base_url = local_config_value(&[
+        "SHAPE_MEETING_URL",
+        "VITE_SHAPE_MEETING_URL",
+        "SHAPE_APP_URL",
+        "VITE_SHAPE_APP_URL",
+    ])
+    .unwrap_or_else(|| app_base_url.clone());
+    let ai_service_url = ai_endpoint();
+    let host_identifier =
+        local_config_value(&["SHAPE_HOST_IDENTIFIER", "VITE_SHAPE_HOST_IDENTIFIER"]);
+    let demo_data_enabled = local_config_bool(&["SHAPE_DEMO_DATA", "VITE_SHAPE_DEMO_DATA"]);
+    let config_path = first_existing_local_config_path().map(|path| path.display().to_string());
+    let mut warnings = Vec::new();
+
+    for (label, url) in [
+        ("apiBaseUrl", api_base_url.as_str()),
+        ("appBaseUrl", app_base_url.as_str()),
+        ("meetingBaseUrl", meeting_base_url.as_str()),
+        ("aiServiceUrl", ai_service_url.as_str()),
+    ] {
+        if !looks_like_http_url(url) {
+            warnings.push(format!("{label} no parece una URL http(s) válida."));
+        }
+    }
+
+    DesktopRuntimeConfig {
+        api_base_url,
+        app_base_url,
+        meeting_base_url,
+        ai_service_url,
+        host_identifier,
+        demo_data_enabled,
+        config_path,
+        warnings,
+    }
 }
 
 fn sentry_dsn() -> Option<String> {
@@ -2228,8 +2300,29 @@ fn local_config_value(keys: &[&str]) -> Option<String> {
     None
 }
 
+fn local_config_bool(keys: &[&str]) -> bool {
+    local_config_value(keys)
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+fn first_existing_local_config_path() -> Option<PathBuf> {
+    local_env_file_candidates()
+        .into_iter()
+        .find(|path| path.exists())
+}
+
 fn local_env_file_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+
+    if let Some(path) = env_non_empty("SHAPE_DESKTOP_CONFIG_FILE").map(PathBuf::from) {
+        candidates.push(path);
+    }
+
+    if let Ok(data_dir) = shape_meet_data_dir() {
+        candidates.push(data_dir.join("shape-meet.env"));
+        candidates.push(data_dir.join(".env.local"));
+    }
 
     if let Ok(current_dir) = env::current_dir() {
         push_env_file_candidates(&mut candidates, &current_dir);
@@ -2286,7 +2379,8 @@ fn parse_local_env_value(content: &str, keys: &[&str]) -> Option<String> {
 }
 
 fn ai_endpoint() -> String {
-    env::var("SHAPE_AI_SERVICE_URL").unwrap_or_else(|_| DEFAULT_AI_ENDPOINT.to_string())
+    local_config_value(&["SHAPE_AI_SERVICE_URL", "VITE_SHAPE_AI_SERVICE_URL"])
+        .unwrap_or_else(|| DEFAULT_AI_ENDPOINT.to_string())
 }
 
 fn env_non_empty(name: &str) -> Option<String> {
@@ -2294,6 +2388,10 @@ fn env_non_empty(name: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn looks_like_http_url(value: &str) -> bool {
+    value.starts_with("http://") || value.starts_with("https://")
 }
 
 fn utc_timestamp() -> Result<String, String> {

@@ -35,6 +35,17 @@ export interface NativeObservabilityStatus {
   debug: boolean;
 }
 
+export interface NativeDesktopRuntimeConfig {
+  apiBaseUrl: string;
+  appBaseUrl: string;
+  meetingBaseUrl: string;
+  aiServiceUrl: string;
+  hostIdentifier: string | null;
+  demoDataEnabled: boolean;
+  configPath: string | null;
+  warnings: string[];
+}
+
 export interface NativeDebugEventResult {
   captured: boolean;
   eventId: string | null;
@@ -97,6 +108,10 @@ export interface NativeIdentityArtifactCacheResult {
   message: string;
 }
 
+let desktopRuntimeConfigCache: NativeDesktopRuntimeConfig | null = null;
+let desktopRuntimeConfigPromise: Promise<NativeDesktopRuntimeConfig> | null =
+  null;
+
 export async function getGpuProfile(): Promise<NativeGpuProfile> {
   try {
     return await invoke<NativeGpuProfile>("get_gpu_profile");
@@ -119,6 +134,29 @@ export async function getGpuProfile(): Promise<NativeGpuProfile> {
       warnings: ["Runtime nativo no disponible."],
     };
   }
+}
+
+export function getCachedDesktopRuntimeConfig(): NativeDesktopRuntimeConfig {
+  return desktopRuntimeConfigCache ?? fallbackDesktopRuntimeConfig();
+}
+
+export async function getDesktopRuntimeConfig(): Promise<NativeDesktopRuntimeConfig> {
+  if (desktopRuntimeConfigCache) return desktopRuntimeConfigCache;
+  if (desktopRuntimeConfigPromise) return desktopRuntimeConfigPromise;
+
+  desktopRuntimeConfigPromise = invoke<NativeDesktopRuntimeConfig>(
+    "get_desktop_runtime_config",
+  )
+    .catch(() => fallbackDesktopRuntimeConfig())
+    .then((config) => {
+      desktopRuntimeConfigCache = normalizeDesktopRuntimeConfig(config);
+      return desktopRuntimeConfigCache;
+    })
+    .finally(() => {
+      desktopRuntimeConfigPromise = null;
+    });
+
+  return desktopRuntimeConfigPromise;
 }
 
 export async function getObservabilityStatus(): Promise<NativeObservabilityStatus> {
@@ -475,10 +513,7 @@ function defaultBrowserPipelines(
 }
 
 function frontendAiSidecarUrl() {
-  return (
-    (import.meta.env.VITE_SHAPE_AI_SERVICE_URL as string | undefined) ??
-    "http://127.0.0.1:7851"
-  );
+  return getCachedDesktopRuntimeConfig().aiServiceUrl;
 }
 
 function browserSidecarRuntime(
@@ -494,4 +529,56 @@ function browserSidecarRuntime(
     message: service.online ? "Sidecar externo detectado." : service.message,
     lastExit: null,
   };
+}
+
+function fallbackDesktopRuntimeConfig(): NativeDesktopRuntimeConfig {
+  const appBaseUrl =
+    (import.meta.env.VITE_SHAPE_APP_URL as string | undefined) ??
+    "https://meet.shape.local";
+
+  return normalizeDesktopRuntimeConfig({
+    apiBaseUrl:
+      (import.meta.env.VITE_SHAPE_API_URL as string | undefined) ??
+      "http://localhost:3000",
+    appBaseUrl,
+    meetingBaseUrl:
+      (import.meta.env.VITE_SHAPE_MEETING_URL as string | undefined) ??
+      appBaseUrl,
+    aiServiceUrl:
+      (import.meta.env.VITE_SHAPE_AI_SERVICE_URL as string | undefined) ??
+      "http://127.0.0.1:7851",
+    hostIdentifier:
+      (import.meta.env.VITE_SHAPE_HOST_IDENTIFIER as string | undefined) ??
+      null,
+    demoDataEnabled:
+      String(import.meta.env.VITE_SHAPE_DEMO_DATA ?? "").toLowerCase() ===
+      "true",
+    configPath: null,
+    warnings: [],
+  });
+}
+
+function normalizeDesktopRuntimeConfig(
+  config: NativeDesktopRuntimeConfig,
+): NativeDesktopRuntimeConfig {
+  return {
+    apiBaseUrl: trimTrailingSlash(config.apiBaseUrl || "http://localhost:3000"),
+    appBaseUrl: trimTrailingSlash(
+      config.appBaseUrl || "https://meet.shape.local",
+    ),
+    meetingBaseUrl: trimTrailingSlash(
+      config.meetingBaseUrl || config.appBaseUrl || "https://meet.shape.local",
+    ),
+    aiServiceUrl: trimTrailingSlash(
+      config.aiServiceUrl || "http://127.0.0.1:7851",
+    ),
+    hostIdentifier: config.hostIdentifier?.trim() || null,
+    demoDataEnabled: Boolean(config.demoDataEnabled),
+    configPath: config.configPath?.trim() || null,
+    warnings: Array.isArray(config.warnings) ? config.warnings : [],
+  };
+}
+
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/$/, "");
 }

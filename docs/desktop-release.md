@@ -35,6 +35,34 @@ La app resuelve códigos desde enlaces web `/r/SM-123-456`, query
 pegados manualmente. En Windows/Linux, `single-instance` evita que un deep link
 abra una segunda ventana cuando la app ya está corriendo.
 
+## Configuración runtime
+
+El build desktop puede apuntar a un entorno Coolify sin recompilar creando un
+archivo `shape-meet.env` en el directorio de datos de la app:
+
+- Windows: `%LOCALAPPDATA%\Shape Meet\shape-meet.env`
+- macOS: `~/Library/Application Support/Shape Meet/shape-meet.env`
+- Linux: `${XDG_DATA_HOME:-~/.local/share}/shape-meet/shape-meet.env`
+
+También se puede fijar una ruta explícita con `SHAPE_DESKTOP_CONFIG_FILE`.
+Variables útiles para demo remoto:
+
+```env
+VITE_SHAPE_API_URL=https://admin.tudominio.com
+VITE_SHAPE_APP_URL=https://meet.tudominio.com
+VITE_SHAPE_MEETING_URL=https://meet.tudominio.com
+VITE_SHAPE_AI_SERVICE_URL=http://127.0.0.1:7851
+VITE_SHAPE_HOST_IDENTIFIER=host@tudominio.com
+VITE_SENTRY_DSN=https://...
+SENTRY_DSN=https://...
+SENTRY_ENVIRONMENT=internal-debug
+VITE_SENTRY_ENVIRONMENT=internal-debug
+```
+
+La desktop usa esta configuración para API, enlaces públicos, sidecar IA local,
+Sentry nativo y debug bundles. Si el archivo no existe, conserva los valores
+compilados por Vite y los defaults locales.
+
 ## Firma
 
 El workflow macOS usa `--no-sign` por ahora. Para distribución externa hay que

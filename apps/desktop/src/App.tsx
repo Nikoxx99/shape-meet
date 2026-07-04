@@ -98,6 +98,8 @@ import {
   getAiSidecarRuntime,
   getAiRuntimeEnv,
   getAiServiceStatus,
+  getCachedDesktopRuntimeConfig,
+  getDesktopRuntimeConfig,
   getGpuProfile,
   getObservabilityStatus,
   prepareDemoAiRuntimeEnv,
@@ -109,6 +111,7 @@ import {
   type NativeAiSidecarRuntime,
   type NativeIdentityArtifactCacheResult,
   type NativeAiServiceStatus,
+  type NativeDesktopRuntimeConfig,
   type NativeGpuProfile,
   type NativeModelAiRuntimeInput,
   type NativeObservabilityStatus,
@@ -652,10 +655,14 @@ function filterAgendaMeetings(meetings: Meeting[], filter: AgendaFilter) {
     });
 }
 
-function meetingShareUrl(code: string) {
+function meetingShareUrl(
+  code: string,
+  runtimeConfig?: Pick<NativeDesktopRuntimeConfig, "meetingBaseUrl">,
+) {
   const configuredUrl =
-    (import.meta.env.VITE_SHAPE_MEETING_URL as string | undefined) ??
-    (import.meta.env.VITE_SHAPE_APP_URL as string | undefined);
+    runtimeConfig?.meetingBaseUrl ||
+    ((import.meta.env.VITE_SHAPE_MEETING_URL as string | undefined) ??
+      (import.meta.env.VITE_SHAPE_APP_URL as string | undefined));
   const baseUrl =
     configuredUrl?.replace(/\/$/, "") || "https://meet.shape.local";
   return `${baseUrl}/r/${code}`;
@@ -852,11 +859,24 @@ export default function App() {
     useState<NativeAiSidecarRuntime | null>(null);
   const [observabilityStatus, setObservabilityStatus] =
     useState<NativeObservabilityStatus | null>(null);
+  const [desktopRuntimeConfig, setDesktopRuntimeConfig] =
+    useState<NativeDesktopRuntimeConfig>(() => getCachedDesktopRuntimeConfig());
   const mediaDevices = useMediaDevices();
   const selectedRuntimeIdentity = useMemo(
     () => runtimeIdentityFor(identities, selectedIdentityId),
     [identities, selectedIdentityId],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void getDesktopRuntimeConfig().then((config) => {
+      if (!cancelled) setDesktopRuntimeConfig(config);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     void getGpuProfile().then(setGpuProfile);
@@ -1651,6 +1671,9 @@ export default function App() {
       {route === "login" && (
         <HostLoginScreen
           error={apiMessage}
+          initialIdentifier={
+            desktopRuntimeConfig.hostIdentifier ?? initialHostIdentifier
+          }
           onBack={() => navigate("home")}
           onContinue={handleHostLogin}
         />
@@ -1658,7 +1681,10 @@ export default function App() {
       {route === "verify" && (
         <HostVerifyScreen
           hostEmail={
-            host?.email ?? hostSession?.user.email ?? initialHostIdentifier
+            host?.email ??
+            hostSession?.user.email ??
+            desktopRuntimeConfig.hostIdentifier ??
+            initialHostIdentifier
           }
           onBack={() => navigate("login")}
           onContinue={() => navigate("scheduled")}
@@ -1686,6 +1712,10 @@ export default function App() {
         (currentMeeting ? (
           <MeetingDetailScreen
             meeting={currentMeeting}
+            shareUrl={meetingShareUrl(
+              currentMeeting.code,
+              desktopRuntimeConfig,
+            )}
             onBack={() => navigate("scheduled")}
             onContinue={() => {
               setIsHostFlow(true);
@@ -1705,10 +1735,13 @@ export default function App() {
       {route === "created" &&
         (currentMeeting ? (
           <MeetingCreatedScreen
-            shareUrl={meetingShareUrl(currentMeeting.code)}
+            shareUrl={meetingShareUrl(
+              currentMeeting.code,
+              desktopRuntimeConfig,
+            )}
             onCopy={() =>
               void navigator.clipboard?.writeText(
-                meetingShareUrl(currentMeeting.code),
+                meetingShareUrl(currentMeeting.code, desktopRuntimeConfig),
               )
             }
             onContinue={() => navigate("device-test")}
@@ -1998,16 +2031,28 @@ function MissingMeetingScreen({ onBack }: { onBack: () => void }) {
 
 function HostLoginScreen({
   error,
+  initialIdentifier,
   onBack,
   onContinue,
 }: {
   error: string | null;
+  initialIdentifier: string;
   onBack: () => void;
   onContinue: (identifier: string, password: string) => Promise<void>;
 }) {
-  const [identifier, setIdentifier] = useState(initialHostIdentifier);
+  const [identifier, setIdentifier] = useState(initialIdentifier);
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const lastInitialIdentifierRef = useRef(initialIdentifier);
+
+  useEffect(() => {
+    setIdentifier((current) =>
+      current && current !== lastInitialIdentifierRef.current
+        ? current
+        : initialIdentifier,
+    );
+    lastInitialIdentifierRef.current = initialIdentifier;
+  }, [initialIdentifier]);
 
   async function submit() {
     setSubmitting(true);
@@ -2324,10 +2369,12 @@ function ScheduledMeetingsScreen({
 
 function MeetingDetailScreen({
   meeting,
+  shareUrl,
   onBack,
   onContinue,
 }: {
   meeting: Meeting;
+  shareUrl: string;
   onBack: () => void;
   onContinue: () => void;
 }) {
@@ -2365,11 +2412,7 @@ function MeetingDetailScreen({
             <Button
               variant="outline"
               icon={<Copy />}
-              onClick={() =>
-                void navigator.clipboard?.writeText(
-                  meetingShareUrl(meeting.code),
-                )
-              }
+              onClick={() => void navigator.clipboard?.writeText(shareUrl)}
             >
               Copiar enlace
             </Button>

@@ -7,10 +7,8 @@ import type {
   MeetingCreateInput,
   ShapeUser,
 } from "@shape-meet/shared";
+import { getDesktopRuntimeConfig } from "./native";
 
-const API_BASE_URL =
-  (import.meta.env.VITE_SHAPE_API_URL as string | undefined) ??
-  "http://localhost:3000";
 const TOKEN_KEY = "shape-meet-host-token";
 
 export class ShapeApiError extends Error {
@@ -112,7 +110,11 @@ export async function requestMeetingAccess(input: {
   email?: string | null;
   camera: boolean;
   microphone: boolean;
-}): Promise<{ meeting: Meeting; participantId: string; participantToken: string }> {
+}): Promise<{
+  meeting: Meeting;
+  participantId: string;
+  participantToken: string;
+}> {
   return request(
     `/api/meetings/${encodeURIComponent(input.code)}/waiting-room`,
     {
@@ -271,7 +273,8 @@ async function request<T>(
     headers.set("authorization", `Bearer ${options.token}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const { apiBaseUrl } = await getDesktopRuntimeConfig();
+  const response = await fetch(`${apiBaseUrl}${path}`, {
     ...options,
     headers,
   });
