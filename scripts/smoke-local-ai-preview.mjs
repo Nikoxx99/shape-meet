@@ -53,6 +53,7 @@ async function main() {
     await clickByRole(page, "button", "Más", 15_000);
     await expectVisibleText(page, "Track IA publicado", 30_000);
     await expectVisibleText(page, "Runtime IA", 30_000);
+    await expectTestIdText(page, "call-ai-preflight-status", /passed|warning/);
     await expectVisibleText(page, "Bridge voz", 30_000);
     console.log(
       `local AI preview smoke ok: video=${JSON.stringify(sample)} voice=bridge`,
@@ -169,7 +170,8 @@ async function enterDemoHostCall(page) {
   await clickByRole(page, "button", "Capturar fondo", 15_000);
   await clickByRole(page, "button", "Continuar", 15_000);
   await expectVisibleText(page, "Ajustes de cámara e identidad", 15_000);
-  await clickByRole(page, "button", "Entrar a la reunión");
+  await expectTestIdText(page, "host-ai-preflight-status", "Pendiente");
+  await page.getByTestId("host-enter-meeting").click();
   await expectVisibleText(page, "1 participante", 15_000);
 }
 
@@ -248,6 +250,29 @@ async function expectVisibleText(page, text, timeout = 10_000) {
     .getByText(text, { exact: false })
     .first()
     .waitFor({ state: "visible", timeout });
+}
+
+async function expectTestIdText(page, testId, expected, timeout = 10_000) {
+  const locator = page.getByTestId(testId);
+  await locator.waitFor({ state: "visible", timeout });
+  const deadline = Date.now() + timeout;
+  let lastText = "";
+
+  while (Date.now() < deadline) {
+    lastText = ((await locator.textContent()) ?? "").trim();
+    if (
+      expected instanceof RegExp
+        ? expected.test(lastText)
+        : lastText.includes(expected)
+    ) {
+      return;
+    }
+    await page.waitForTimeout(250);
+  }
+
+  throw new Error(
+    `Expected ${testId} to include ${expected}; last text was: ${lastText}`,
+  );
 }
 
 async function waitForHttp(url, { label, timeoutMs }) {

@@ -2250,6 +2250,7 @@ export default function App() {
             backgroundEnabled={backgroundEnabled}
             backgroundCalibration={backgroundCalibration}
             voiceEnabled={voiceEnabled}
+            aiPreflight={hostPreflight}
             mediaSyncError={apiMessage}
             onToggleCamera={handleToggleCamera}
             onToggleMic={handleToggleMic}
@@ -3260,6 +3261,7 @@ function HostSettingsScreen({
             />
             <StatusRow
               label="Prueba IA"
+              testId="host-ai-preflight-status"
               value={
                 preflightRunning
                   ? "Ejecutando"
@@ -3295,6 +3297,7 @@ function HostSettingsScreen({
           </Panel>
           <div className="stacked-actions host-actions">
             <Button
+              data-testid="host-enter-meeting"
               icon={<LogIn />}
               onClick={() => void onContinue()}
               disabled={preflightRunning}
@@ -4301,6 +4304,7 @@ function ActiveCallScreen({
   backgroundEnabled,
   backgroundCalibration,
   voiceEnabled,
+  aiPreflight,
   mediaSyncError,
   onToggleCamera,
   onToggleMic,
@@ -4319,6 +4323,7 @@ function ActiveCallScreen({
   backgroundEnabled: boolean;
   backgroundCalibration: BackgroundCalibration | null;
   voiceEnabled: boolean;
+  aiPreflight: AiPreflightResult | null;
   mediaSyncError: string | null;
   onToggleCamera: () => void;
   onToggleMic: () => void;
@@ -5431,6 +5436,14 @@ function ActiveCallScreen({
                     }
                   />
                 ) : null}
+                {hostMode && aiPreflight ? (
+                  <StatusRow
+                    label="Preflight IA"
+                    testId="call-ai-preflight-status"
+                    value={aiPreflight.status}
+                    tone={preflightTone(aiPreflight.status)}
+                  />
+                ) : null}
                 {processedRuntimeStatus ? (
                   <StatusRow
                     label="Bridge"
@@ -6270,14 +6283,16 @@ function WaitingParticipantLine({
 function StatusRow({
   label,
   value,
+  testId,
   tone = "idle",
 }: {
   label: string;
   value: string;
+  testId?: string;
   tone?: "ok" | "warning" | "idle";
 }) {
   return (
-    <div className="status-row">
+    <div className="status-row" data-testid={testId}>
       <span>{label}</span>
       <strong className={tone} title={value}>
         {value}

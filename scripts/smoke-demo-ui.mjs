@@ -147,7 +147,8 @@ async function enterHostCall(page, meetingCode) {
   await clickByRole(page, "button", "Capturar fondo", 15_000);
   await clickByRole(page, "button", "Continuar", 15_000);
   await expectVisibleText(page, "Ajustes de cámara e identidad", 15_000);
-  await clickByRole(page, "button", "Entrar a la reunión");
+  await expectTestIdText(page, "host-ai-preflight-status", "Pendiente");
+  await page.getByTestId("host-enter-meeting").click();
   await expectVisibleText(page, meetingCode, 20_000);
   await expectVisibleText(page, guestName, 20_000);
 }
@@ -159,6 +160,7 @@ async function assertHostAiVideoBridge(page) {
     state: "visible",
     timeout: 10_000,
   });
+  await expectTestIdText(page, "call-ai-preflight-status", /passed|warning/);
   await expectVisibleText(page, "Track IA publicado", 30_000);
   await expectProcessedPrimaryVideo(page);
 }
@@ -255,6 +257,29 @@ async function expectAnyVisibleText(page, texts, timeout = 10_000) {
   }
 
   throw lastError ?? new Error(`Expected one of: ${texts.join(", ")}`);
+}
+
+async function expectTestIdText(page, testId, expected, timeout = 10_000) {
+  const locator = page.getByTestId(testId);
+  await locator.waitFor({ state: "visible", timeout });
+  const deadline = Date.now() + timeout;
+  let lastText = "";
+
+  while (Date.now() < deadline) {
+    lastText = ((await locator.textContent()) ?? "").trim();
+    if (
+      expected instanceof RegExp
+        ? expected.test(lastText)
+        : lastText.includes(expected)
+    ) {
+      return;
+    }
+    await page.waitForTimeout(250);
+  }
+
+  throw new Error(
+    `Expected ${testId} to include ${expected}; last text was: ${lastText}`,
+  );
 }
 
 async function expectProcessedPrimaryVideo(
