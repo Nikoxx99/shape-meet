@@ -19,6 +19,10 @@ apps/desktop/src-tauri/tauri.sidecar.conf.json
 __pycache__
 **/__pycache__
 *.pyc
+# In-process AI engine virtualenvs (never commit heavy deps/weights)
+**/.venv-inproc
+**/.venv
+apps/ai-sidecar/.venv-inproc
 *.log
 *.tsbuildinfo
 .env

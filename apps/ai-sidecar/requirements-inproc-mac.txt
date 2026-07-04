@@ -1,0 +1,16 @@
+# In-process AI engine dependencies — macOS (Apple Silicon: MPS / CoreML / CPU).
+# Install into the endpoint venv, e.g.:
+#   python3 -m venv apps/ai-sidecar/.venv-inproc
+#   apps/ai-sidecar/.venv-inproc/bin/pip install -r apps/ai-sidecar/requirements-inproc-mac.txt
+#
+# Phase 1 target on this machine is CORRECTNESS (CPU/MPS/CoreML), not fps.
+# Model weights are NEVER installed by pip; provide them by env:
+#   SHAPE_INSWAPPER_MODEL   -> inswapper_128.onnx (gated InsightFace model)
+#   SHAPE_RVM_MODEL         -> rvm_mobilenetv3.torchscript | rvm_mobilenetv3.pth (MIT)
+#   INSIGHTFACE_HOME        -> buffalo_l cache dir (auto-downloaded on first use)
+
+numpy>=1.26
+opencv-python-headless>=4.9
+onnxruntime>=1.17          # CoreMLExecutionProvider + CPUExecutionProvider on macOS
+insightface>=0.7
+torch>=2.2                 # MPS/CPU on Apple Silicon

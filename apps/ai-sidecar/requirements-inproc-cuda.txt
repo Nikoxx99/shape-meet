@@ -1,0 +1,21 @@
+# In-process AI engine dependencies — Windows / Linux with NVIDIA CUDA (RTX).
+# Install into the endpoint venv, e.g.:
+#   python -m venv apps\ai-sidecar\.venv-inproc
+#   apps\ai-sidecar\.venv-inproc\Scripts\pip install -r apps\ai-sidecar\requirements-inproc-cuda.txt
+#
+# torch CUDA wheels come from the PyTorch index; install torch separately if the
+# extra index is not honoured by your pip, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# Model weights are NEVER installed by pip; provide them by env:
+#   SHAPE_INSWAPPER_MODEL   -> inswapper_128.onnx (gated InsightFace model)
+#   SHAPE_RVM_MODEL         -> rvm_mobilenetv3.torchscript | rvm_mobilenetv3.pth (MIT)
+#   INSIGHTFACE_HOME        -> buffalo_l cache dir (auto-downloaded on first use)
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+numpy>=1.26
+opencv-python-headless>=4.9
+onnxruntime-gpu>=1.17      # CUDAExecutionProvider + CPUExecutionProvider
+insightface>=0.7
+torch>=2.2                 # CUDA build from the extra index url above
