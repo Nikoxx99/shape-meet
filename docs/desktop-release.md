@@ -33,6 +33,21 @@ Para revisar el último run manual/tag desde una máquina con `gh` autenticado:
 pnpm desktop:workflow:check -- --latest
 ```
 
+Para preparar un paquete de entrega con manifest y README del último run exitoso:
+
+```bash
+pnpm desktop:handoff
+```
+
+Si quieres bajar los artifacts al mismo directorio:
+
+```bash
+pnpm desktop:handoff -- --download
+```
+
+El handoff queda en `output/desktop-handoff/run-{id}` e incluye
+`manifest.json`, `README.md` y, con `--download`, una carpeta `artifacts/`.
+
 Desde GitHub Actions:
 
 1. Abrir `Desktop Packages`.

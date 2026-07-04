@@ -402,6 +402,9 @@ estricto. Es el check rápido antes de abrir o empaquetar la app Tauri del demo.
 runners, artifacts esperados, runtime config, orden de sidecar/build y checks de
 bundle antes de gastar runners Windows/macOS. Usa
 `pnpm desktop:workflow:check -- --latest` para ver el último run publicado.
+Después de un run exitoso, `pnpm desktop:handoff` genera
+`output/desktop-handoff/run-{id}` con manifest y README de los artifacts; agrega
+`-- --download` para bajarlos localmente con `gh`.
 
 PyInstaller no hace cross-compile real. Para Windows hay que ejecutar
 `pnpm build:desktop` en Windows o en un runner Windows; para macOS, en macOS. Si
