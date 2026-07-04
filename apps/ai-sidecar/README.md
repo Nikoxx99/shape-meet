@@ -159,8 +159,8 @@ modelos no están instalados. Para activar modelos reales en la estación
 Windows/NVIDIA del demo, usa el perfil estricto:
 
 ```bash
-pnpm models:runtime -- --profile windows-nvidia --preset local-wrappers
-pnpm models:doctor -- --profile windows-nvidia
+pnpm models:bootstrap -- --profile windows-nvidia --dry-run
+pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict
 ```
 
 Ese perfil asume `C:\models\FaceFusion`,
@@ -178,6 +178,9 @@ como `FACEFUSION_DIR`, `BMV2_REPO_DIR`, `BMV2_MODEL_CHECKPOINT` y
 `VCCLIENT000_CHUNK_COMMAND`.
 `pnpm models:doctor` valida esas variables, comandos y placeholders sin cargar
 modelos pesados; usa `--env-file` para revisar un runtime concreto.
+`pnpm models:bootstrap` envuelve esa preparación: puede crear carpetas con
+`--init-dirs`, clonar los repos con `--clone`, validar GPU/rutas/checkpoints y
+escribir el runtime final con `--write-runtime`.
 
 El adaptador escribe archivos temporales y ejecuta el comando sin shell. Tambien
 inyecta variables como `SHAPE_FRAME_INPUT_PATH`, `SHAPE_FRAME_OUTPUT_PATH`,

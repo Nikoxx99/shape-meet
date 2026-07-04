@@ -171,6 +171,24 @@ Usa `--profile windows-nvidia` para generar defaults estrictos de demo en
 `C:\models\...` con CUDA, BackgroundMattingV2 y VCClient REST. Usa
 `--profile apple-silicon` para prellenar rutas `~/models/...` y BMV2 con MPS.
 
+`pnpm models:bootstrap` prepara y diagnostica una estación de modelos antes del
+demo real. En una máquina nueva empieza con:
+
+```bash
+pnpm models:bootstrap -- --profile windows-nvidia --dry-run
+```
+
+Cuando las rutas, entornos Python, checkpoint, GPU y VCClient estén listos,
+escribe el runtime de Tauri con:
+
+```bash
+pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict
+```
+
+Puedes agregar `--init-dirs --clone` para crear el workspace y clonar
+FaceFusion/BackgroundMattingV2. Las dependencias Python, checkpoints y modelos
+licenciados se instalan manualmente según la estación.
+
 `pnpm models:doctor` revisa el runtime de modelos sin cargar pesos pesados:
 archivo `shape-ai-runtime.env`, comandos de procesador, placeholders requeridos,
 paths de FaceFusion/BackgroundMattingV2/vcclient000 y hardware NVIDIA/Apple
@@ -498,8 +516,8 @@ Ese preset usa `apps/ai-sidecar/wrappers/facefusion_frame.py`,
 usa el perfil de estación:
 
 ```bash
-pnpm models:runtime -- --profile windows-nvidia --preset local-wrappers
-pnpm models:doctor -- --profile windows-nvidia
+pnpm models:bootstrap -- --profile windows-nvidia --dry-run
+pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict
 ```
 
 Ese perfil asume `C:\models\FaceFusion`,
