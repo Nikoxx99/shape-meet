@@ -8,12 +8,23 @@ import { join } from "node:path";
 
 const tempDir = mkdtempSync(join(tmpdir(), "shape-remote-demo-check-"));
 const servers = [];
+let adminLivekitHealth = {
+  status: "ok",
+  urlConfigured: true,
+  credentialsConfigured: true,
+};
 
 try {
   const admin = await listenHttp((request, response) => {
     if (request.url === "/api/health") {
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ ok: true, database: "ok" }));
+      response.end(
+        JSON.stringify({
+          ok: true,
+          database: "ok",
+          livekit: adminLivekitHealth,
+        }),
+      );
       return;
     }
     response.writeHead(200);
@@ -45,16 +56,7 @@ try {
     ].join("\n"),
   );
 
-  const result = await runNode([
-    "scripts/check-remote-demo.mjs",
-    "--env-file",
-    envPath,
-    "--strict",
-    "--skip-turnutils",
-    "--timeout-ms",
-    "2000",
-    "--json",
-  ]);
+  const result = await runRemoteCheck(envPath);
 
   if (result.code !== 0) {
     if (result.stdout) process.stdout.write(result.stdout);
@@ -65,16 +67,45 @@ try {
   const report = JSON.parse(result.stdout);
   assert(report.status === "passed", `expected passed, got ${report.status}`);
   assertCheck(report, "network.admin-health", "ok");
+  assertCheck(report, "network.admin-livekit-config", "ok");
   assertCheck(report, "network.livekit-http", "ok");
   assertCheck(report, "network.livekit-rtc-tcp", "ok");
   assertCheck(report, "network.turn-tcp", "ok");
   assertCheck(report, "network.turn-tls-tcp", "ok");
   assertCheck(report, "network.turn-stun-udp", "ok");
   assertCheck(report, "network.turn-auth", "skipped");
+
+  adminLivekitHealth = {
+    status: "unconfigured",
+    urlConfigured: false,
+    credentialsConfigured: true,
+  };
+  const failedResult = await runRemoteCheck(envPath);
+  assert(
+    failedResult.code !== 0,
+    "remote demo check should fail when admin LiveKit config is missing",
+  );
+  const failedReport = JSON.parse(failedResult.stdout);
+  assert(failedReport.status === "failed", "expected failed report");
+  assertCheck(failedReport, "network.admin-livekit-config", "failed");
+
   console.log("remote demo check smoke ok");
 } finally {
   await Promise.all(servers.map((server) => closeServer(server)));
   rmSync(tempDir, { recursive: true, force: true });
+}
+
+function runRemoteCheck(envPath) {
+  return runNode([
+    "scripts/check-remote-demo.mjs",
+    "--env-file",
+    envPath,
+    "--strict",
+    "--skip-turnutils",
+    "--timeout-ms",
+    "2000",
+    "--json",
+  ]);
 }
 
 function runNode(args) {

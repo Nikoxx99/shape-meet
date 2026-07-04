@@ -191,9 +191,44 @@ async function checkAdminHealth() {
       return;
     }
     ok("network.admin-health", "Admin /api/health ok.", started);
+    checkAdminLiveKitConfig(data, started);
   } catch (error) {
     issue("network.admin-health", errorMessage(error), started);
   }
+}
+
+function checkAdminLiveKitConfig(data, started) {
+  const livekit = data?.livekit;
+
+  if (!livekit || typeof livekit !== "object") {
+    warning(
+      "network.admin-livekit-config",
+      "Admin health no reporta configuración LiveKit; redeploya una versión reciente antes del demo.",
+      started,
+    );
+    return;
+  }
+
+  if (livekit.status !== "ok") {
+    const missing = [];
+    if (livekit.urlConfigured !== true) missing.push("LIVEKIT_URL");
+    if (livekit.credentialsConfigured !== true)
+      missing.push("LIVEKIT_API_KEY/LIVEKIT_API_SECRET");
+    issue(
+      "network.admin-livekit-config",
+      `Admin no está listo para emitir tokens LiveKit${
+        missing.length ? `; falta ${missing.join(", ")}` : ""
+      }.`,
+      started,
+    );
+    return;
+  }
+
+  ok(
+    "network.admin-livekit-config",
+    "Admin tiene LiveKit URL y credenciales configuradas para emitir tokens.",
+    started,
+  );
 }
 
 async function checkLiveKitHttp() {

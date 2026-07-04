@@ -137,6 +137,9 @@ Secuencia recomendada para el primer deploy:
 
 3. Usar `RUN_SEED=true` solo en el primer arranque.
 4. Confirmar `/api/health` en `https://admin.tudominio.com/api/health`.
+   La respuesta debe traer `database: "ok"` y `livekit.status: "ok"`; si
+   LiveKit aparece `unconfigured`, el admin no emitirá tokens de reunión aunque
+   la base de datos esté sana.
 5. Entrar al panel admin con el bootstrap y crear los hosts reales.
 6. Cambiar `RUN_SEED=false` y redeploy.
 7. Probar una reunión 1:1 desde dos redes distintas para validar ICE/TURN.
@@ -149,7 +152,8 @@ pnpm demo:remote:check -- --env-file infra/shape-meet.production.env --strict
 ```
 
 Este check valida `/api/health`, signaling LiveKit, DNS de TURN, puertos TCP de
-RTC/TURN y una petición STUN UDP contra coturn. Si la máquina tiene
+RTC/TURN, configuración LiveKit del admin y una petición STUN UDP contra coturn.
+Si la máquina tiene
 `turnutils_uclient`, además prueba la autenticación TURN REST con el
 `LIVEKIT_TURN_SHARED_SECRET`.
 

@@ -1,9 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const tempDir = mkdtempSync(join(tmpdir(), "shape-real-demo-readiness-"));
+const videoPort = await getFreePort();
+const audioPort = await getFreePort();
 
 try {
   const envPath = join(tempDir, "shape-ai-runtime.env");
@@ -15,6 +19,10 @@ try {
     "--passthrough",
     "--out",
     envPath,
+    "--video-port",
+    String(videoPort),
+    "--audio-port",
+    String(audioPort),
   ]);
 
   const result = spawnSync(
@@ -81,4 +89,17 @@ function runChecked(args) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+async function getFreePort() {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  const port = address && typeof address === "object" ? address.port : null;
+  await new Promise((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+  assert(port, "could not allocate a free port");
+  return port;
 }
