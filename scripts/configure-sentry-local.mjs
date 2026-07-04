@@ -201,28 +201,30 @@ async function verifyLiveDsn(value) {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
-  const endpoint = `${parsed.protocol}//${parsed.host}/api/${parsed.projectId}/store/?sentry_key=${encodeURIComponent(
+  const endpoint = `${parsed.protocol}//${parsed.host}/api/${parsed.projectId}/envelope/?sentry_key=${encodeURIComponent(
     parsed.publicKey,
   )}&sentry_version=7&sentry_client=shape-meet-configure/0.1`;
+  const eventId = randomUUID().replaceAll("-", "");
+  const envelope = sentryEnvelope(parsed, {
+    event_id: eventId,
+    timestamp: new Date().toISOString(),
+    platform: "javascript",
+    logger: "shape-meet.configure-sentry",
+    level: "info",
+    message: "Shape Meet Sentry configure live check",
+    environment,
+    release: `shape-meet-configure@${releaseSuffix}`,
+    tags: {
+      "app.surface": "sentry-configure",
+      "shape.check": "configure-live",
+    },
+  });
 
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        event_id: randomUUID().replaceAll("-", ""),
-        timestamp: new Date().toISOString(),
-        platform: "javascript",
-        logger: "shape-meet.configure-sentry",
-        level: "info",
-        message: "Shape Meet Sentry configure live check",
-        environment,
-        release: `shape-meet-configure@${releaseSuffix}`,
-        tags: {
-          "app.surface": "sentry-configure",
-          "shape.check": "configure-live",
-        },
-      }),
+      headers: { "content-type": "application/x-sentry-envelope" },
+      body: envelope,
       signal: controller.signal,
     });
     const text = await response.text();
@@ -240,6 +242,18 @@ async function verifyLiveDsn(value) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function sentryEnvelope(dsn, event) {
+  return `${[
+    JSON.stringify({
+      event_id: event.event_id,
+      sent_at: new Date().toISOString(),
+      dsn: `${dsn.protocol}//${dsn.publicKey}@${dsn.host}/${dsn.projectId}`,
+    }),
+    JSON.stringify({ type: "event" }),
+    JSON.stringify(event),
+  ].join("\n")}\n`;
 }
 
 function parseDsn(value) {

@@ -265,6 +265,8 @@ async function validateLiveDsns() {
       dsn: maskParsedDsn(item.parsed),
       labels: item.labels,
       status: result.status,
+      transport: result.transport,
+      eventId: result.eventId,
       message: result.message,
     });
     if (result.ok) {
@@ -278,39 +280,59 @@ async function validateLiveDsns() {
 }
 
 async function sendSentryProbe(dsn) {
+  const fixtureStatus = process.env.SHAPE_SENTRY_CHECK_LIVE_STATUS;
+  if (fixtureStatus) {
+    const status = Number(fixtureStatus);
+    const body = process.env.SHAPE_SENTRY_CHECK_LIVE_BODY ?? "";
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      eventId: randomUUID().replaceAll("-", ""),
+      transport: "envelope",
+      message:
+        status >= 200 && status < 300
+          ? "ok"
+          : sentryHttpErrorMessage(status, body),
+    };
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
-  const endpoint = `${dsn.protocol}//${dsn.host}/api/${dsn.projectId}/store/?sentry_key=${encodeURIComponent(
+  const endpoint = `${dsn.protocol}//${dsn.host}/api/${dsn.projectId}/envelope/?sentry_key=${encodeURIComponent(
     dsn.publicKey,
   )}&sentry_version=7&sentry_client=shape-meet-check/0.1`;
+  const eventId = randomUUID().replaceAll("-", "");
+  const envelope = sentryEnvelope(dsn, {
+    event_id: eventId,
+    timestamp: new Date().toISOString(),
+    platform: "javascript",
+    logger: "shape-meet.check-sentry",
+    level: "info",
+    message: "Shape Meet Sentry live config check",
+    environment:
+      mergedEnv.SENTRY_ENVIRONMENT ??
+      mergedEnv.NEXT_PUBLIC_SENTRY_ENVIRONMENT ??
+      mergedEnv.VITE_SENTRY_ENVIRONMENT ??
+      "development",
+    tags: {
+      "app.surface": "config-check",
+      "shape.check": "sentry-live",
+    },
+  });
 
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        event_id: randomUUID().replaceAll("-", ""),
-        timestamp: new Date().toISOString(),
-        platform: "javascript",
-        logger: "shape-meet.check-sentry",
-        level: "info",
-        message: "Shape Meet Sentry live config check",
-        environment:
-          mergedEnv.SENTRY_ENVIRONMENT ??
-          mergedEnv.NEXT_PUBLIC_SENTRY_ENVIRONMENT ??
-          mergedEnv.VITE_SENTRY_ENVIRONMENT ??
-          "development",
-        tags: {
-          "app.surface": "config-check",
-          "shape.check": "sentry-live",
-        },
-      }),
+      headers: { "content-type": "application/x-sentry-envelope" },
+      body: envelope,
       signal: controller.signal,
     });
     const text = await response.text();
     return {
       ok: response.ok,
       status: response.status,
+      eventId,
+      transport: "envelope",
       message: response.ok
         ? "ok"
         : sentryHttpErrorMessage(response.status, text),
@@ -319,11 +341,25 @@ async function sendSentryProbe(dsn) {
     return {
       ok: false,
       status: null,
+      eventId,
+      transport: "envelope",
       message: error instanceof Error ? error.message : String(error),
     };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function sentryEnvelope(dsn, event) {
+  return `${[
+    JSON.stringify({
+      event_id: event.event_id,
+      sent_at: new Date().toISOString(),
+      dsn: `${dsn.protocol}//${dsn.publicKey}@${dsn.host}/${dsn.projectId}`,
+    }),
+    JSON.stringify({ type: "event" }),
+    JSON.stringify(event),
+  ].join("\n")}\n`;
 }
 
 function sentryHttpErrorMessage(status, text) {

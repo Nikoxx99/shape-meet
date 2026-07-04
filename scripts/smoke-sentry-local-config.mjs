@@ -89,6 +89,65 @@ try {
     "sentry JSON leaked raw DSN",
   );
 
+  const liveCheckJson = execFileSync(
+    process.execPath,
+    [
+      resolve("scripts/check-sentry-config.mjs"),
+      "--json",
+      "--live",
+      "--root",
+      tempDir,
+    ],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SHAPE_SENTRY_CHECK_LIVE_STATUS: "200",
+      },
+    },
+  );
+  const liveCheckReport = JSON.parse(liveCheckJson);
+  assert(liveCheckReport.ok === true, "sentry live fixture did not pass");
+  assert(
+    liveCheckReport.liveResults?.[0]?.transport === "envelope",
+    "sentry live check did not use envelope transport",
+  );
+  assert(
+    liveCheckReport.liveResults?.[0]?.eventId,
+    "sentry live check did not report event id",
+  );
+
+  const liveCheckFail = spawnSync(
+    process.execPath,
+    [
+      resolve("scripts/check-sentry-config.mjs"),
+      "--json",
+      "--live",
+      "--root",
+      tempDir,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SHAPE_SENTRY_CHECK_LIVE_STATUS: "403",
+        SHAPE_SENTRY_CHECK_LIVE_BODY:
+          '{"detail":"event submission rejected with_reason: ProjectId"}',
+      },
+    },
+  );
+  assert(liveCheckFail.status !== 0, "invalid sentry live check should fail");
+  const liveCheckFailReport = JSON.parse(liveCheckFail.stdout);
+  assert(
+    liveCheckFailReport.liveResults?.[0]?.transport === "envelope",
+    "failing sentry live check did not use envelope transport",
+  );
+  assert(
+    liveCheckFailReport.issues?.some((issue) => issue.includes("ProjectId")),
+    "failing sentry live check did not explain ProjectId",
+  );
+
   execFileSync(
     process.execPath,
     [
