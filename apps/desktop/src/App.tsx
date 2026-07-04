@@ -212,6 +212,8 @@ interface AiPreflightAudioSample {
 const DEMO_DATA_ENABLED =
   import.meta.env.DEV &&
   (import.meta.env.VITE_SHAPE_DEMO_DATA as string | undefined) === "true";
+const DEFAULT_SHAPE_PUBLIC_URL =
+  "https://shape-meet-admin.15.235.86.211.sslip.io";
 const initialMeetings = DEMO_DATA_ENABLED ? mockMeetings : [];
 const initialIdentities = DEMO_DATA_ENABLED ? mockIdentities : [];
 const initialDeepLinkCode = readMeetingCodeFromLocation();
@@ -1086,8 +1088,7 @@ function meetingShareUrl(
     runtimeConfig?.meetingBaseUrl ||
     ((import.meta.env.VITE_SHAPE_MEETING_URL as string | undefined) ??
       (import.meta.env.VITE_SHAPE_APP_URL as string | undefined));
-  const baseUrl =
-    configuredUrl?.replace(/\/$/, "") || "https://meet.shape.local";
+  const baseUrl = configuredUrl?.replace(/\/$/, "") || DEFAULT_SHAPE_PUBLIC_URL;
   return `${baseUrl}/r/${code}`;
 }
 

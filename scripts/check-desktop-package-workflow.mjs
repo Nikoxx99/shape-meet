@@ -19,6 +19,7 @@ const workflow = existsSync(workflowPath)
   ? readFileSync(workflowPath, "utf8")
   : "";
 const packageJson = readJson(join(repoRoot, "package.json"));
+const defaultRemoteUrl = "https://shape-meet-admin.15.235.86.211.sslip.io";
 const checks = [];
 const warnings = [];
 const issues = [];
@@ -67,6 +68,10 @@ function checkTriggers() {
     "cancel-in-progress: false",
     "builds desktop no se cancelan entre si",
   );
+  expectText(
+    `default: "${defaultRemoteUrl}"`,
+    "inputs desktop usan URL remota por defecto",
+  );
 }
 
 function checkRuntimeConfigJob() {
@@ -79,6 +84,8 @@ function checkRuntimeConfigJob() {
   for (const expected of [
     "vars.DESKTOP_SHAPE_API_URL",
     "vars.DESKTOP_SHAPE_MEETING_URL",
+    `vars.DESKTOP_SHAPE_API_URL || '${defaultRemoteUrl}'`,
+    `vars.DESKTOP_SHAPE_MEETING_URL || '${defaultRemoteUrl}'`,
     "vars.DESKTOP_SHAPE_AI_SERVICE_URL",
     "vars.DESKTOP_SHAPE_HOST_IDENTIFIER",
     "vars.DESKTOP_SENTRY_DSN",

@@ -3,8 +3,31 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const DEFAULT_REMOTE_URL = "https://shape-meet-admin.15.235.86.211.sslip.io";
 const tempDir = mkdtempSync(join(tmpdir(), "shape-desktop-config-"));
 const coolifyEnv = join(tempDir, "coolify.env");
+
+const defaultResult = spawnSync(
+  pnpmCommand(),
+  ["desktop:config", "--", "--dry-run"],
+  {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  },
+);
+
+if (defaultResult.stderr) process.stderr.write(defaultResult.stderr);
+if (defaultResult.error) fail(defaultResult.error.message);
+if (defaultResult.status !== 0) {
+  fail(`desktop:config default dry-run exited with ${defaultResult.status}`);
+}
+
+assertIncludes(defaultResult.stdout, `SHAPE_API_URL=${DEFAULT_REMOTE_URL}`);
+assertIncludes(
+  defaultResult.stdout,
+  `VITE_SHAPE_MEETING_URL=${DEFAULT_REMOTE_URL}`,
+);
+assertIncludes(defaultResult.stdout, "SHAPE_HOST_IDENTIFIER=");
 
 writeFileSync(
   coolifyEnv,

@@ -8,6 +8,23 @@ const dryRun = args.includes("--dry-run");
 const install = args.includes("--install");
 const envFile = argValue("--env-file");
 const env = envFile ? parseEnvFile(resolve(envFile)) : {};
+const defaultPublicShapeUrl =
+  process.env.SHAPE_DEFAULT_PUBLIC_URL ??
+  "https://shape-meet-admin.15.235.86.211.sslip.io";
+const defaultApiUrl =
+  process.env.SHAPE_DEFAULT_API_URL ??
+  process.env.SHAPE_DEFAULT_ADMIN_URL ??
+  defaultPublicShapeUrl;
+const defaultAppUrl =
+  process.env.SHAPE_DEFAULT_APP_URL ??
+  process.env.SHAPE_DEFAULT_MEETING_URL ??
+  defaultPublicShapeUrl;
+const defaultMeetingUrl =
+  process.env.SHAPE_DEFAULT_MEETING_URL ??
+  process.env.SHAPE_DEFAULT_APP_URL ??
+  defaultAppUrl;
+const defaultAiUrl =
+  process.env.SHAPE_DEFAULT_AI_SERVICE_URL ?? "http://127.0.0.1:7851";
 const outputPath =
   argValue("--out") ??
   process.env.SHAPE_DESKTOP_CONFIG_FILE ??
@@ -20,7 +37,7 @@ const config = {
       env.VITE_SHAPE_API_URL ??
       env.SHAPE_API_URL ??
       env.NEXT_PUBLIC_APP_URL ??
-      "http://localhost:13000",
+      defaultApiUrl,
   ),
   appUrl: trimTrailingSlash(
     argValue("--app-url") ??
@@ -30,7 +47,7 @@ const config = {
       env.SHAPE_APP_URL ??
       env.VITE_SHAPE_MEETING_URL ??
       env.SHAPE_MEETING_URL ??
-      "http://localhost:1420",
+      defaultAppUrl,
   ),
   meetingUrl: trimTrailingSlash(
     argValue("--meeting-url") ??
@@ -39,13 +56,13 @@ const config = {
       env.SHAPE_MEETING_URL ??
       env.VITE_SHAPE_APP_URL ??
       env.SHAPE_APP_URL ??
-      "http://localhost:1420",
+      defaultMeetingUrl,
   ),
   aiUrl: trimTrailingSlash(
     argValue("--ai-url") ??
       env.VITE_SHAPE_AI_SERVICE_URL ??
       env.SHAPE_AI_SERVICE_URL ??
-      "http://127.0.0.1:7851",
+      defaultAiUrl,
   ),
   hostIdentifier:
     argValue("--host-identifier") ??
@@ -126,7 +143,7 @@ function renderDesktopConfig(input) {
 
   return `${[
     "# Shape Meet desktop runtime config",
-    "# Copy to the app data directory as shape-meet.env, or set SHAPE_DESKTOP_CONFIG_FILE.",
+    "# Bundled into desktop builds. Support overrides can use the app data directory or SHAPE_DESKTOP_CONFIG_FILE.",
     ...entries.map(([key, value]) => `${key}=${quoteEnv(value)}`),
     "",
   ].join("\n")}`;

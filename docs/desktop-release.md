@@ -99,10 +99,9 @@ Desde GitHub Actions:
 `shape-meet-runtime-config` contiene un `shape-meet.env` sin secretos. El
 workflow también lo descarga dentro de cada job de paquete y lo embebe como
 recurso Tauri, así que una app instalada desde esos artifacts ya arranca con las
-URLs del entorno demo. Para una demo local apunta por defecto a
-`http://localhost:13000`, `http://localhost:1420` y `http://127.0.0.1:7851`;
-edítalo o regenéralo con `pnpm desktop:config` para apuntar a Coolify antes de
-entregarlo a otra máquina.
+URLs del entorno remoto. Si no se pasan inputs, el build apunta por defecto a
+`https://shape-meet-admin.15.235.86.211.sslip.io` para admin/API y reuniones, y a
+`http://127.0.0.1:7851` para el sidecar IA local.
 
 Para un handoff remoto, llena los inputs del workflow manual:
 
@@ -141,9 +140,11 @@ La app resuelve códigos desde enlaces web `/r/SM-123-456`, query
 pegados manualmente. En Windows/Linux, `single-instance` evita que un deep link
 abra una segunda ventana cuando la app ya está corriendo.
 
-## Configuración runtime
+## Configuración runtime de soporte
 
-El build desktop puede apuntar a un entorno Coolify sin recompilar creando un
+La experiencia de cliente final no requiere copiar archivos de configuración:
+el instalador debe llevar el `shape-meet.env` embebido. Para soporte interno,
+QA o una workstation temporal, se puede sobreescribir el runtime creando un
 archivo `shape-meet.env` en el directorio de datos de la app:
 
 - Windows: `%LOCALAPPDATA%\Shape Meet\shape-meet.env`
@@ -166,8 +167,8 @@ VITE_SENTRY_ENVIRONMENT=internal-debug
 ```
 
 La desktop usa esta configuración para API, enlaces públicos, sidecar IA local,
-Sentry nativo y debug bundles. Si el archivo no existe, conserva los valores
-compilados por Vite y los defaults locales.
+Sentry nativo y debug bundles. Si el archivo no existe, conserva el recurso
+embebido en Tauri y los defaults remotos.
 
 Para generarlo desde el env de Coolify sin copiar secretos del servidor:
 

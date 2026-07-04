@@ -6,10 +6,12 @@ on:
       admin_url:
         description: "Admin/API URL, for example https://admin.example.com"
         required: false
+        default: "https://shape-meet-admin.15.235.86.211.sslip.io"
         type: string
       meeting_url:
         description: "Meeting URL, for example https://meet.example.com"
         required: false
+        default: "https://shape-meet-admin.15.235.86.211.sslip.io"
         type: string
       ai_url:
         description: "Local AI sidecar URL for the workstation"
@@ -77,8 +79,8 @@ jobs:
 
       - name: Generate runtime config
         env:
-          SHAPE_RUNTIME_ADMIN_URL: ${{ github.event.inputs.admin_url || vars.DESKTOP_SHAPE_API_URL || '' }}
-          SHAPE_RUNTIME_MEETING_URL: ${{ github.event.inputs.meeting_url || vars.DESKTOP_SHAPE_MEETING_URL || '' }}
+          SHAPE_RUNTIME_ADMIN_URL: ${{ github.event.inputs.admin_url || vars.DESKTOP_SHAPE_API_URL || 'https://shape-meet-admin.15.235.86.211.sslip.io' }}
+          SHAPE_RUNTIME_MEETING_URL: ${{ github.event.inputs.meeting_url || vars.DESKTOP_SHAPE_MEETING_URL || 'https://shape-meet-admin.15.235.86.211.sslip.io' }}
           SHAPE_RUNTIME_AI_URL: ${{ github.event.inputs.ai_url || vars.DESKTOP_SHAPE_AI_SERVICE_URL || 'http://127.0.0.1:7851' }}
           SHAPE_RUNTIME_HOST_IDENTIFIER: ${{ github.event.inputs.host_identifier || vars.DESKTOP_SHAPE_HOST_IDENTIFIER || '' }}
           SHAPE_RUNTIME_SENTRY_DSN: ${{ github.event.inputs.sentry_dsn || vars.DESKTOP_SENTRY_DSN || secrets.DESKTOP_SENTRY_DSN || '' }}

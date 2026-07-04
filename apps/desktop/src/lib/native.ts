@@ -57,6 +57,13 @@ export interface NativeDebugEventResult {
   message: string;
 }
 
+const DEFAULT_SHAPE_PUBLIC_URL =
+  "https://shape-meet-admin.15.235.86.211.sslip.io";
+const DEFAULT_DESKTOP_API_URL = DEFAULT_SHAPE_PUBLIC_URL;
+const DEFAULT_DESKTOP_APP_URL = DEFAULT_SHAPE_PUBLIC_URL;
+const DEFAULT_DESKTOP_MEETING_URL = DEFAULT_SHAPE_PUBLIC_URL;
+const DEFAULT_DESKTOP_AI_URL = "http://127.0.0.1:7851";
+
 export interface NativeAiPipelineStatus {
   id: string;
   label: string;
@@ -885,12 +892,12 @@ function browserModelEndpointRuntime(running: boolean): NativeAiSidecarRuntime {
 function fallbackDesktopRuntimeConfig(): NativeDesktopRuntimeConfig {
   const appBaseUrl =
     (import.meta.env.VITE_SHAPE_APP_URL as string | undefined) ??
-    "https://meet.shape.local";
+    DEFAULT_DESKTOP_APP_URL;
 
   return normalizeDesktopRuntimeConfig({
     apiBaseUrl:
       (import.meta.env.VITE_SHAPE_API_URL as string | undefined) ??
-      "http://localhost:3000",
+      DEFAULT_DESKTOP_API_URL,
     appBaseUrl,
     meetingBaseUrl:
       (import.meta.env.VITE_SHAPE_MEETING_URL as string | undefined) ??
@@ -926,15 +933,13 @@ function normalizeDesktopRuntimeConfig(
   config: NativeDesktopRuntimeConfig,
 ): NativeDesktopRuntimeConfig {
   return {
-    apiBaseUrl: trimTrailingSlash(config.apiBaseUrl || "http://localhost:3000"),
-    appBaseUrl: trimTrailingSlash(
-      config.appBaseUrl || "https://meet.shape.local",
-    ),
+    apiBaseUrl: trimTrailingSlash(config.apiBaseUrl || DEFAULT_DESKTOP_API_URL),
+    appBaseUrl: trimTrailingSlash(config.appBaseUrl || DEFAULT_DESKTOP_APP_URL),
     meetingBaseUrl: trimTrailingSlash(
-      config.meetingBaseUrl || config.appBaseUrl || "https://meet.shape.local",
+      config.meetingBaseUrl || config.appBaseUrl || DEFAULT_DESKTOP_MEETING_URL,
     ),
     aiServiceUrl: trimTrailingSlash(
-      config.aiServiceUrl || "http://127.0.0.1:7851",
+      config.aiServiceUrl || DEFAULT_DESKTOP_AI_URL,
     ),
     hostIdentifier: config.hostIdentifier?.trim() || null,
     demoDataEnabled: Boolean(config.demoDataEnabled),

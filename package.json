@@ -27,6 +27,10 @@
     "check:sentry": "node scripts/check-sentry-config.mjs",
     "check:sentry:live": "node scripts/check-sentry-config.mjs --live",
     "sentry:configure": "node scripts/configure-sentry-local.mjs",
+    "sentry:cli": "sentry-cli",
+    "sentry:info": "sentry-cli info",
+    "sentry:issues": "sentry-cli issues list -o arnoproducciones -p luxora --query is:unresolved --max-rows 25",
+    "sentry:events": "sentry-cli events list -o arnoproducciones -p luxora --max-rows 25 --show-tags",
     "coolify:env": "node scripts/render-coolify-env.mjs",
     "coolify:handoff": "node scripts/prepare-coolify-handoff.mjs",
     "coolify:deploy": "node scripts/deploy-coolify-app.mjs",
@@ -93,6 +97,7 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "@sentry/cli": "^3.6.0",
     "playwright": "^1.61.1",
     "prettier": "latest",
     "typescript": "latest"

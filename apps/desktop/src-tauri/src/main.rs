@@ -15,6 +15,9 @@ use std::{
 use tauri::{Manager, State};
 
 const DEFAULT_AI_ENDPOINT: &str = "http://127.0.0.1:7851";
+const DEFAULT_SHAPE_PUBLIC_URL: &str = "https://shape-meet-admin.15.235.86.211.sslip.io";
+const DEFAULT_DESKTOP_API_URL: &str = DEFAULT_SHAPE_PUBLIC_URL;
+const DEFAULT_DESKTOP_APP_URL: &str = DEFAULT_SHAPE_PUBLIC_URL;
 const HTTP_TIMEOUT_MS: u64 = 1200;
 const ARTIFACT_DOWNLOAD_TIMEOUT_SECS: u64 = 900;
 const AI_SIDECAR_BINARY_NAME: &str = "shape-ai-sidecar";
@@ -3415,9 +3418,9 @@ fn redacted_environment() -> Value {
 
 fn desktop_runtime_config() -> DesktopRuntimeConfig {
     let api_base_url = local_config_value(&["SHAPE_API_URL", "VITE_SHAPE_API_URL"])
-        .unwrap_or_else(|| "http://localhost:3000".to_string());
+        .unwrap_or_else(|| DEFAULT_DESKTOP_API_URL.to_string());
     let app_base_url = local_config_value(&["SHAPE_APP_URL", "VITE_SHAPE_APP_URL"])
-        .unwrap_or_else(|| "https://meet.shape.local".to_string());
+        .unwrap_or_else(|| DEFAULT_DESKTOP_APP_URL.to_string());
     let meeting_base_url = local_config_value(&[
         "SHAPE_MEETING_URL",
         "VITE_SHAPE_MEETING_URL",
