@@ -383,6 +383,7 @@ fn export_debug_bundle() -> Result<String, String> {
             "logPath": sidecar_log_path().display().to_string(),
             "logTail": read_sidecar_log_tail(80)
         },
+        "aiRuntimeDoctor": doctor_ai_runtime_env().ok(),
         "environment": redacted_environment()
     });
 

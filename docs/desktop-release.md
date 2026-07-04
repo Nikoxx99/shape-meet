@@ -154,6 +154,9 @@ Windows prueba rutas comunes como `nvidia-smi.exe`,
 `C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe`. La pantalla de
 prueba de equipo muestra nombre de GPU, VRAM, CUDA y driver; el debug bundle
 incluye el mismo resumen sin enviar video/audio ni artefactos.
+También incluye `aiRuntimeDoctor`, con perfil de workstation, estado de
+passthrough, checks de FaceFusion/BackgroundMattingV2/vcclient000 y siguientes
+pasos sin volcar el contenido crudo del archivo env.
 
 Clasificación inicial:
 
