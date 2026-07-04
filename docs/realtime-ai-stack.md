@@ -1,6 +1,8 @@
 # Shape Meet: stack local para IA en tiempo real
 
 Fecha: 2026-07-02
+Actualizado: 2026-07-04 — runtime persistente de IA (modo `inproc`, fase 1
+implementada). Ver la seccion "Runtime persistente de IA".
 
 ## Objetivo
 
@@ -135,9 +137,18 @@ Fallback:
 
 - NVIDIA Maxine Video Effects SDK puede quedar como alternativa propietaria si BackgroundMattingV2 falla en estabilidad o packaging.
 
+Actualizacion (runtime persistente, 2026-07): en el modo `inproc` la ruta
+principal de fondo es Robust Video Matting (RVM, MIT, PeterL1n), que no
+requiere clean plate y mantiene estado recurrente por sesion para coherencia
+temporal. BackgroundMattingV2 queda como fallback opt-in
+(`SHAPE_BACKGROUND_ENGINE=bmv2` + checkpoint torchscript) para hosts con un
+clean plate bien capturado; la condicion operacional de calibracion de fondo
+solo aplica a ese fallback.
+
 Fuentes:
 
 - https://github.com/PeterL1n/BackgroundMattingV2
+- https://github.com/PeterL1n/RobustVideoMatting
 - https://grail.cs.washington.edu/projects/background-matting-v2/
 - https://docs.nvidia.com/deeplearning/maxine/vfx-sdk-system-guide/index.html
 
@@ -243,10 +254,13 @@ Implementacion actual:
   `shape_model_endpoint_server.py`, genera runtime `local-endpoints`, arranca
   el sidecar y valida `/preflight`.
 - `apps/ai-sidecar/wrappers` contiene wrappers CLI de referencia para
-  FaceFusion, BackgroundMattingV2 y vcclient000. Estos wrappers son el puente
-  inicial para máquinas de demo con modelos instalados; para producción de baja
-  latencia deben evolucionar a procesos persistentes que mantengan pesos cargados
-  y expongan `SHAPE_VIDEO_PROCESSOR_ENDPOINT` / `SHAPE_AUDIO_PROCESSOR_ENDPOINT`.
+  FaceFusion, BackgroundMattingV2 y vcclient000. Con el runtime persistente
+  (`SHAPE_MODEL_ENDPOINT_ENGINE=inproc`, ver seccion "Runtime persistente de
+  IA") estos wrappers dejaron de ser el camino caliente: quedan como modo
+  `wrappers` de fallback/compatibilidad y para smokes. El proceso persistente
+  que mantiene los pesos cargados y expone
+  `SHAPE_VIDEO_PROCESSOR_ENDPOINT` / `SHAPE_AUDIO_PROCESSOR_ENDPOINT` es
+  `shape_model_endpoint_server.py` en modo `inproc`.
 
 Variables del supervisor nativo:
 
@@ -299,7 +313,10 @@ Variables del supervisor nativo:
   `SHAPE_VOICE_ENDPOINT`. Por defecto la workstation usa `/video-frame` para el
   pipeline persistente de rostro + fondo y `/voice` como endpoint combinado de
   audio. Para forzar etapas separadas, genera el runtime con
-  `--video-frame-endpoint ""` o `--audio-chunk-endpoint ""`.
+  `--video-frame-endpoint ""` o `--audio-chunk-endpoint ""`. Con
+  `--engine inproc` esas mismas variables alimentan los endpoints colapsados
+  `/process-frame` y `/process-audio` del runtime persistente (ver seccion
+  "Runtime persistente de IA").
 - `shape-ai-runtime.env`: archivo local cargado por la app Tauri antes de iniciar
   el sidecar gestionado. Windows usa `%LOCALAPPDATA%\Shape Meet`, macOS usa
   `~/Library/Application Support/Shape Meet` y Linux usa XDG data dir. Puede
@@ -443,10 +460,12 @@ El cliente soporta `pcm_f32le`, `pcm_s16le` y `uint8-time-domain` como salida de
 voz. Para video, el motor debe devolver una imagen completa del frame final, no
 una mascara ni un overlay parcial.
 
-El puente actual usa HTTP/data URL para simplificar el MVP y validar contrato.
-Para 720p30 con modelos reales, el siguiente paso tecnico es reemplazar ese
-transporte por WebSocket binario, gRPC streaming o memoria compartida sin
-cambiar el punto de publicacion a LiveKit.
+El puente actual usa HTTP/1.1 keep-alive + JSON/data URL: los dos `http.server`
+fijan `protocol_version="HTTP/1.1"` y `server.py` reutiliza conexiones
+(`http.client` pool), asi que ya no se paga un handshake TCP por frame en
+loopback. Para exprimir 720p30 con modelos reales, el siguiente paso tecnico
+sigue siendo reemplazar ese transporte por WebSocket binario, gRPC streaming o
+memoria compartida sin cambiar el punto de publicacion a LiveKit.
 
 ### Contrato de motores
 
@@ -500,6 +519,182 @@ Puntos de seguridad pendientes:
 - cifrado local de modelos e imagenes fuente;
 - auditoria de consentimiento y aprobacion;
 - sincronizacion forzada de revocacion local mientras la desktop esta offline.
+
+## Runtime persistente de IA (modo inproc)
+
+Fase 1 implementada (2026-07-04). El endpoint de modelos
+`apps/ai-sidecar/processors/shape_model_endpoint_server.py` (:9100) es el unico
+proceso que mantiene los modelos cargados en RAM/VRAM durante toda la vida del
+sidecar, con motores in-process en `apps/ai-sidecar/engines/` cargados una vez
+al arranque y estado por sesion. Las secciones anteriores de este documento se
+conservan como contexto: siguen siendo ciertas para el modo `wrappers`
+(fallback) y para el contrato HTTP del sidecar, que no cambio.
+
+### Modos de motor
+
+`SHAPE_MODEL_ENDPOINT_ENGINE` selecciona el motor del endpoint:
+
+| Modo           | Que hace                                                                                                                                                                         | Uso                                |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `inproc`       | Motores in-process residentes: insightface buffalo_l + inswapper_128 (rostro), RVM/BMV2 en torch (fondo), cliente HTTP persistente a w-okada (voz). Camino caliente recomendado. | Demo real (Mac fase 1, RTX fase 2) |
+| `wrappers`     | Subproceso CLI por frame/chunk (FaceFusion, BMV2 `inference_images.py`, `vcclient000_chunk.py`). Recarga pesos por invocacion.                                                   | Fallback/compatibilidad y smokes   |
+| `passthrough`  | Copia entrada a salida sin modelos.                                                                                                                                              | Validar transporte/CI              |
+| `demo-effects` | Efectos visibles ligeros (SVG/robotizado) sin modelos.                                                                                                                           | Demo tecnica sin pesos             |
+
+Si la variable no esta definida, deciden los flags legacy:
+`SHAPE_MODEL_ENDPOINT_PASSTHROUGH`/`SHAPE_WRAPPER_PASSTHROUGH` fuerzan
+`passthrough`, `SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS` fuerza `demo-effects`, y en
+otro caso se usa `wrappers`. Con `SHAPE_MODEL_ENDPOINT_ENGINE=inproc` explicito
+los flags de passthrough se ignoran.
+
+### Arquitectura colapsada (2 procesos)
+
+La cadena caliente pasa de 4 procesos a 2:
+
+```text
+webview (processedVideo.ts) → server.py :7851 → HTTP/1.1 keep-alive → shape_model_endpoint_server.py :9100 (motores residentes)
+```
+
+El runtime env generado por `pnpm models:bootstrap -- --engine inproc` (o
+`pnpm models:runtime -- --engine inproc --preset local-endpoints`) apunta el
+sidecar directo al endpoint:
+
+- `SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:9100/process-frame`
+- `SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:9100/process-audio`
+- `SHAPE_VIDEO_PROCESSOR_COMMAND` / `SHAPE_AUDIO_PROCESSOR_COMMAND` NO se
+  definen: sin comando, `server.py` no arranca `shape_processor_command.py`,
+  que queda fuera del camino caliente (solo modos command/legacy y smokes).
+- `/process-frame` y `/process-audio` hablan el contrato del sidecar (respuesta
+  envuelta en `{frame}` / `{audio}`), asi que no hace falta adaptador.
+- El contrato que ve el desktop no cambia: sigue hablando
+  `/sessions/{id}/frames` y `/audio` con `server.py`.
+
+### Motores y pesos (modo inproc)
+
+| Stage      | Motor residente                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Pesos / env                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| face       | `engines/face_insightface.py`: FaceAnalysis buffalo_l (detector + embedding) + inswapper_128 sobre onnxruntime. Embedding de la cara fuente cacheado por hash de archivo, una vez por sesion.                                                                                                                                                                                                                                                                                                                        | `SHAPE_INSWAPPER_MODEL` (inswapper_128.onnx, modelo gated de InsightFace, descarga manual, no redistribuible); `INSIGHTFACE_HOME`/`SHAPE_INSIGHTFACE_HOME` (cache buffalo_l, default `~/.insightface`); `SHAPE_FACE_EXECUTION_PROVIDERS` (`cuda` en RTX, `coreml,cpu` en Mac; si CoreML rechaza el grafo cae a CPU y reporta `coreml_fallback_cpu` como degraded); `SHAPE_FACE_DETECT_SIZE` (default 640).          |
+| background | `engines/background_matting.py`: RVM principal (sin clean plate, estado recurrente por sesion) o BMV2 fallback (torchscript + clean plate).                                                                                                                                                                                                                                                                                                                                                                          | `SHAPE_BACKGROUND_ENGINE=rvm\|bmv2`; `SHAPE_RVM_MODEL` (torchscript autocontenido recomendado, MIT) o `BMV2_MODEL_CHECKPOINT` (torchscript); device por `SHAPE_BACKGROUND_DEVICE`/`BMV2_DEVICE`/`SHAPE_TORCH_DEVICE` (auto: cuda → mps → cpu); fondo desde `identity.backgroundAssetsPath` o `SHAPE_BACKGROUND_COLOR`.                                                                                              |
+| voice      | `engines/voice_wokada.py`: cliente HTTP persistente (keep-alive, conexion reutilizada) hacia VCClient. Contrato principal **v2**: `POST /api/voice-changer/convert_chunk` (multipart, Float32 LE mono in/out, sin round-trip a S16); health `GET /api/hello`. **v1** (w-okada legado) sigue soportado: `POST /test` con buffer S16 base64. `VCCLIENT000_HTTP_MODE=auto` (default) prueba el health v2 y cae a v1 si no responde; fuente unica de conversion que tambien importa el wrapper (`vcclient000_chunk.py`). | `VCCLIENT000_HTTP_ENDPOINT` (o `SHAPE_VOICE_ENDPOINT`); default v2 `http://127.0.0.1:18000`, v1 legado `http://127.0.0.1:18888/test`. Bootstrap de identidad por API (slot RVC creado/activado vía `/api/slot-manager`), `index_ratio` siempre forzado a `0.0` (un valor distinto crashea el build ARM de VCClient); el servidor VCClient tarda ~40s en arrancar (carga de modelo) antes de responder `/api/hello`. |
+
+Dependencias python del endpoint: `apps/ai-sidecar/requirements-inproc-mac.txt`
+(Mac) o `requirements-inproc-cuda.txt` (Windows/NVIDIA), instaladas en el venv
+`apps/ai-sidecar/.venv-inproc`. El runtime env fija `SHAPE_MODEL_ENDPOINT_PYTHON`
+a ese venv para que `pnpm models:endpoint` y los smokes lo usen.
+
+### Tabla de timeouts (valores reales del codigo)
+
+Principio: el timeout externo de cada salto es mayor que el interno, y la carga
+inicial de motores tiene su propio timeout gobernado por readiness (`/health`
+responde `limited` hasta que los motores terminan de cargar).
+
+| Salto                                           | Variable                                                                  | Default en codigo                                                     | Fase 1 (Mac) | Fase 2 (RTX) |
+| ----------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------ | ------------ |
+| Carga inicial de motores                        | `SHAPE_MODEL_ENDPOINT_LOAD_TIMEOUT_SECS`                                  | 60 en Apple Silicon / 30 resto                                        | 60           | 30           |
+| Inferencia frame (endpoint)                     | `SHAPE_MODEL_ENDPOINT_TIMEOUT_SECS`                                       | 30 (clamp 0.1–120)                                                    | 3.0          | 1.5          |
+| Chunk voz endpoint → w-okada                    | `SHAPE_VOICE_ENDPOINT_TIMEOUT_SECS` (fallback `VCCLIENT000_TIMEOUT_SECS`) | 2.0                                                                   | 2.0          | 1.0          |
+| server → endpoint (video)                       | `SHAPE_PROCESSOR_TIMEOUT_SECS`                                            | 15, con techo `SHAPE_PROCESSOR_TIMEOUT_CEILING_SECS`=10 (efectivo 10) | 4.0          | 2.0          |
+| server → endpoint (audio)                       | `SHAPE_AUDIO_PROCESSOR_TIMEOUT_SECS` (si falta, usa el de video)          | —                                                                     | 2.5          | 1.2          |
+| `shape_processor_command` (solo command/legacy) | `SHAPE_MODEL_COMMAND_TIMEOUT_SECS`                                        | 4.0 (clamp 0.1–30)                                                    | 4.0          | 2.0          |
+| Poll de diagnostics del endpoint                | `SHAPE_MODEL_ENDPOINT_POLL_TIMEOUT_SECS`                                  | 1.5                                                                   | 1.5          | 0.75         |
+| Health de managed processors                    | `SHAPE_MANAGED_HEALTH_TIMEOUT_SECS`                                       | 1.0                                                                   | 1.0          | 0.5          |
+| Desktop: preflight                              | `PREFLIGHT_TIMEOUT_MS` (const, `aiSidecar.ts`)                            | 70000                                                                 | 70000        | 70000        |
+| Desktop: frame                                  | `FRAME_PROCESS_TIMEOUT_MS` (const, `aiSidecar.ts`)                        | 5000                                                                  | 5000         | 5000         |
+| Desktop: audio                                  | `AUDIO_PROCESS_TIMEOUT_MS` (const, `aiSidecar.ts`)                        | 3000                                                                  | 3000         | 3000         |
+| Desktop: frescura de frame                      | `FRAME_FRESHNESS_MS` (const, `processedVideo.ts`)                         | 500                                                                   | 500          | 500          |
+
+Los valores de fase 1/2 de los saltos python los fija el runtime env generado
+por el bootstrap segun el perfil (`apple-silicon` → fase 1, `windows-nvidia` →
+fase 2). Los timeouts del desktop son constantes de fase 1 compiladas en el
+frontend; apretarlos para RTX requiere rebuild. Coherencia de la cadena en
+fase 1: desktop 5000 ms > server→endpoint 4000 ms > inferencia endpoint
+3000 ms; en fase 2: 5000 > 2000 > 1500 — el salto interno corta antes que el
+externo y el error se atribuye al salto correcto.
+
+### Estados por stage y errores visibles
+
+Cada stage (`face`, `background`, `voice`) expone en `/health` y
+`/diagnostics` (`stages[].engine`) el estado
+`{state, reason, detail, since, consecutiveFailures, lastLatencyMs, device, vramMb, loadedAt}`:
+
+- `active`: motor cargado y procesando.
+- `degraded`: procesa con advertencias (p.ej. `coreml_fallback_cpu`) o fallo
+  puntual por debajo del umbral.
+- `failed`: no cargo o hay racha de fallos; el video sale passthrough con
+  motivo visible (la UI distingue "efecto no pedido" de "pedido y caido").
+
+Histeresis (sin parpadeo de estado): `SHAPE_STAGE_FAIL_STREAK` (default 3)
+fallos consecutivos degradan a `failed`; `SHAPE_STAGE_RECOVER_FRAMES`
+(default 2) exitos reales consecutivos recuperan a `active`. Un passthrough NO
+limpia el error (el `adapterError`/`reason` persiste hasta que hay frames
+procesados reales).
+
+Codigos de `reason` estables: `engine_not_loaded`, `engine_load_failed`,
+`inswapper_model_missing`, `rvm_model_missing`, `bmv2_model_missing`,
+`coreml_fallback_cpu`, `inference_failed`, `identity_face_not_detected`,
+`face_source_missing`, `face_source_not_detected`, `clean_plate_missing`,
+`wokada_not_configured`, `wokada_unreachable`, `wokada_bad_response`,
+`audio_format_unsupported`.
+
+Contrato hacia el desktop: `aiSidecar.ts` tipa `pipeline.state`,
+`pipeline.reason`, `pipeline.stateDetail`, `stageDevice`/`stageVramMb` y
+`AiStageResult`; los frames con efecto pedido pero no aplicado llegan con
+`status: "degraded"` y warnings con codigo estable.
+
+### Smokes del runtime persistente
+
+| Comando                              | Que valida                                                                                                                                                      |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm smoke:ai-face-inproc`          | Swap in-process real con fixtures (salida distinta de la entrada, dimensiones correctas, device reportado).                                                     |
+| `pnpm smoke:ai-background-inproc`    | Matte RVM sin clean plate: composite distinto de la entrada y cobertura de alpha coherente.                                                                     |
+| `pnpm smoke:ai-voice-inproc`         | Contra mocks: round-trip S16 v1 (`POST /test`) y passthrough Float32 v2 (`convert_chunk`, auto-detect por `GET /api/hello`), reutilizando la conexion en ambos. |
+| `pnpm smoke:ai-voice-vcclient2-live` | Igual que arriba pero contra un VCClient v2 real en `127.0.0.1:18000`; se salta (exit 0) si no hay servidor vivo.                                               |
+| `pnpm smoke:ai-endpoint-collapsed`   | `server.py` → endpoint directo sin `shape_processor_command`, contrato `{frame}`/`{audio}` extremo a extremo.                                                   |
+| `pnpm smoke:ai-stage-states`         | Fallo forzado → `session.health=failed`, `pipeline.state=failed` con `reason`, sin limpiarse tras un passthrough (histeresis).                                  |
+
+Todos degradan a `skipped` (exit 0) cuando faltan dependencias o pesos, para
+que CI en una maquina sin GPU/pesos nunca falle por entorno. Los pesos locales
+se resuelven por env o desde `~/.cache/shape-meet-airuntime/weights/`.
+
+### Doctor e instalacion de un paso
+
+`pnpm models:doctor` detecta `SHAPE_MODEL_ENDPOINT_ENGINE=inproc` en el runtime
+env y cambia su modo de validacion:
+
+- exige los pesos in-process (inswapper_128.onnx; RVM o checkpoint BMV2 segun
+  `SHAPE_BACKGROUND_ENGINE`) y el endpoint de VCClient/w-okada, con checks de
+  existencia de archivo; NO exige `FACEFUSION_DIR`/`BMV2_REPO_DIR` ni los
+  wrappers CLI;
+- corre un probe de importabilidad (no bloqueante) con el python del venv del
+  endpoint (`SHAPE_MODEL_ENDPOINT_PYTHON` → `SHAPE_AI_PYTHON` →
+  `.venv-inproc`): importa `onnxruntime`, `insightface`, `torch`, `cv2`,
+  `numpy` y reporta los execution providers disponibles (en Mac basta
+  CoreML/CPU; en windows-nvidia advierte si falta `CUDAExecutionProvider`);
+- con `--endpoint-live` consulta `GET /diagnostics` del endpoint vivo y valida
+  `stages[].engine.state` (failed → error, degraded → warning) y
+  `runtime.device`;
+- `realModelReadiness.ready` es `true` cuando pesos existen + el probe importa
+  - no hay passthrough.
+
+Instalacion RTX de un paso (fase 2, solo config/instalacion):
+
+```powershell
+# En la estacion RTX, desde la raiz del repo:
+pnpm models:bootstrap -- --profile windows-nvidia --engine inproc --init-dirs --write-runtime --write-setup-script
+# Ejecutar el setup script generado (output/model-workstation/setup-windows-nvidia.ps1):
+#   crea apps/ai-sidecar/.venv-inproc con requirements-inproc-cuda.txt,
+#   descarga rvm_mobilenetv3_fp32.torchscript (MIT) con verificacion sha256/tamano,
+#   hace warm-up de buffalo_l con INSIGHTFACE_HOME fijo,
+#   valida inswapper_128.onnx si ya esta (gated: descarga manual, no se redistribuye),
+#   prueba VCClient (GET /api/hello si es v2/default, POST /test si el endpoint
+#   configurado es v1 legado) y corre models:doctor al final.
+# Con el endpoint corriendo (pnpm models:endpoint):
+pnpm models:doctor -- --endpoint-live --strict   # espera device=cuda y stages active
+```
+
+En Mac (fase 1) el mismo flujo usa
+`pnpm models:bootstrap -- --profile apple-silicon --engine inproc --write-runtime --write-setup-script`,
+con `requirements-inproc-mac.txt`, providers `coreml,cpu` y timeouts de fase 1.
 
 ## Observabilidad y debug
 

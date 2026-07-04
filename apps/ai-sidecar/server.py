@@ -2,6 +2,7 @@
 import argparse
 import atexit
 import base64
+import http.client
 import json
 import logging
 import os
@@ -121,6 +122,9 @@ PREFLIGHT_FRAME_DATA_URL = (
 
 class ShapeMeetHandler(BaseHTTPRequestHandler):
     server_version = "ShapeMeetAISidecar/0.1"
+    # HTTP/1.1 keeps the desktop->sidecar connection alive between frames; every
+    # response sends an accurate Content-Length so persistence is safe.
+    protocol_version = "HTTP/1.1"
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -360,7 +364,138 @@ def session_from_start_payload(payload, session_id=None):
         "lastAudioInputBytes": None,
         "lastAudioSequence": None,
         "lastAdapterError": None,
+        "stages": {
+            "face": new_stage_record(),
+            "background": new_stage_record(),
+            "voice": new_stage_record(),
+        },
     }
+
+
+def new_stage_record():
+    return {
+        "state": "active",
+        "reason": None,
+        "detail": None,
+        "since": now_iso(),
+        "consecutiveFailures": 0,
+        "consecutiveProcessed": 0,
+        "lastLatencyMs": None,
+        "device": None,
+        "vramMb": None,
+    }
+
+
+def stage_recover_frames():
+    return max(1, safe_int(os.environ.get("SHAPE_STAGE_RECOVER_FRAMES")) or 2)
+
+
+def stage_fail_streak():
+    return max(1, safe_int(os.environ.get("SHAPE_STAGE_FAIL_STREAK")) or 3)
+
+
+def _set_stage_state(record, state, reason, detail):
+    if record.get("state") != state:
+        record["since"] = now_iso()
+    record["state"] = state
+    record["reason"] = reason
+    record["detail"] = detail
+
+
+def _stage_success(record, latency_ms, device, vram_mb):
+    record["consecutiveFailures"] = 0
+    record["consecutiveProcessed"] = record.get("consecutiveProcessed", 0) + 1
+    if latency_ms is not None:
+        record["lastLatencyMs"] = latency_ms
+    if device:
+        record["device"] = device
+    if vram_mb is not None:
+        record["vramMb"] = vram_mb
+    if record.get("state") != "active":
+        # Hysteresis: only flip failed/degraded -> active after K real frames.
+        if record["consecutiveProcessed"] >= stage_recover_frames():
+            _set_stage_state(record, "active", None, None)
+
+
+def _stage_failure(record, reason, detail):
+    record["consecutiveProcessed"] = 0
+    record["consecutiveFailures"] = record.get("consecutiveFailures", 0) + 1
+    if record["consecutiveFailures"] >= stage_fail_streak():
+        _set_stage_state(record, "failed", reason, detail)
+    else:
+        _set_stage_state(record, "degraded", reason, detail)
+
+
+def apply_stage_states(session, result, stage_ids, latency_ms, error_prefixes):
+    """Update per-session stage health from a processing result, with hysteresis.
+
+    A stage is "processed real" when the endpoint reported ``stages[].changed``
+    true, or (legacy processors without per-stage info) when the overall status
+    is ``processed``. A requested-but-not-applied stage (passthrough/degraded/
+    error) is a failure and does NOT clear ``lastAdapterError``.
+    """
+
+    stages = session.setdefault("stages", {})
+    endpoint_stages = {}
+    if isinstance(result.get("stages"), list):
+        for stage in result["stages"]:
+            if isinstance(stage, dict) and stage.get("id"):
+                endpoint_stages[stage["id"]] = stage
+
+    status = result.get("status")
+    enabled = session.get("enabled", {})
+    for stage_id in stage_ids:
+        record = stages.setdefault(stage_id, new_stage_record())
+        if not enabled.get(stage_id):
+            # Not requested: no health signal; leave the record as-is.
+            continue
+
+        endpoint_stage = endpoint_stages.get(stage_id)
+        if endpoint_stage is not None:
+            changed = bool(endpoint_stage.get("changed"))
+            reason = endpoint_stage.get("reason") or "effect_not_applied"
+            detail = endpoint_stage.get("detail")
+            device = endpoint_stage.get("device")
+            vram = safe_int(endpoint_stage.get("vramMb"))
+            stage_latency = safe_int(endpoint_stage.get("latencyMs")) or latency_ms
+        else:
+            changed = status == "processed"
+            reason = "effect_not_applied"
+            detail = session.get("lastAdapterError")
+            device = None
+            vram = None
+            stage_latency = latency_ms
+
+        if changed:
+            _stage_success(record, stage_latency, device, vram)
+        else:
+            _stage_failure(record, reason, detail or "El efecto solicitado no se aplicó.")
+
+    _refresh_adapter_error(session, stage_ids, error_prefixes)
+
+
+def _refresh_adapter_error(session, stage_ids, error_prefixes):
+    stages = session.get("stages", {})
+    enabled = session.get("enabled", {})
+    unhealthy = [
+        (stage_id, stages[stage_id])
+        for stage_id in stage_ids
+        if enabled.get(stage_id)
+        and stages.get(stage_id, {}).get("state") in {"degraded", "failed"}
+    ]
+    if unhealthy:
+        stage_id, record = unhealthy[0]
+        code = f"{stage_id}_{record.get('reason') or 'effect_not_applied'}"
+        detail = record.get("detail")
+        session["lastAdapterError"] = f"{code}: {detail}" if detail else code
+        return
+    # All requested stages in this group are healthy again -> clear only the
+    # errors owned by this group (do not touch the other group's error).
+    current = session.get("lastAdapterError")
+    if not current:
+        return
+    if any(current.startswith(prefix) for prefix in error_prefixes):
+        session["lastAdapterError"] = None
 
 
 def process_frame_for_session(session, payload):
@@ -386,6 +521,7 @@ def process_frame_for_session(session, payload):
 
     if external_frame:
         apply_frame_result_to_session(session, external_frame, started)
+        mark_degraded_if_requested(session, external_frame, ["face", "background"])
         return external_frame
 
     frame_data = payload.get("frameDataUrl")
@@ -403,6 +539,7 @@ def process_frame_for_session(session, payload):
         "warnings": frame_warnings(session, mode),
     }
     apply_frame_result_to_session(session, result, started)
+    mark_degraded_if_requested(session, result, ["face", "background"])
     return result
 
 
@@ -420,6 +557,7 @@ def process_audio_for_session(session, payload):
     external_audio = proxy_audio_chunk(session, payload)
     if external_audio:
         apply_audio_result_to_session(session, external_audio, started)
+        mark_degraded_if_requested(session, external_audio, ["voice"])
         return external_audio
 
     result = {
@@ -436,6 +574,7 @@ def process_audio_for_session(session, payload):
         "warnings": audio_warnings(session),
     }
     apply_audio_result_to_session(session, result, started)
+    mark_degraded_if_requested(session, result, ["voice"])
     return result
 
 
@@ -454,8 +593,13 @@ def apply_frame_result_to_session(session, result, started):
     session["lastFrameVramMb"] = vram_mb
     session["lastFrameResolution"] = resolution if isinstance(resolution, str) and resolution else None
 
-    if result.get("status") != "error":
-        session["lastAdapterError"] = None
+    apply_stage_states(
+        session,
+        result,
+        ["face", "background"],
+        latency_ms,
+        ("face_", "background_", "video_processor_error"),
+    )
 
 
 def apply_audio_result_to_session(session, result, started):
@@ -469,8 +613,13 @@ def apply_audio_result_to_session(session, result, started):
     session["lastAudioWarnings"] = unique_warnings(result.get("warnings", []))
     session["lastAudioInputBytes"] = safe_int(metrics.get("inputBytes")) or (len(encoded_audio) if isinstance(encoded_audio, str) else None)
 
-    if result.get("status") != "error":
-        session["lastAdapterError"] = None
+    apply_stage_states(
+        session,
+        result,
+        ["voice"],
+        session.get("lastAudioLatencyMs"),
+        ("voice_", "audio_processor_error"),
+    )
 
 
 def run_preflight(payload):
@@ -585,9 +734,11 @@ def session_payload(session):
     session["warnings"] = session_warnings(session)
     pipelines = []
 
+    stage_records = session.get("stages", {})
     for pipeline in pipelines_for_session(session):
         pipeline_id = pipeline["id"]
         is_enabled = enabled.get(pipeline_id, False)
+        record = stage_records.get(pipeline_id, {})
         if session["status"] == "stopped":
             status = "stopped"
             detail = "Sesión detenida."
@@ -603,6 +754,13 @@ def session_payload(session):
                 "status": status,
                 "detail": detail,
                 "latencyMs": latency_ms,
+                # Explicit stage health (§3): active|degraded|failed + reason code
+                # + localizable reason detail + device/vram.
+                "state": record.get("state") if is_enabled else "standby",
+                "reason": record.get("reason") if is_enabled else None,
+                "stateDetail": record.get("detail") if is_enabled else None,
+                "stageDevice": record.get("device"),
+                "stageVramMb": record.get("vramMb"),
             }
         )
 
@@ -613,6 +771,7 @@ def session_payload(session):
         "identityId": session["identityId"],
         "identity": session.get("identity"),
         "status": session["status"],
+        "health": session_health(session),
         "mode": session["mode"],
         "startedAt": session["startedAt"],
         "updatedAt": session["updatedAt"],
@@ -624,6 +783,43 @@ def session_payload(session):
         "warnings": session.get("warnings", []),
         "adapterError": session.get("lastAdapterError"),
     }
+
+
+def session_health(session):
+    """Session-level health = worst state across the enabled stages."""
+
+    if session.get("status") == "stopped":
+        return "stopped"
+    enabled = session.get("enabled", {})
+    stages = session.get("stages", {})
+    states = [
+        stages.get(stage_id, {}).get("state", "active")
+        for stage_id in ("face", "background", "voice")
+        if enabled.get(stage_id)
+    ]
+    if not states:
+        return "active"
+    if "failed" in states:
+        return "failed"
+    if "degraded" in states:
+        return "degraded"
+    return "active"
+
+
+def mark_degraded_if_requested(session, result, stage_ids):
+    """Upgrade a passthrough result to ``degraded`` when a requested effect
+    could not be applied — distinguishing "not requested" from "requested but
+    failed"."""
+
+    if result.get("status") != "passthrough":
+        return
+    enabled = session.get("enabled", {})
+    stages = session.get("stages", {})
+    if any(
+        enabled.get(stage_id) and stages.get(stage_id, {}).get("state") in {"degraded", "failed"}
+        for stage_id in stage_ids
+    ):
+        result["status"] = "degraded"
 
 
 def pipeline_latency_ms(session, pipeline_id, is_enabled, pipeline):
@@ -740,6 +936,7 @@ def proxy_video_frame(session, frame_payload, width, height):
                 "enabled": session.get("enabled"),
                 "target": session.get("target"),
             },
+            timeout=external_processor_timeout("video"),
         )
         frame = response.get("frame") if isinstance(response, dict) else None
         if not isinstance(frame, dict):
@@ -761,6 +958,7 @@ def proxy_video_frame(session, frame_payload, width, height):
             },
             "metrics": frame.get("metrics") if isinstance(frame.get("metrics"), dict) else session_metrics(session),
             "warnings": unique_warnings(frame.get("warnings", []) + session.get("warnings", [])),
+            "stages": frame.get("stages") if isinstance(frame.get("stages"), list) else None,
         }
     except Exception as error:
         session["lastAdapterError"] = f"video_processor_error: {error}"
@@ -782,6 +980,7 @@ def proxy_audio_chunk(session, audio_payload):
                 "identity": session.get("identity"),
                 "enabled": session.get("enabled"),
             },
+            timeout=external_processor_timeout("audio"),
         )
         audio = response.get("audio") if isinstance(response, dict) else None
         if not isinstance(audio, dict):
@@ -803,6 +1002,7 @@ def proxy_audio_chunk(session, audio_payload):
             },
             "metrics": audio.get("metrics") if isinstance(audio.get("metrics"), dict) else audio_metrics(session, len(result_audio["audioDataBase64"])),
             "warnings": unique_warnings(audio.get("warnings", []) + session.get("warnings", [])),
+            "stages": audio.get("stages") if isinstance(audio.get("stages"), list) else None,
         }
     except Exception as error:
         session["lastAdapterError"] = f"audio_processor_error: {error}"
@@ -810,21 +1010,74 @@ def proxy_audio_chunk(session, audio_payload):
         return None
 
 
-def post_external_json(endpoint, payload):
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib_request.Request(
-        endpoint,
-        data=body,
-        headers={"content-type": "application/json", "accept": "application/json"},
-        method="POST",
-    )
+# Per-thread keep-alive connection pool to the external processor(s). Each
+# ThreadingHTTPServer worker reuses one connection per (scheme, host, port) so
+# sequential frames on a kept-alive desktop connection avoid a TCP handshake
+# per frame to :9100.
+_CONNECTION_POOL = threading.local()
 
-    try:
-        with urllib_request.urlopen(request, timeout=external_processor_timeout()) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib_error.HTTPError as error:
-        detail = error.read().decode("utf-8", errors="replace")[:240]
-        raise RuntimeError(f"HTTP {error.code}: {detail}") from error
+
+def _pooled_connection(scheme, host, port, timeout):
+    pool = getattr(_CONNECTION_POOL, "connections", None)
+    if pool is None:
+        pool = {}
+        _CONNECTION_POOL.connections = pool
+    key = (scheme, host, port)
+    connection = pool.get(key)
+    if connection is None:
+        connection = _new_connection(scheme, host, port, timeout)
+        pool[key] = connection
+    else:
+        connection.timeout = timeout
+    return connection, pool, key
+
+
+def _new_connection(scheme, host, port, timeout):
+    if scheme == "https":
+        return http.client.HTTPSConnection(host, port, timeout=timeout)
+    return http.client.HTTPConnection(host, port, timeout=timeout)
+
+
+def post_external_json(endpoint, payload, timeout=None):
+    if timeout is None:
+        timeout = external_processor_timeout()
+    parsed = urllib_parse.urlparse(endpoint)
+    scheme = parsed.scheme or "http"
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or (443 if scheme == "https" else 80)
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {
+        "content-type": "application/json",
+        "accept": "application/json",
+        "connection": "keep-alive",
+    }
+
+    last_error = None
+    for attempt in range(2):
+        connection, pool, key = _pooled_connection(scheme, host, port, timeout)
+        try:
+            connection.request("POST", path, body=body, headers=headers)
+            response = connection.getresponse()
+            raw = response.read()
+            if response.status < 200 or response.status >= 300:
+                detail = raw.decode("utf-8", errors="replace")[:240]
+                # A 4xx/5xx does not corrupt the connection; keep it pooled.
+                raise RuntimeError(f"HTTP {response.status}: {detail}")
+            return json.loads(raw.decode("utf-8"))
+        except RuntimeError:
+            raise
+        except (http.client.HTTPException, ConnectionError, OSError) as error:
+            last_error = error
+            try:
+                connection.close()
+            finally:
+                pool.pop(key, None)
+            if attempt == 1:
+                raise RuntimeError(f"processor inaccesible: {error}") from error
+    raise RuntimeError(f"processor inaccesible: {last_error}")
 
 
 def external_session_payload(session):
@@ -1032,7 +1285,7 @@ def model_endpoint_diagnostics():
 
     try:
         request = urllib_request.Request(url, headers={"accept": "application/json"}, method="GET")
-        with urllib_request.urlopen(request, timeout=0.75) as response:
+        with urllib_request.urlopen(request, timeout=model_endpoint_poll_timeout()) as response:
             data = json.loads(response.read().decode("utf-8"))
     except Exception as error:
         return {
@@ -1060,14 +1313,18 @@ def model_endpoint_diagnostics():
         }
 
     ready = bool(diagnostics.get("ready"))
+    runtime = diagnostics.get("runtime") if isinstance(diagnostics.get("runtime"), dict) else {}
     return {
         "configured": True,
         "status": "ready" if ready else "limited",
         "ready": ready,
         "url": url,
         "mode": diagnostics.get("mode"),
+        "device": runtime.get("device"),
+        "engine": runtime.get("engine") or diagnostics.get("mode"),
         "stageStatus": diagnostics.get("stageStatus") if isinstance(diagnostics.get("stageStatus"), dict) else {},
         "stages": diagnostics.get("stages") if isinstance(diagnostics.get("stages"), list) else [],
+        "loadReport": diagnostics.get("loadReport"),
         "message": diagnostics.get("lastWarning") or None,
     }
 
@@ -1154,7 +1411,7 @@ def processor_health_status(config):
 
     try:
         request = urllib_request.Request(health_url, headers={"accept": "application/json"}, method="GET")
-        with urllib_request.urlopen(request, timeout=0.5) as response:
+        with urllib_request.urlopen(request, timeout=managed_health_timeout()) as response:
             return {"status": "ready" if 200 <= response.status < 300 else "error", "code": response.status}
     except Exception as error:
         return {"status": "error", "message": str(error)[:180]}
@@ -1437,9 +1694,25 @@ def health_message():
     return "Servicio local de IA conectado; revisa diagnostics para motores activos."
 
 
-def external_processor_timeout():
+def external_processor_timeout(kind="video"):
+    # Fix: the old min(5.0) ceiling made the 15s default dead. Raise the ceiling
+    # and split video/audio so each hop's inner timeout can be tuned per phase.
+    ceiling = safe_float(os.environ.get("SHAPE_PROCESSOR_TIMEOUT_CEILING_SECS"), 10.0)
+    if kind == "audio":
+        value = safe_float(os.environ.get("SHAPE_AUDIO_PROCESSOR_TIMEOUT_SECS"), None)
+        if value is None:
+            value = safe_float(os.environ.get("SHAPE_PROCESSOR_TIMEOUT_SECS"), EXTERNAL_PROCESSOR_TIMEOUT_SECS)
+        return max(0.1, min(ceiling, value))
     value = safe_float(os.environ.get("SHAPE_PROCESSOR_TIMEOUT_SECS"), EXTERNAL_PROCESSOR_TIMEOUT_SECS)
-    return max(0.1, min(5.0, value))
+    return max(0.1, min(ceiling, value))
+
+
+def model_endpoint_poll_timeout():
+    return max(0.1, min(10.0, safe_float(os.environ.get("SHAPE_MODEL_ENDPOINT_POLL_TIMEOUT_SECS"), 1.5)))
+
+
+def managed_health_timeout():
+    return max(0.1, min(10.0, safe_float(os.environ.get("SHAPE_MANAGED_HEALTH_TIMEOUT_SECS"), 1.0)))
 
 
 def env_non_empty(key):

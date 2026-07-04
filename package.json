@@ -93,6 +93,12 @@
     "smoke:ai-command": "node scripts/smoke-ai-command-adapters.mjs",
     "smoke:ai-endpoint": "node scripts/smoke-ai-endpoint-adapters.mjs",
     "smoke:ai-stage-command": "node scripts/smoke-ai-stage-commands.mjs",
+    "smoke:ai-face-inproc": "node scripts/smoke-ai-face-inproc.mjs",
+    "smoke:ai-background-inproc": "node scripts/smoke-ai-background-inproc.mjs",
+    "smoke:ai-voice-inproc": "node scripts/smoke-ai-voice-inproc.mjs",
+    "smoke:ai-voice-vcclient2-live": "node scripts/smoke-ai-voice-vcclient2-live.mjs",
+    "smoke:ai-endpoint-collapsed": "node scripts/smoke-ai-collapsed-hops.mjs",
+    "smoke:ai-stage-states": "node scripts/smoke-ai-stage-states.mjs",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "format:check": "prettier --check ."

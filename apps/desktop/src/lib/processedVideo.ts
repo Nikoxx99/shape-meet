@@ -1,5 +1,9 @@
 import { processAiFrame, type AiFrameProcessResult } from "./aiSidecar";
 
+// Phase 1 (§4): drop a processed frame older than this so a stalled sidecar
+// falls back to the clean camera quickly instead of freezing a stale effect.
+const FRAME_FRESHNESS_MS = 500;
+
 export interface ProcessedVideoOptions {
   faceEnabled: boolean;
   backgroundEnabled: boolean;
@@ -21,13 +25,16 @@ export interface ProcessedVideoPipeline {
 
 export interface ProcessedVideoRuntimeStatus {
   mode: "sidecar" | "local-fallback";
-  state: "starting" | "processing" | "fallback" | "stopped";
+  state: "starting" | "processing" | "degraded" | "fallback" | "stopped";
   message: string;
   fps: number | null;
   latencyMs: number | null;
   framesProcessed: number;
   processor: string | null;
   warnings: string[];
+  // Stable reason code for a degraded/fallback frame (e.g. wokada_unreachable,
+  // identity_face_not_detected) so the UI can explain WHY the effect is off.
+  reason: string | null;
   lastError: string | null;
 }
 
@@ -91,6 +98,7 @@ export async function createProcessedVideoPipeline(
     framesProcessed: 0,
     processor: null,
     warnings: [],
+    reason: null,
     lastError: null,
   };
 
@@ -107,7 +115,7 @@ export async function createProcessedVideoPipeline(
       context!,
       inputCanvas,
       lastProcessedImage,
-      Date.now() - lastProcessedAt < 1200,
+      Date.now() - lastProcessedAt < FRAME_FRESHNESS_MS,
     );
     scheduleSidecarFrame();
     frameHandle = window.requestAnimationFrame(drawFrame);
@@ -164,15 +172,23 @@ export async function createProcessedVideoPipeline(
           lastProcessedImage = image;
           lastProcessedAt = Date.now();
         }
+        const reason = reasonFromResult(result);
+        const effectFailed =
+          result.status === "error" || result.status === "degraded";
         updateStatus({
           mode: "sidecar",
-          state: result.status === "error" ? "fallback" : "processing",
-          message: sidecarMessage(result),
+          state: effectFailed
+            ? result.status === "degraded"
+              ? "degraded"
+              : "fallback"
+            : "processing",
+          message: sidecarMessage(result, reason),
           fps: result.metrics.fps,
           latencyMs: result.metrics.latencyMs,
           framesProcessed: result.metrics.framesProcessed,
           processor: result.processor,
           warnings: result.warnings ?? [],
+          reason,
           lastError: null,
         });
       })
@@ -280,9 +296,28 @@ function loadFrameImage(
   });
 }
 
-function sidecarMessage(result: AiFrameProcessResult) {
+function reasonFromResult(result: AiFrameProcessResult): string | null {
+  const failedStage = result.stages?.find(
+    (stage) => stage.changed === false && stage.reason,
+  );
+  if (failedStage?.reason) return failedStage.reason;
+  const warning = result.warnings?.find((entry) => entry.includes("_"));
+  return warning ?? null;
+}
+
+function sidecarMessage(result: AiFrameProcessResult, reason: string | null) {
   if (result.processor === "development-passthrough")
     return "Sidecar conectado en modo passthrough.";
+  if (result.status === "degraded") {
+    return reason
+      ? `IA en fallback (motor caído: ${reason}).`
+      : "IA en fallback: efecto no disponible.";
+  }
+  if (result.status === "error") {
+    return reason
+      ? `Error de IA (${reason}); publicando cámara limpia.`
+      : "Error de IA; publicando cámara limpia.";
+  }
   if (result.status === "passthrough")
     return "Frame validado sin modelo activo.";
   return `${result.processor} procesando frames.`;

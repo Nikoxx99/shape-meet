@@ -11,6 +11,7 @@ const strict = args.includes("--strict");
 const json = args.includes("--json");
 const skipHardware = args.includes("--skip-hardware");
 const skipWrapperSmoke = args.includes("--skip-wrapper-smoke");
+const endpointLive = args.includes("--endpoint-live");
 const envFile =
   argValue("--env-file") ??
   process.env.SHAPE_AI_RUNTIME_ENV_FILE ??
@@ -27,11 +28,17 @@ const workstationProfile = normalizeWorkstationProfile(
     env.SHAPE_MODEL_WORKSTATION_PROFILE ??
     defaultWorkstationProfile(),
 );
+// Mirrors engines/__init__.py engine_mode(): explicit SHAPE_MODEL_ENDPOINT_ENGINE
+// wins; otherwise the legacy passthrough/demo flags; otherwise wrappers.
+const engineMode = resolveEngineMode();
+const inprocMode = engineMode === "inproc";
 const checks = [];
 const warnings = [];
 const issues = [];
 const nextSteps = [];
 let nvidiaAvailable = false;
+let inprocProbe = null;
+let endpointLiveReport = null;
 const hardware = {
   checked: !skipHardware,
   profile: workstationProfile,
@@ -48,19 +55,46 @@ const hardware = {
   issues: [],
 };
 
-main();
+await main();
 
-function main() {
+async function main() {
   checkBaseFiles();
   checkRuntimeEnv();
   if (!skipHardware) checkHardware();
   checkProcessor("video");
   checkProcessor("audio");
-  checkVideoModelCommands();
-  checkVoiceModelCommands();
+  if (inprocMode) {
+    checkInprocWeights();
+    inprocProbe = runInprocImportProbe();
+  } else {
+    checkVideoModelCommands();
+    checkVoiceModelCommands();
+  }
+  if (endpointLive) endpointLiveReport = await checkEndpointLive();
   printReport();
 
   if (issues.length > 0 || (strict && warnings.length > 0)) process.exit(1);
+}
+
+function resolveEngineMode() {
+  const explicit = (env.SHAPE_MODEL_ENDPOINT_ENGINE ?? "").trim().toLowerCase();
+  if (
+    ["inproc", "wrappers", "passthrough", "demo-effects"].includes(explicit)
+  ) {
+    return explicit;
+  }
+  if (
+    envFlag("SHAPE_MODEL_ENDPOINT_PASSTHROUGH") ||
+    wrapperPassthroughEnabled()
+  ) {
+    return "passthrough";
+  }
+  if (envFlag("SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS")) return "demo-effects";
+  return "wrappers";
+}
+
+function envFlag(name) {
+  return /^(1|true|yes|on)$/i.test(env[name] ?? "");
 }
 
 function checkBaseFiles() {
@@ -71,14 +105,32 @@ function checkBaseFiles() {
     "apps/ai-sidecar/wrappers/backgroundmattingv2_frame.py",
     "apps/ai-sidecar/wrappers/vcclient000_chunk.py",
   ];
+  if (inprocMode) {
+    wrapperPaths.push(
+      "apps/ai-sidecar/processors/shape_model_endpoint_server.py",
+      "apps/ai-sidecar/engines/__init__.py",
+      "apps/ai-sidecar/engines/runtime.py",
+      "apps/ai-sidecar/engines/face_insightface.py",
+      "apps/ai-sidecar/engines/background_matting.py",
+      "apps/ai-sidecar/engines/voice_wokada.py",
+      "apps/ai-sidecar/requirements-inproc-cuda.txt",
+      "apps/ai-sidecar/requirements-inproc-mac.txt",
+    );
+  }
 
   for (const path of wrapperPaths) {
     if (!existsSync(join(repoRoot, path))) issue(`Falta ${path}.`);
   }
 
-  ok("contrato local de sidecar y wrappers presentes");
+  ok(
+    inprocMode
+      ? "contrato local de sidecar, model endpoint y engines inproc presentes"
+      : "contrato local de sidecar y wrappers presentes",
+  );
 
-  if (!skipWrapperSmoke) {
+  // In inproc mode the CLI wrappers are the `wrappers` fallback, not the hot
+  // path; their CLI smoke is not a requirement for the persistent runtime.
+  if (!skipWrapperSmoke && !inprocMode) {
     checkWrapperCliSmoke(
       "FaceFusion wrapper",
       "apps/ai-sidecar/wrappers/facefusion_frame.py",
@@ -182,6 +234,43 @@ function checkProcessor(kind) {
   const endpoint = env[`${prefix}_PROCESSOR_ENDPOINT`];
   const healthUrl = env[`${prefix}_PROCESSOR_HEALTH_URL`];
   const defaultPort = kind === "video" ? "7860" : "7861";
+
+  if (inprocMode) {
+    // Collapsed hops: server.py posts straight at the model endpoint (:9100);
+    // a *_PROCESSOR_COMMAND would resurrect the shape_processor_command hop.
+    const expectedPath = kind === "video" ? "/process-frame" : "/process-audio";
+    if (command) {
+      warn(
+        `${prefix}_PROCESSOR_COMMAND configurado en modo inproc; el runtime ` +
+          "colapsado no debe definirlo (server.py postea directo al model endpoint).",
+      );
+    } else {
+      ok(`${prefix}_PROCESSOR_COMMAND ausente (saltos colapsados)`);
+    }
+    if (!endpoint) {
+      issue(
+        `${prefix}_PROCESSOR_ENDPOINT no configurado; en modo inproc debe ` +
+          `apuntar a ${expectedPath} del model endpoint (:9100).`,
+      );
+    } else {
+      checkUrl(endpoint, `${prefix}_PROCESSOR_ENDPOINT`);
+      if (validHttpUrl(endpoint)) {
+        const path = new URL(endpoint).pathname.replace(/\/+$/, "");
+        if (path !== expectedPath) {
+          warn(
+            `${prefix}_PROCESSOR_ENDPOINT no termina en ${expectedPath}; ` +
+              "el contrato colapsado del model endpoint usa esa ruta.",
+          );
+        }
+      }
+    }
+    if (!healthUrl) {
+      warn(`${prefix}_PROCESSOR_HEALTH_URL no configurado.`);
+    } else {
+      checkUrl(healthUrl, `${prefix}_PROCESSOR_HEALTH_URL`);
+    }
+    return;
+  }
 
   if (!command) {
     warn(
@@ -333,6 +422,382 @@ function checkVoiceModelCommands() {
   if (voice.includes("vcclient000_chunk.py")) {
     checkVcClientWrapper();
   }
+}
+
+// --- inproc mode (persistent runtime) ------------------------------------------
+
+function backgroundEngineInproc() {
+  // Mirrors engines/background_matting.create_background_engine().
+  const value = (env.SHAPE_BACKGROUND_ENGINE ?? "rvm").trim().toLowerCase();
+  return ["bmv2", "backgroundmattingv2", "bgmv2"].includes(value)
+    ? "bmv2"
+    : "rvm";
+}
+
+function insightfaceHomePath() {
+  return (
+    pathValue("SHAPE_INSIGHTFACE_HOME") ??
+    pathValue("INSIGHTFACE_HOME") ??
+    join(homedir(), ".insightface")
+  );
+}
+
+function inprocVoiceEndpoint() {
+  // Mirrors engines/voice_wokada.VoiceEngine.load().
+  return env.VCCLIENT000_HTTP_ENDPOINT ?? env.SHAPE_VOICE_ENDPOINT ?? null;
+}
+
+function checkInprocWeights() {
+  if (
+    wrapperPassthroughEnabled() ||
+    envFlag("SHAPE_MODEL_ENDPOINT_PASSTHROUGH")
+  ) {
+    warn(
+      "Passthrough activo junto con engine inproc; el engine inproc lo ignora, " +
+        "limpia SHAPE_WRAPPER_PASSTHROUGH/SHAPE_MODEL_ENDPOINT_PASSTHROUGH.",
+    );
+  }
+
+  const inswapper = pathValue("SHAPE_INSWAPPER_MODEL");
+  if (!inswapper) {
+    issue(
+      "SHAPE_INSWAPPER_MODEL no configurado; el modo inproc requiere inswapper_128.onnx.",
+    );
+    nextStep(
+      "Descarga inswapper_128.onnx (modelo gated de InsightFace, no redistribuible) y apunta SHAPE_INSWAPPER_MODEL a su ruta.",
+    );
+  } else if (!existsSync(inswapper) || statSync(inswapper).size <= 0) {
+    issue(`SHAPE_INSWAPPER_MODEL no existe o está vacío: ${inswapper}`);
+    nextStep(
+      "Descarga inswapper_128.onnx (modelo gated de InsightFace, no redistribuible) y apunta SHAPE_INSWAPPER_MODEL a su ruta.",
+    );
+  } else {
+    ok(`inswapper_128.onnx listo: ${inswapper}`);
+  }
+
+  const insightfaceHome = insightfaceHomePath();
+  if (existsSync(join(insightfaceHome, "models", "buffalo_l"))) {
+    ok(`buffalo_l en cache insightface: ${insightfaceHome}`);
+  } else {
+    warn(
+      `buffalo_l no está en ${insightfaceHome}; insightface lo descargará en el ` +
+        "primer arranque (usa el warm-up del bootstrap para pagarlo en instalación).",
+    );
+  }
+
+  const backgroundEngine = backgroundEngineInproc();
+  if (backgroundEngine === "bmv2") {
+    const checkpoint = pathValue("BMV2_MODEL_CHECKPOINT");
+    if (
+      !checkpoint ||
+      !existsSync(checkpoint) ||
+      statSync(checkpoint).size <= 0
+    ) {
+      issue(
+        `BMV2_MODEL_CHECKPOINT no existe o está vacío: ${checkpoint ?? "sin configurar"} ` +
+          "(SHAPE_BACKGROUND_ENGINE=bmv2 requiere checkpoint torchscript).",
+      );
+      nextStep(
+        "Descarga el checkpoint torchscript de BackgroundMattingV2 o cambia a SHAPE_BACKGROUND_ENGINE=rvm.",
+      );
+    } else {
+      ok(`BMV2 checkpoint torchscript listo: ${checkpoint}`);
+    }
+  } else {
+    const rvm = pathValue("SHAPE_RVM_MODEL");
+    if (!rvm || !existsSync(rvm) || statSync(rvm).size <= 0) {
+      issue(
+        `SHAPE_RVM_MODEL no existe o está vacío: ${rvm ?? "sin configurar"} ` +
+          "(el fondo inproc usa RVM por defecto).",
+      );
+      nextStep(
+        "Descarga rvm_mobilenetv3_fp32.torchscript (MIT, release oficial PeterL1n/RobustVideoMatting) y apunta SHAPE_RVM_MODEL a su ruta.",
+      );
+    } else {
+      ok(`modelo RVM listo: ${rvm}`);
+    }
+  }
+
+  const voiceEndpoint = inprocVoiceEndpoint();
+  if (!voiceEndpoint) {
+    issue(
+      "VCCLIENT000_HTTP_ENDPOINT no configurado; el cliente persistente de voz habla con VCClient/w-okada (v2 convert_chunk o v1 /test, VCCLIENT000_HTTP_MODE=auto detecta cuál).",
+    );
+    nextStep(
+      "Arranca VCClient con un slot RVC cargado y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18000 (v2, default) o http://127.0.0.1:18888/test (w-okada v1 legado).",
+    );
+  } else {
+    checkUrl(voiceEndpoint, "VCCLIENT000_HTTP_ENDPOINT");
+  }
+}
+
+function inprocPythonCommand() {
+  // Mirrors how the endpoint python is resolved (run-model-endpoint-server.mjs
+  // and scripts/support/inproc-smoke.mjs): explicit env, then the inproc venv,
+  // then the platform python.
+  const explicit = env.SHAPE_MODEL_ENDPOINT_PYTHON || env.SHAPE_AI_PYTHON;
+  if (explicit) return explicit;
+  const venvPython = join(
+    repoRoot,
+    "apps",
+    "ai-sidecar",
+    ".venv-inproc",
+    ...(process.platform === "win32"
+      ? ["Scripts", "python.exe"]
+      : ["bin", "python"]),
+  );
+  if (existsSync(venvPython)) return venvPython;
+  return defaultPython();
+}
+
+function runInprocImportProbe() {
+  const python = inprocPythonCommand();
+  const probe = {
+    python,
+    ok: false,
+    modules: {},
+    providers: [],
+    error: null,
+  };
+  const code = [
+    "import json",
+    "report = {'modules': {}, 'providers': []}",
+    "for mod in ('numpy', 'cv2', 'onnxruntime', 'insightface', 'torch'):",
+    "    try:",
+    "        __import__(mod)",
+    "        report['modules'][mod] = True",
+    "    except Exception as error:",
+    "        report['modules'][mod] = str(error)[:160]",
+    "try:",
+    "    import onnxruntime",
+    "    report['providers'] = list(onnxruntime.get_available_providers())",
+    "except Exception:",
+    "    pass",
+    "print(json.dumps(report))",
+  ].join("\n");
+
+  const result = spawnSync(python, ["-c", code], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 120_000,
+    shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(python),
+  });
+
+  const lastLine = (result.stdout ?? "")
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .pop();
+  let parsed = null;
+  if (result.status === 0 && lastLine) {
+    try {
+      parsed = JSON.parse(lastLine);
+    } catch {
+      parsed = null;
+    }
+  }
+
+  if (!parsed) {
+    probe.error = [result.stderr, result.stdout]
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+      .slice(0, 300);
+    warn(
+      `probe de imports inproc no ejecutó con ${python}: ${probe.error || `status ${result.status}`}`,
+    );
+    nextStep(
+      "Crea el venv del endpoint: python3 -m venv apps/ai-sidecar/.venv-inproc && pip install -r apps/ai-sidecar/requirements-inproc-mac.txt (o -cuda en Windows/NVIDIA).",
+    );
+    return probe;
+  }
+
+  probe.modules = parsed.modules ?? {};
+  probe.providers = Array.isArray(parsed.providers) ? parsed.providers : [];
+  const required = ["numpy", "cv2", "onnxruntime", "insightface", "torch"];
+  const missing = required.filter((mod) => probe.modules[mod] !== true);
+  probe.ok = missing.length === 0;
+
+  if (probe.ok) {
+    ok(
+      `imports inproc ok con ${python} (providers: ${probe.providers.join(", ") || "ninguno"})`,
+    );
+  } else {
+    warn(
+      `faltan imports inproc (${missing.join(", ")}) con ${python}; instala ` +
+        "apps/ai-sidecar/requirements-inproc-{mac,cuda}.txt en el venv del endpoint.",
+    );
+    nextStep(
+      "Instala las dependencias inproc en el venv del endpoint (requirements-inproc-mac.txt / requirements-inproc-cuda.txt).",
+    );
+  }
+
+  if (
+    workstationProfile === "windows-nvidia" &&
+    probe.modules.onnxruntime === true &&
+    !probe.providers.includes("CUDAExecutionProvider")
+  ) {
+    warn(
+      "onnxruntime sin CUDAExecutionProvider en perfil windows-nvidia; instala onnxruntime-gpu (requirements-inproc-cuda.txt).",
+    );
+  }
+  if (
+    workstationProfile === "apple-silicon" &&
+    probe.modules.onnxruntime === true &&
+    !probe.providers.some((provider) =>
+      ["CoreMLExecutionProvider", "CPUExecutionProvider"].includes(provider),
+    )
+  ) {
+    warn("onnxruntime no reporta CoreML/CPU providers en Apple Silicon.");
+  }
+
+  return probe;
+}
+
+function modelEndpointDiagnosticsUrl() {
+  // Mirrors apps/ai-sidecar/server.py model_endpoint_diagnostics_url().
+  const explicit = env.SHAPE_MODEL_ENDPOINT_URL?.trim();
+  if (explicit) {
+    try {
+      const url = new URL(explicit);
+      if (!url.pathname.endsWith("/diagnostics")) {
+        url.pathname = `${url.pathname.replace(/\/+$/, "")}/diagnostics`;
+      }
+      url.search = "";
+      url.hash = "";
+      return url.href;
+    } catch {
+      return null;
+    }
+  }
+
+  const host = env.SHAPE_MODEL_ENDPOINT_HOST?.trim();
+  const port = env.SHAPE_MODEL_ENDPOINT_PORT?.trim();
+  if (host && port) return `http://${host}:${port}/diagnostics`;
+
+  const derivablePaths = [
+    "/process-frame",
+    "/process-audio",
+    "/video-frame",
+    "/face",
+    "/background",
+    "/voice",
+  ];
+  for (const key of [
+    "SHAPE_VIDEO_PROCESSOR_ENDPOINT",
+    "SHAPE_AUDIO_PROCESSOR_ENDPOINT",
+    "SHAPE_VIDEO_FRAME_ENDPOINT",
+    "SHAPE_FACE_ENDPOINT",
+    "SHAPE_BACKGROUND_ENDPOINT",
+    "SHAPE_AUDIO_CHUNK_ENDPOINT",
+    "SHAPE_VOICE_ENDPOINT",
+  ]) {
+    const value = env[key]?.trim();
+    if (!value || !validHttpUrl(value)) continue;
+    const url = new URL(value);
+    if (!derivablePaths.includes(url.pathname.replace(/\/+$/, ""))) continue;
+    url.pathname = "/diagnostics";
+    url.search = "";
+    url.hash = "";
+    return url.href;
+  }
+
+  return null;
+}
+
+async function checkEndpointLive() {
+  const url = modelEndpointDiagnosticsUrl();
+  const report = {
+    url,
+    ok: false,
+    ready: null,
+    mode: null,
+    device: null,
+    stages: [],
+  };
+
+  if (!url) {
+    issue(
+      "--endpoint-live: no se pudo resolver la URL del model endpoint; define SHAPE_MODEL_ENDPOINT_URL o SHAPE_MODEL_ENDPOINT_HOST/PORT.",
+    );
+    return report;
+  }
+
+  let data = null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!response.ok) {
+      issue(`--endpoint-live: ${url} devolvió HTTP ${response.status}.`);
+      return report;
+    }
+    data = await response.json();
+  } catch (error) {
+    issue(
+      `--endpoint-live: model endpoint no accesible en ${url} (${error?.name || error?.message || error}). Arranca \`pnpm models:endpoint\` con el runtime env cargado.`,
+    );
+    return report;
+  }
+
+  const diagnostics =
+    data && typeof data === "object" && data.diagnostics
+      ? data.diagnostics
+      : data;
+  report.ok = true;
+  report.ready = Boolean(diagnostics?.ready);
+  report.mode = diagnostics?.mode ?? null;
+  const runtime =
+    diagnostics?.runtime && typeof diagnostics.runtime === "object"
+      ? diagnostics.runtime
+      : {};
+  report.device = runtime.device ?? null;
+
+  ok(
+    `endpoint vivo: ${url} (mode=${report.mode ?? "?"}, ready=${report.ready})`,
+  );
+  if (inprocMode && report.mode !== "inproc") {
+    warn(
+      `endpoint vivo corre mode=${report.mode ?? "?"}, pero el runtime env pide engine inproc.`,
+    );
+  }
+  if (inprocMode) {
+    if (report.device) {
+      ok(`runtime.device del endpoint: ${report.device}`);
+    } else {
+      warn(
+        "endpoint vivo sin runtime.device (motores aún cargando o mode distinto de inproc).",
+      );
+    }
+  }
+
+  const stages = Array.isArray(diagnostics?.stages) ? diagnostics.stages : [];
+  for (const stage of stages) {
+    const engine =
+      stage?.engine && typeof stage.engine === "object" ? stage.engine : null;
+    const state = engine?.state ?? null;
+    report.stages.push({
+      id: stage?.id ?? null,
+      state,
+      reason: engine?.reason ?? null,
+      device: engine?.device ?? null,
+    });
+    if (!state) continue;
+    if (state === "failed") {
+      issue(
+        `endpoint stage ${stage.id} failed: ${engine?.reason ?? "sin reason"}${engine?.detail ? ` (${engine.detail})` : ""}`,
+      );
+    } else if (state === "degraded") {
+      warn(
+        `endpoint stage ${stage.id} degraded: ${engine?.reason ?? "sin reason"}`,
+      );
+    } else {
+      ok(`endpoint stage ${stage.id} active (${engine?.device ?? "device ?"})`);
+    }
+  }
+
+  return report;
 }
 
 function checkFaceFusionWrapper() {
@@ -498,12 +963,16 @@ function checkVcClientWrapper() {
     "vcclient000 wrapper requiere VCCLIENT000_CHUNK_COMMAND o VCCLIENT000_HTTP_ENDPOINT.",
   );
   nextStep(
-    "Arranca vcclient000/w-okada localmente y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test.",
+    "Arranca VCClient/w-okada localmente y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18000 (v2, default) o http://127.0.0.1:18888/test (w-okada v1 legado).",
   );
 }
 
 function normalizeVcClientHttpMode(value) {
   const mode = (value || "auto").trim().toLowerCase().replace(/_/g, "-");
+  if (
+    ["vcclient2", "vcclient-v2", "w-okada-v2", "wokada-v2", "v2"].includes(mode)
+  )
+    return "vcclient2";
   if (["w-okada", "w-okada-rest", "vcclient", "vcclient-rest"].includes(mode))
     return "w-okada-rest";
   if (["shape", "shape-json", "shape-meet"].includes(mode)) return "shape-json";
@@ -519,16 +988,24 @@ function checkVcClientEndpointShape(endpoint, httpMode) {
   }
 
   const path = parsed.pathname.replace(/\/+$/, "");
-  const looksLikeWOkada = path === "" || path === "/test";
-  if (httpMode === "w-okada-rest" && !looksLikeWOkada) {
+  const looksLikeV1 = path === "" || path === "/test";
+  const looksLikeV2 = path.endsWith("/api/voice-changer/convert_chunk");
+
+  if (httpMode === "w-okada-rest" && !looksLikeV1) {
     warn(
-      "VCCLIENT000_HTTP_MODE=w-okada-rest usa el REST oficial de VCClient; normalmente el endpoint es http://127.0.0.1:18888/test o la URL base.",
+      "VCCLIENT000_HTTP_MODE=w-okada-rest usa el REST v1 legado de w-okada; normalmente el endpoint es http://127.0.0.1:18888/test o la URL base.",
     );
   }
 
-  if (httpMode === "auto" && !looksLikeWOkada) {
+  if (httpMode === "vcclient2" && !looksLikeV2) {
     warn(
-      "VCCLIENT000_HTTP_ENDPOINT no termina en /test y VCCLIENT000_HTTP_MODE está en auto; se tratará como endpoint Shape JSON. Para VCClient oficial usa VCCLIENT000_HTTP_MODE=w-okada-rest.",
+      "VCCLIENT000_HTTP_MODE=vcclient2 habla POST /api/voice-changer/convert_chunk; normalmente el endpoint es la URL base de VCClient (p.ej. http://127.0.0.1:18000), el path se completa solo.",
+    );
+  }
+
+  if (httpMode === "auto" && !looksLikeV1 && !looksLikeV2) {
+    warn(
+      "VCCLIENT000_HTTP_ENDPOINT no termina en /test ni en /api/voice-changer/convert_chunk y VCCLIENT000_HTTP_MODE está en auto; se tratará como endpoint Shape JSON. Para VCClient v2 (default) usa la URL base con modo auto/vcclient2; para w-okada v1 usa VCCLIENT000_HTTP_MODE=w-okada-rest.",
     );
   }
 }
@@ -840,8 +1317,11 @@ function printReport() {
           ok: issues.length === 0 && (!strict || warnings.length === 0),
           envFile,
           profile: workstationProfile,
+          engine: engineMode,
           hardwareReadiness,
           realModelReadiness,
+          inprocProbe,
+          endpointLive: endpointLiveReport,
           checks,
           warnings,
           issues,
@@ -857,6 +1337,7 @@ function printReport() {
   console.log("AI model doctor");
   console.log(`Runtime env: ${envFile}`);
   console.log(`Perfil: ${workstationProfile}`);
+  console.log(`Engine: ${engineMode}`);
   console.log(
     `Hardware demo: ${hardwareReadiness.readyForLocalModels ? "listo" : hardwareReadiness.status}`,
   );
@@ -893,6 +1374,8 @@ function buildHardwareReadiness() {
 }
 
 function buildRealModelReadiness() {
+  if (inprocMode) return buildInprocModelReadiness();
+
   const passthroughEnabled = wrapperPassthroughEnabled();
   const stages = [
     buildProcessorReadiness("video"),
@@ -909,6 +1392,7 @@ function buildRealModelReadiness() {
 
   return {
     ready,
+    engine: engineMode,
     passthroughEnabled,
     profile: workstationProfile,
     envFile,
@@ -920,6 +1404,180 @@ function buildRealModelReadiness() {
       stage.warnings.map((message) => `${stage.label}: ${message}`),
     ),
   };
+}
+
+function buildInprocModelReadiness() {
+  // Ready in inproc mode = weights present + import probe passes + no
+  // passthrough flags; the CLI repos (FACEFUSION_DIR/BMV2_REPO_DIR) are NOT
+  // required because the hot path is in-process.
+  const passthroughEnabled =
+    wrapperPassthroughEnabled() || envFlag("SHAPE_MODEL_ENDPOINT_PASSTHROUGH");
+  const stages = [
+    buildInprocProcessorReadiness("video"),
+    buildInprocFaceReadiness(),
+    buildInprocBackgroundReadiness(),
+    buildInprocProcessorReadiness("audio"),
+    buildInprocVoiceReadiness(),
+  ];
+  const ready =
+    !passthroughEnabled &&
+    stages.every(
+      (stage) => stage.status === "ready" || stage.status === "optional",
+    );
+
+  return {
+    ready,
+    engine: "inproc",
+    passthroughEnabled,
+    profile: workstationProfile,
+    envFile,
+    probe: inprocProbe
+      ? {
+          ok: inprocProbe.ok,
+          python: inprocProbe.python,
+          providers: inprocProbe.providers,
+          error: inprocProbe.error,
+        }
+      : null,
+    stages,
+    blockers: stages.flatMap((stage) =>
+      stage.issues.map((message) => `${stage.label}: ${message}`),
+    ),
+    warnings: stages.flatMap((stage) =>
+      stage.warnings.map((message) => `${stage.label}: ${message}`),
+    ),
+  };
+}
+
+function buildInprocProcessorReadiness(kind) {
+  const prefix = kind === "video" ? "SHAPE_VIDEO" : "SHAPE_AUDIO";
+  const label = kind === "video" ? "Procesador video" : "Procesador audio";
+  const expectedPath = kind === "video" ? "/process-frame" : "/process-audio";
+  const issues = [];
+  const warnings = [];
+  const command = env[`${prefix}_PROCESSOR_COMMAND`];
+  const endpoint = env[`${prefix}_PROCESSOR_ENDPOINT`];
+  const healthUrl = env[`${prefix}_PROCESSOR_HEALTH_URL`];
+
+  if (!endpoint || !validHttpUrl(endpoint)) {
+    issues.push(
+      `${prefix}_PROCESSOR_ENDPOINT no configurado o inválido (modo inproc colapsa a ${expectedPath} del :9100).`,
+    );
+  }
+  if (command) {
+    warnings.push(
+      `${prefix}_PROCESSOR_COMMAND configurado; el modo inproc no lo usa (saltos colapsados).`,
+    );
+  }
+  if (!healthUrl || !validHttpUrl(healthUrl)) {
+    warnings.push(`${prefix}_PROCESSOR_HEALTH_URL no configurado o inválido.`);
+  }
+
+  return readinessStage(
+    kind === "video" ? "video-processor" : "audio-processor",
+    label,
+    issues,
+    warnings,
+    { allowPassthrough: false },
+  );
+}
+
+function probeModuleIssues(modules, issues) {
+  if (!inprocProbe) return;
+  if (inprocProbe.error) {
+    issues.push(
+      `Dependencias in-process no verificables (${inprocProbe.python}): ${inprocProbe.error || "probe falló"}.`,
+    );
+    return;
+  }
+  const missing = modules.filter((mod) => inprocProbe.modules[mod] !== true);
+  if (missing.length > 0) {
+    issues.push(
+      `Faltan imports in-process: ${missing.join(", ")} (venv del endpoint sin requirements-inproc).`,
+    );
+  }
+}
+
+function buildInprocFaceReadiness() {
+  const issues = [];
+  const warnings = [];
+
+  const inswapper = pathValue("SHAPE_INSWAPPER_MODEL");
+  if (!inswapper || !existsSync(inswapper) || statSync(inswapper).size <= 0) {
+    issues.push(
+      `SHAPE_INSWAPPER_MODEL no existe o está vacío: ${inswapper ?? "sin configurar"}.`,
+    );
+  }
+  probeModuleIssues(["numpy", "cv2", "onnxruntime", "insightface"], issues);
+
+  const insightfaceHome = insightfaceHomePath();
+  if (!existsSync(join(insightfaceHome, "models", "buffalo_l"))) {
+    warnings.push(
+      `buffalo_l pendiente de descarga en ${insightfaceHome} (auto-descarga en primer arranque).`,
+    );
+  }
+  if (
+    workstationProfile === "windows-nvidia" &&
+    inprocProbe?.modules?.onnxruntime === true &&
+    !inprocProbe.providers.includes("CUDAExecutionProvider")
+  ) {
+    warnings.push(
+      "onnxruntime sin CUDAExecutionProvider (perfil windows-nvidia).",
+    );
+  }
+
+  return readinessStage("face", "Face swap", issues, warnings, {
+    allowPassthrough: false,
+  });
+}
+
+function buildInprocBackgroundReadiness() {
+  const issues = [];
+  const warnings = [];
+  const backgroundEngine = backgroundEngineInproc();
+
+  if (backgroundEngine === "bmv2") {
+    const checkpoint = pathValue("BMV2_MODEL_CHECKPOINT");
+    if (
+      !checkpoint ||
+      !existsSync(checkpoint) ||
+      statSync(checkpoint).size <= 0
+    ) {
+      issues.push(
+        `BMV2_MODEL_CHECKPOINT no existe o está vacío: ${checkpoint ?? "sin configurar"} (SHAPE_BACKGROUND_ENGINE=bmv2).`,
+      );
+    }
+  } else {
+    const rvm = pathValue("SHAPE_RVM_MODEL");
+    if (!rvm || !existsSync(rvm) || statSync(rvm).size <= 0) {
+      issues.push(
+        `SHAPE_RVM_MODEL no existe o está vacío: ${rvm ?? "sin configurar"}.`,
+      );
+    }
+  }
+  probeModuleIssues(["numpy", "cv2", "torch"], issues);
+
+  return readinessStage("background", "Background matting", issues, warnings, {
+    allowPassthrough: false,
+  });
+}
+
+function buildInprocVoiceReadiness() {
+  const issues = [];
+  const warnings = [];
+  const endpoint = inprocVoiceEndpoint();
+
+  if (!endpoint) {
+    issues.push(
+      "VCCLIENT000_HTTP_ENDPOINT no configurado (cliente persistente VCClient/w-okada; v2 convert_chunk o v1 /test).",
+    );
+  } else if (!validHttpUrl(endpoint)) {
+    issues.push(`VCCLIENT000_HTTP_ENDPOINT inválido: ${endpoint}.`);
+  }
+
+  return readinessStage("voice", "Cambio de voz", issues, warnings, {
+    allowPassthrough: false,
+  });
 }
 
 function buildProcessorReadiness(kind) {
@@ -1179,7 +1837,7 @@ function appendVcClientReadiness(issues, warnings) {
     return;
   }
 
-  if (!["auto", "w-okada-rest", "shape-json"].includes(httpMode)) {
+  if (!["auto", "vcclient2", "w-okada-rest", "shape-json"].includes(httpMode)) {
     issues.push(`VCCLIENT000_HTTP_MODE no soportado: ${httpMode}.`);
   }
 
@@ -1192,6 +1850,15 @@ function appendVcClientReadiness(issues, warnings) {
   const path = parsed?.pathname.replace(/\/+$/, "") ?? "";
   if (httpMode === "w-okada-rest" && path && path !== "/test") {
     warnings.push("vcclient000 w-okada-rest normalmente debe apuntar a /test.");
+  }
+  if (
+    httpMode === "vcclient2" &&
+    path &&
+    path !== "/api/voice-changer/convert_chunk"
+  ) {
+    warnings.push(
+      "vcclient000 vcclient2 normalmente debe apuntar a /api/voice-changer/convert_chunk (o la URL base).",
+    );
   }
 }
 
@@ -1290,6 +1957,9 @@ function runtimeCommandForProfile(profile) {
         ? "windows-nvidia"
         : detected
       : profile;
+  if (inprocMode) {
+    return `pnpm models:bootstrap -- --profile ${selected} --engine inproc --write-runtime`;
+  }
   return `pnpm models:runtime -- --profile ${selected} --preset local-wrappers`;
 }
 
