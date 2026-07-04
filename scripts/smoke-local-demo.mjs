@@ -47,6 +47,9 @@ async function main() {
   }
 
   runPnpm("demo:prepare");
+  runPnpm("smoke:identity-artifact", {
+    SHAPE_SMOKE_API_URL: apiUrl,
+  });
   runPnpm("smoke:meeting-flow", {
     SHAPE_SMOKE_API_URL: apiUrl,
   });

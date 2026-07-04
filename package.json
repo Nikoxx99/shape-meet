@@ -80,6 +80,7 @@
     "smoke:remote-demo": "node scripts/smoke-remote-demo-check.mjs",
     "smoke:coolify-handoff": "node scripts/smoke-coolify-handoff.mjs",
     "smoke:identity-push": "node scripts/smoke-push-host-identity.mjs",
+    "smoke:identity-artifact": "node scripts/smoke-identity-artifact-flow.mjs",
     "smoke:real-demo": "node scripts/smoke-real-demo-readiness.mjs",
     "smoke:ai-managed": "node scripts/smoke-ai-managed-processors.mjs",
     "smoke:ai-command": "node scripts/smoke-ai-command-adapters.mjs",
