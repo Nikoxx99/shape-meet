@@ -95,6 +95,10 @@ class InprocRuntime:
         with self._load_lock:
             if self._loaded:
                 return
+            # Start the managed VCClient supervisor first so its ~40 s boot
+            # overlaps the (heavier) face/background model loads. A no-op unless
+            # VCCLIENT000_MANAGED is active.
+            self._start_voice_runtime()
             face_report = _safe_load(self.face)
             background_report = _safe_load(self.background)
             self.voice.load()
@@ -157,10 +161,41 @@ class InprocRuntime:
         self._prepared.discard(session_id)
         self._voice_prepared.discard(session_id)
 
+    def _start_voice_runtime(self) -> None:
+        """Launch the managed VCClient supervisor if enabled (idempotent)."""
+
+        try:
+            from .vcclient_supervisor import get_supervisor
+
+            supervisor = get_supervisor()
+            if supervisor.managed:
+                supervisor.start()
+        except Exception as error:  # pragma: no cover - defensive
+            print(f"[shape-model-endpoint] no se pudo iniciar el supervisor VCClient: {error}")
+
+    def voice_runtime_status(self) -> dict[str, Any] | None:
+        """Managed VCClient supervisor status, or ``None`` when not managed."""
+
+        try:
+            from .vcclient_supervisor import get_supervisor
+
+            supervisor = get_supervisor()
+        except Exception:  # pragma: no cover - defensive
+            return None
+        if not supervisor.managed:
+            return None
+        return supervisor.status()
+
     def shutdown(self) -> None:
         self.face.shutdown()
         self.background.shutdown()
         self.voice.shutdown()
+        try:
+            from .vcclient_supervisor import get_supervisor
+
+            get_supervisor().stop()
+        except Exception as error:  # pragma: no cover - defensive
+            print(f"[shape-model-endpoint] fallo al detener el supervisor VCClient: {error}")
 
     # -- hot path --------------------------------------------------------------
 
@@ -287,6 +322,7 @@ class InprocRuntime:
             },
             "backgroundEngine": getattr(self.background, "engine_name", "rvm"),
             "capabilities": probe_inproc_capabilities(),
+            "voiceRuntime": self.voice_runtime_status(),
         }
 
 

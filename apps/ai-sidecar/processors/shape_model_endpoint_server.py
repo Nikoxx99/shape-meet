@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import atexit
 import base64
 import html
 import json
@@ -7,6 +8,7 @@ import math
 import os
 import shlex
 import shutil
+import signal
 import struct
 import subprocess
 import sys
@@ -68,6 +70,7 @@ class ShapeModelEndpointHandler(BaseHTTPRequestHandler):
                 "lastLatencyMs": STATE["lastLatencyMs"],
                 "lastWarning": STATE["lastWarning"],
                 "stageStatus": diagnostics["stageStatus"],
+                "voiceRuntime": diagnostics.get("voiceRuntime"),
             }
         )
 
@@ -951,6 +954,8 @@ def inproc_diagnostics_payload():
         "warnings": [],
     }
 
+    voice_runtime = health.get("voiceRuntime")
+
     stages = [video, face, background, voice]
     return {
         "ready": video_ready,
@@ -960,6 +965,9 @@ def inproc_diagnostics_payload():
         "lastLatencyMs": STATE["lastLatencyMs"],
         "lastWarning": STATE["lastWarning"],
         "stageStatus": {stage["id"]: stage["status"] for stage in stages},
+        # Managed VCClient supervisor state (null unless VCCLIENT000_MANAGED);
+        # server.py forwards this to the desktop diagnostics.
+        "voiceRuntime": voice_runtime,
         "runtime": {
             "python": sys.executable,
             "engine": "inproc",
@@ -967,6 +975,7 @@ def inproc_diagnostics_payload():
             "backgroundEngine": health.get("backgroundEngine"),
             "loaded": health.get("loaded"),
             "capabilities": health.get("capabilities"),
+            "voiceRuntime": voice_runtime,
             "loadTimeoutSeconds": engines_pkg.load_timeout_seconds(),
             "repoRoot": str(repo_root()),
             "maxBodyBytes": MAX_BODY_BYTES,
@@ -1291,6 +1300,40 @@ def safe_float(value):
         return None
 
 
+_SHUTDOWN_DONE = threading.Event()
+
+
+def endpoint_cleanup():
+    """Tear down the in-process runtime (incl. the managed VCClient child).
+
+    Idempotent and safe to call from a signal handler and atexit. When the
+    managed VCClient supervisor is active this is what stops the child tree, so
+    a ``kill``/SIGTERM of the endpoint server never leaves an orphan ``main``.
+    """
+
+    if _SHUTDOWN_DONE.is_set():
+        return
+    _SHUTDOWN_DONE.set()
+    if endpoint_mode() != "inproc":
+        return
+    try:
+        engines_pkg.get_inproc_runtime().shutdown()
+    except Exception as error:  # pragma: no cover - defensive
+        print(f"[shape-model-endpoint] error al apagar el runtime inproc: {error}")
+
+
+def install_endpoint_shutdown_hooks():
+    atexit.register(endpoint_cleanup)
+
+    def _handle_shutdown(_signum, _frame):
+        endpoint_cleanup()
+        raise SystemExit(0)
+
+    for signal_name in ("SIGTERM", "SIGINT"):
+        if hasattr(signal, signal_name):
+            signal.signal(getattr(signal, signal_name), _handle_shutdown)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Shape Meet persistent model endpoint server")
     parser.add_argument("--host", default=os.environ.get("SHAPE_MODEL_ENDPOINT_HOST", "127.0.0.1"))
@@ -1308,6 +1351,8 @@ def main():
         os.environ["SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS"] = "true"
 
     STATE["startedAt"] = datetime.now(timezone.utc).isoformat()
+
+    install_endpoint_shutdown_hooks()
 
     if endpoint_mode() == "inproc":
         # Load the resident engines once at startup (in a background thread so

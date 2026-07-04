@@ -1325,6 +1325,7 @@ def model_endpoint_diagnostics():
         "stageStatus": diagnostics.get("stageStatus") if isinstance(diagnostics.get("stageStatus"), dict) else {},
         "stages": diagnostics.get("stages") if isinstance(diagnostics.get("stages"), list) else [],
         "loadReport": diagnostics.get("loadReport"),
+        "voiceRuntime": diagnostics.get("voiceRuntime"),
         "message": diagnostics.get("lastWarning") or None,
     }
 

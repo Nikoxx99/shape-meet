@@ -209,6 +209,35 @@ export interface AiAudioProcessResult {
   stages?: AiStageResult[];
 }
 
+// Managed VCClient (voice) runtime supervisor status, mirrored from the model
+// endpoint's diagnostics (engines/vcclient_supervisor.py VCClientSupervisor.status()).
+export interface AiVoiceRuntimeStatus {
+  managed: boolean;
+  // disabled | idle | starting | healthy | restarting | crash_loop | stopped
+  state: string;
+  running: boolean;
+  healthy: boolean;
+  pid: number | null;
+  endpoint: string | null;
+  distDir?: string | null;
+  startedAt: string | null;
+  healthyAt?: string | null;
+  uptimeSec: number | null;
+  restarts: number;
+  restartsInWindow?: number;
+  bootTimeoutSec?: number;
+  logFile?: string | null;
+  lastCrash: {
+    at: string;
+    exitCode: number | null;
+    signal: number | null;
+    note: string;
+    restarts: number;
+  } | null;
+  reason: string | null;
+  error?: string | null;
+}
+
 export interface AiDiagnostics {
   checkedAt: string;
   mode: string;
@@ -295,6 +324,10 @@ export interface AiDiagnostics {
       };
     }>;
     loadReport?: unknown;
+    // Managed VCClient (voice) runtime supervisor state — present only when the
+    // in-process runtime runs with VCCLIENT000_MANAGED=1. Null/absent otherwise.
+    // Surfaced for future UI; App.tsx does not consume it yet.
+    voiceRuntime?: AiVoiceRuntimeStatus | null;
     message: string | null;
   };
   sentry: {

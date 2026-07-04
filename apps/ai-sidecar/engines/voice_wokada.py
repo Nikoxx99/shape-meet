@@ -260,6 +260,10 @@ class VoiceEngine:
         self._mode_lock = threading.Lock()
         self._bootstrap_lock = threading.Lock()
         self._bootstrapped: set[str] = set()
+        # Set in load() when VCCLIENT000_MANAGED is active: the endpoint is then
+        # the supervised VCClient (127.0.0.1:<port>) and the stage reflects the
+        # supervisor's health (degraded `vcclient_starting` while it boots).
+        self._supervisor = None
         self._connection = None
         self.connections_opened = 0
         self.requests_on_connection = 0
@@ -267,7 +271,17 @@ class VoiceEngine:
     # -- lifecycle -------------------------------------------------------------
 
     def load(self):
+        from .vcclient_supervisor import get_supervisor
+
+        supervisor = get_supervisor()
+        self._supervisor = supervisor if supervisor.managed else None
+
         endpoint = env_value("VCCLIENT000_HTTP_ENDPOINT") or env_value("SHAPE_VOICE_ENDPOINT")
+        if self._supervisor is not None:
+            # Managed mode: the voice engine always targets the supervised
+            # VCClient v2 server, ignoring any external endpoint hint.
+            endpoint = self._supervisor.endpoint()
+            self._configured_mode = MODE_V2
         if not endpoint:
             detail = "w-okada no configurado (VCCLIENT000_HTTP_ENDPOINT)."
             self.state.mark_load_failed("wokada_not_configured", detail)
@@ -411,6 +425,20 @@ class VoiceEngine:
             self.state.record_failure("wokada_not_configured", detail)
             return audio_bytes, {"changed": False, "reason": "wokada_not_configured", "detail": detail}
 
+        # Managed mode: while the supervised server is not healthy, short-circuit
+        # to a degraded (or crash-loop → failed) result instead of hammering a
+        # server that is still booting (a connection-refused per chunk would
+        # otherwise march the stage toward `failed`).
+        if self._supervisor is not None:
+            signal = self._supervisor.stage_signal()
+            if signal is not None:
+                detail = signal["detail"] or "VCClient gestionado no disponible."
+                if signal["kind"] == "failed":
+                    self.state.mark_load_failed(signal["reason"], detail)
+                else:
+                    self.state.mark_degraded(signal["reason"], detail)
+                return audio_bytes, {"changed": False, "reason": signal["reason"], "detail": detail}
+
         channels = max(1, int(channels or 1))
         if self._ensure_mode() == MODE_V2:
             return self._process_v2(audio_bytes, sample_rate, channels, audio_format, started)
@@ -543,6 +571,12 @@ class VoiceEngine:
             # No identity voice package to bootstrap; keep whatever slot is active.
             return
         if self._endpoint is None:
+            return
+        if self._supervisor is not None and not self._supervisor.is_healthy():
+            # Server still booting: the persisted active slot already carries the
+            # identity, so skip the API bootstrap now (it re-runs once healthy and
+            # a session is (re)prepared). Never fail the stage for a boot in
+            # progress.
             return
         if self._ensure_mode() != MODE_V2:
             # v1 has no slot API; identity is provisioned out-of-band.
@@ -680,6 +714,16 @@ class VoiceEngine:
         payload["serverLatencyMs"] = self._last_server_latency_ms
         payload["connectionsOpened"] = self.connections_opened
         payload["requestsOnConnection"] = self.requests_on_connection
+        if self._supervisor is not None:
+            payload["supervisor"] = self._supervisor.status()
+            signal = self._supervisor.stage_signal()
+            if signal is not None:
+                # Diagnostics may be polled during boot / crash loop, before any
+                # conversion updated the StageState; surface the supervisor's
+                # health on the stage so /health and /diagnostics stay honest.
+                payload["state"] = "failed" if signal["kind"] == "failed" else "degraded"
+                payload["reason"] = signal["reason"]
+                payload["detail"] = signal["detail"] or payload.get("detail")
         return payload
 
 
