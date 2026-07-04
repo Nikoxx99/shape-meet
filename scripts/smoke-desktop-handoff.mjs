@@ -7,6 +7,7 @@ const tempDir = mkdtempSync(join(tmpdir(), "shape-desktop-handoff-"));
 
 try {
   const runId = 123456789;
+  const currentHead = "abc123";
   const run = {
     databaseId: runId,
     status: "completed",
@@ -15,7 +16,7 @@ try {
     name: "Desktop Packages",
     event: "workflow_dispatch",
     createdAt: "2026-07-04T00:00:00Z",
-    headSha: "abc123",
+    headSha: currentHead,
   };
   const artifacts = [
     artifact("shape-meet-runtime-config", 471),
@@ -38,6 +39,7 @@ try {
       encoding: "utf8",
       env: {
         ...process.env,
+        SHAPE_DESKTOP_HANDOFF_CURRENT_HEAD: currentHead,
         SHAPE_DESKTOP_HANDOFF_RUNS_JSON: JSON.stringify([run]),
         SHAPE_DESKTOP_HANDOFF_ARTIFACTS_JSON: JSON.stringify({ artifacts }),
       },
@@ -63,11 +65,44 @@ try {
     readFileSync(join(tempDir, "manifest.json"), "utf8"),
   );
   assert(manifest.run.databaseId === runId, "manifest run id mismatch");
+  assert(manifest.headMatchesCurrent === true, "manifest did not match HEAD");
   assert(
     readFileSync(join(tempDir, "README.md"), "utf8").includes(
       "shape-meet-windows-x64",
     ),
     "README did not list artifacts",
+  );
+
+  const staleResult = spawnSync(
+    process.execPath,
+    [
+      "scripts/prepare-desktop-demo-handoff.mjs",
+      "--json",
+      "--repo",
+      "Luxora-Agency/shape-meet",
+      "--out",
+      join(tempDir, "stale"),
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SHAPE_DESKTOP_HANDOFF_CURRENT_HEAD: "def456",
+        SHAPE_DESKTOP_HANDOFF_RUNS_JSON: JSON.stringify([run]),
+        SHAPE_DESKTOP_HANDOFF_ARTIFACTS_JSON: JSON.stringify({ artifacts }),
+      },
+    },
+  );
+  if (staleResult.status === 0) {
+    if (staleResult.stdout) process.stdout.write(staleResult.stdout);
+    if (staleResult.stderr) process.stderr.write(staleResult.stderr);
+    throw new Error("stale desktop handoff should fail by default");
+  }
+  const staleReport = JSON.parse(staleResult.stdout);
+  assert(
+    staleReport.headMatchesCurrent === false,
+    "stale handoff did not report commit mismatch",
   );
 
   console.log("desktop handoff smoke ok");

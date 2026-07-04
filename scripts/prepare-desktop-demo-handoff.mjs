@@ -9,9 +9,14 @@ const args = process.argv.slice(2);
 const json = args.includes("--json");
 const download = args.includes("--download");
 const strictLatest = args.includes("--strict-latest");
+const allowStale = args.includes("--allow-stale");
 const workflowName = argValue("--workflow") ?? "Desktop Packages";
 const runId = argValue("--run-id");
 const repo = argValue("--repo") ?? detectRepository();
+const currentHeadSha =
+  argValue("--current-head") ??
+  process.env.SHAPE_DESKTOP_HANDOFF_CURRENT_HEAD ??
+  detectCurrentHead();
 const expectedArtifacts = [
   "shape-meet-runtime-config",
   "shape-meet-windows-x64",
@@ -174,10 +179,13 @@ function buildReport(run, artifacts) {
     ok:
       runReady &&
       missingArtifacts.length === 0 &&
-      expiredArtifacts.length === 0,
+      expiredArtifacts.length === 0 &&
+      (allowStale || headMatchesCurrent(run.headSha)),
     generatedAt: new Date().toISOString(),
     repository: repo,
     workflow: workflowName,
+    currentHeadSha,
+    allowStale,
     run: {
       databaseId: run.databaseId,
       status: run.status,
@@ -189,6 +197,7 @@ function buildReport(run, artifacts) {
       headSha: run.headSha,
     },
     runReady,
+    headMatchesCurrent: headMatchesCurrent(run.headSha),
     expectedArtifacts,
     artifacts: presentArtifacts,
     missingArtifacts,
@@ -239,6 +248,9 @@ function handoffReadme(report) {
 Run: ${report.run.url}
 Commit: ${report.run.headSha}
 Estado: ${report.ok ? "listo" : "revisar artifacts"}
+Commit actual: ${report.currentHeadSha ?? "desconocido"}
+Commit de artifacts: ${report.run.headSha}
+Coincide con HEAD actual: ${report.headMatchesCurrent ? "si" : "no"}
 
 ## Artifacts
 
@@ -249,6 +261,7 @@ ${artifactLines}
 1. Descarga los artifacts desde el run de GitHub Actions o ejecuta \`pnpm desktop:handoff -- --download --run-id ${report.run.databaseId}\`.
 2. Usa \`shape-meet-runtime-config\` como fuente de \`shape-meet.env\` para apuntar la app instalada al entorno demo.
 3. Instala el artifact de la plataforma correspondiente y valida la estacion con \`pnpm demo:real:check -- --strict\` antes de mostrar modelos reales.
+4. Si necesitas usar artifacts de otro commit para una prueba puntual, genera el handoff con \`--allow-stale\` y deja registrado el commit exacto.
 `;
 }
 
@@ -273,8 +286,26 @@ function printReport(report, outputDir) {
       `fail: run no exitoso (${report.run.status}/${report.run.conclusion})`,
     );
   }
+  if (!report.headMatchesCurrent && !report.allowStale) {
+    console.error(
+      `fail: artifacts stale (${report.run.headSha} != ${report.currentHeadSha ?? "HEAD desconocido"})`,
+    );
+  }
+  if (!report.headMatchesCurrent && report.allowStale) {
+    console.warn(
+      `warn: usando artifacts stale (${report.run.headSha} != ${report.currentHeadSha ?? "HEAD desconocido"})`,
+    );
+  }
   console.log(
     report.ok ? "Desktop demo handoff ok" : "Desktop demo handoff failed",
+  );
+}
+
+function headMatchesCurrent(runHeadSha) {
+  if (!currentHeadSha || !runHeadSha) return false;
+  return (
+    String(runHeadSha).startsWith(currentHeadSha) ||
+    String(currentHeadSha).startsWith(runHeadSha)
   );
 }
 
@@ -294,6 +325,12 @@ function detectRepository() {
   const url = remote.stdout.trim();
   const httpsMatch = url.match(/github\.com[:/]([^/]+\/[^/.]+)(?:\.git)?$/);
   return httpsMatch?.[1] ?? null;
+}
+
+function detectCurrentHead() {
+  const result = runCommand("git", ["rev-parse", "HEAD"]);
+  if (result.status !== 0) return null;
+  return result.stdout.trim() || null;
 }
 
 function envJson(name) {

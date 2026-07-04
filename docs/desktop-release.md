@@ -39,6 +39,10 @@ Para preparar un paquete de entrega con manifest y README del último run exitos
 pnpm desktop:handoff
 ```
 
+El handoff exige que el run exitoso corresponda al commit actual. Si necesitas
+documentar una prueba con artifacts viejos, usa `-- --allow-stale` y deja
+registrado el commit del run en el manifest.
+
 Si quieres bajar los artifacts al mismo directorio:
 
 ```bash

@@ -417,7 +417,9 @@ bundle antes de gastar runners Windows/macOS. Usa
 `pnpm desktop:workflow:check -- --latest` para ver el último run publicado.
 Después de un run exitoso, `pnpm desktop:handoff` genera
 `output/desktop-handoff/run-{id}` con manifest y README de los artifacts; agrega
-`-- --download` para bajarlos localmente con `gh`.
+`-- --download` para bajarlos localmente con `gh`. El handoff falla si el run
+exitoso no coincide con el commit actual; usa `-- --allow-stale` solo para
+documentar una prueba puntual con artifacts viejos.
 
 PyInstaller no hace cross-compile real. Para Windows hay que ejecutar
 `pnpm build:desktop` en Windows o en un runner Windows; para macOS, en macOS. Si
