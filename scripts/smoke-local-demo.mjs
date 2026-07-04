@@ -9,6 +9,7 @@ const skipAiDemo = skipAiAdapters || args.includes("--skip-ai-demo");
 const skipAiRuntime = skipAiAdapters || args.includes("--skip-ai-runtime");
 const skipAiManaged = skipAiAdapters || args.includes("--skip-ai-managed");
 const skipAiCommand = skipAiAdapters || args.includes("--skip-ai-command");
+const verifyUi = args.includes("--verify-ui") || args.includes("--ui");
 const apiUrl = (
   envOrFile(
     "SHAPE_DEMO_API_URL",
@@ -70,6 +71,10 @@ async function main() {
     runPnpm("smoke:ai-stage-command");
   }
 
+  if (verifyUi) {
+    runPnpm("demo:ui", {}, ["--skip-final-prepare"]);
+  }
+
   runPnpm("demo:prepare");
   console.log("");
   console.log("Local demo check ok");
@@ -105,20 +110,21 @@ async function assertJsonHealth(label, url, predicate) {
   console.log(`${label} health ok`);
 }
 
-function runPnpm(script, extraEnv = {}) {
+function runPnpm(script, extraEnv = {}, scriptArgs = []) {
   console.log("");
-  console.log(`> pnpm ${script}`);
-  const result = spawnSync(pnpmCommand(), [script], {
+  const args = scriptArgs.length > 0 ? [script, "--", ...scriptArgs] : [script];
+  console.log(`> pnpm ${args.join(" ")}`);
+  const result = spawnSync(pnpmCommand(), args, {
     cwd: process.cwd(),
     env: { ...process.env, ...extraEnv },
     stdio: "inherit",
   });
 
   if (result.error) {
-    fail(`pnpm ${script} failed: ${result.error.message}`);
+    fail(`pnpm ${args.join(" ")} failed: ${result.error.message}`);
   }
   if (result.status !== 0) {
-    fail(`pnpm ${script} exited with ${result.status}`);
+    fail(`pnpm ${args.join(" ")} exited with ${result.status}`);
   }
 }
 

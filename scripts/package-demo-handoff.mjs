@@ -693,6 +693,7 @@ ${nextStepLines}
 \`\`\`bash
 pnpm demo:up
 pnpm demo:local-preview
+pnpm demo:check -- --verify-ui
 pnpm demo:verify
 pnpm demo:handoff
 pnpm demo:handoff -- --verify-ui
