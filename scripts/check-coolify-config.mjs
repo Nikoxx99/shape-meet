@@ -91,18 +91,21 @@ const desktopAppUrl = parseUrl("VITE_SHAPE_APP_URL");
 const meetingUrl = parseUrl("VITE_SHAPE_MEETING_URL");
 const turnDomain = env.LIVEKIT_TURN_DOMAIN;
 const turnExternalIp = env.LIVEKIT_TURN_EXTERNAL_IP;
+const livekitNodeIp = env.LIVEKIT_NODE_IP;
+const livekitUseExternalIp = parseBoolean("LIVEKIT_USE_EXTERNAL_IP");
 const rtcTcpPort = parsePort("LIVEKIT_RTC_TCP_PORT");
 const rtcUdpPort = parsePort("LIVEKIT_RTC_UDP_PORT");
 const turnUdpPort = parsePort("LIVEKIT_TURN_UDP_PORT");
 const turnTlsPort = parsePort("LIVEKIT_TURN_TLS_PORT");
+const livekitHttpPort = parsePort("LIVEKIT_HTTP_PORT");
+const adminHttpPort = parsePort("ADMIN_HTTP_PORT");
 const relayStart = parsePort("LIVEKIT_TURN_RELAY_RANGE_START");
 const relayEnd = parsePort("LIVEKIT_TURN_RELAY_RANGE_END");
 const turnTtlSeconds = parsePositiveInteger("LIVEKIT_TURN_TTL_SECONDS");
-parsePort("ADMIN_HTTP_PORT");
 parsePositiveInteger("SHAPE_ARTIFACT_MAX_BYTES");
 parseBoolean("RUN_SEED");
 parseBoolean("SHAPE_DEBUG_ERRORS");
-parseBoolean("LIVEKIT_USE_EXTERNAL_IP");
+parseOptionalBoolean("LIVEKIT_ENABLE_LOOPBACK_CANDIDATE");
 parseBoolean("VITE_SHAPE_DEMO_DATA");
 parseBoolean("SENTRY_DEBUG");
 parseBoolean("NEXT_PUBLIC_SENTRY_DEBUG");
@@ -141,11 +144,47 @@ if (appUrl?.hostname && appUrl.hostname === turnDomain) {
   );
 }
 
+validateHostOnly("LIVEKIT_TURN_DOMAIN", turnDomain);
+validateExternalIp("LIVEKIT_TURN_EXTERNAL_IP", turnExternalIp);
+
+if (livekitUseExternalIp === false && !livekitNodeIp) {
+  issues.push(
+    "LIVEKIT_NODE_IP is required when LIVEKIT_USE_EXTERNAL_IP=false so LiveKit does not announce an internal container IP",
+  );
+}
+
 if (
-  new Set([rtcTcpPort, rtcUdpPort, turnUdpPort, turnTlsPort].filter(Boolean))
-    .size < 4
+  livekitUseExternalIp === true &&
+  livekitNodeIp &&
+  !isPlaceholder(livekitNodeIp)
 ) {
-  issues.push("LiveKit RTC/TURN ports must be distinct");
+  warnings.push(
+    "LIVEKIT_NODE_IP is set but LIVEKIT_USE_EXTERNAL_IP=true; confirm this is intentional for the Coolify node",
+  );
+}
+
+const servicePorts = [
+  ["ADMIN_HTTP_PORT", adminHttpPort],
+  ["LIVEKIT_HTTP_PORT", livekitHttpPort],
+  ["LIVEKIT_RTC_TCP_PORT", rtcTcpPort],
+  ["LIVEKIT_RTC_UDP_PORT", rtcUdpPort],
+  ["LIVEKIT_TURN_UDP_PORT", turnUdpPort],
+  ["LIVEKIT_TURN_TLS_PORT", turnTlsPort],
+].filter(([, value]) => Boolean(value));
+const seenPorts = new Map();
+for (const [label, port] of servicePorts) {
+  const previous = seenPorts.get(port);
+  if (previous) {
+    issues.push(`${label} collides with ${previous} on port ${port}`);
+  } else {
+    seenPorts.set(port, label);
+  }
+}
+
+for (const [label, port] of servicePorts) {
+  if (relayStart && relayEnd && port >= relayStart && port <= relayEnd) {
+    issues.push(`${label} must not be inside TURN relay port range`);
+  }
 }
 
 if (relayStart && relayEnd && relayEnd < relayStart) {
@@ -157,6 +196,12 @@ if (relayStart && relayEnd && relayEnd < relayStart) {
 if (relayStart && relayEnd && relayEnd - relayStart < 100) {
   warnings.push(
     "TURN relay range is narrow; keep at least 100 UDP ports for multi-participant tests",
+  );
+}
+
+if (relayStart && relayStart < 1024) {
+  warnings.push(
+    "TURN relay range starts below 1024; prefer high UDP ports to avoid privileged binding and platform restrictions",
   );
 }
 
@@ -324,6 +369,11 @@ function parseBoolean(key) {
   return env[key].toLowerCase() === "true";
 }
 
+function parseOptionalBoolean(key) {
+  if (!env[key]) return null;
+  return parseBoolean(key);
+}
+
 function parseSampleRate(key) {
   if (!env[key]) return null;
   const value = Number(env[key]);
@@ -349,6 +399,42 @@ function isPlaceholder(value) {
   ].some((pattern) => pattern.test(value));
 }
 
+function validateHostOnly(key, value) {
+  if (!value || isPlaceholder(value)) return;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    issues.push(`${key} must be a host name only, without protocol`);
+    return;
+  }
+  if (value.includes("/") || value.includes("?") || value.includes("#")) {
+    issues.push(`${key} must not include path, query or fragment`);
+  }
+  if (value.includes(":")) {
+    issues.push(`${key} must not include a port; use LIVEKIT_TURN_*_PORT`);
+  }
+}
+
+function validateExternalIp(key, value) {
+  if (!value || isPlaceholder(value)) return;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    issues.push(
+      `${key} must be an IP address or public/private IP pair, not a URL`,
+    );
+    return;
+  }
+  if (value.includes(":")) {
+    issues.push(`${key} must not include a port`);
+  }
+  const [publicIp, privateIp] = value.split("/");
+  for (const [label, ip] of [
+    ["public", publicIp],
+    ["private", privateIp],
+  ]) {
+    if (ip && !isIpv4(ip)) {
+      issues.push(`${key} ${label} value is not an IPv4 address: ${ip}`);
+    }
+  }
+}
+
 function isLocalAddress(value) {
   const first = value.split("/")[0] ?? value;
   return [
@@ -358,6 +444,18 @@ function isLocalAddress(value) {
     /^172\.(1[6-9]|2\d|3[0-1])\./,
     /^localhost$/i,
   ].some((pattern) => pattern.test(first));
+}
+
+function isIpv4(value) {
+  const parts = String(value).split(".");
+  return (
+    parts.length === 4 &&
+    parts.every((part) => {
+      if (!/^\d{1,3}$/.test(part)) return false;
+      const value = Number(part);
+      return value >= 0 && value <= 255;
+    })
+  );
 }
 
 function fail(message) {
