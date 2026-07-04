@@ -7,6 +7,7 @@ import type {
   MeetingCreateInput,
   ShapeUser,
 } from "@shape-meet/shared";
+import * as Sentry from "@sentry/react";
 import { getDesktopRuntimeConfig } from "./native";
 
 const TOKEN_KEY = "shape-meet-host-token";
@@ -274,10 +275,26 @@ async function request<T>(
   }
 
   const { apiBaseUrl } = await getDesktopRuntimeConfig();
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...options,
-    headers,
-  });
+  const url = `${apiBaseUrl}${path}`;
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    captureApiTransportError(error, {
+      apiBaseUrl,
+      method: options.method ?? "GET",
+      path,
+    });
+    throw new ShapeApiError(
+      `No se pudo conectar con la API (${apiBaseUrl}).`,
+      0,
+      "NETWORK_ERROR",
+    );
+  }
 
   const data = (await response.json().catch(() => ({}))) as {
     error?: string;
@@ -293,4 +310,28 @@ async function request<T>(
   }
 
   return data as T;
+}
+
+function captureApiTransportError(
+  error: unknown,
+  context: { apiBaseUrl: string; method: string; path: string },
+) {
+  Sentry.withScope((scope) => {
+    scope.setTag("app.surface", "desktop-webview");
+    scope.setTag("api.path", context.path);
+    scope.setTag("api.method", context.method);
+    scope.setContext("shape.api", {
+      apiBaseUrl: context.apiBaseUrl,
+      path: context.path,
+      method: context.method,
+      transport: "fetch",
+    });
+
+    if (error instanceof Error) {
+      Sentry.captureException(error);
+      return;
+    }
+
+    Sentry.captureMessage("Shape Meet API fetch failed", "error");
+  });
 }

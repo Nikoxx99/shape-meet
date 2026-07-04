@@ -20,6 +20,8 @@ const workflow = existsSync(workflowPath)
   : "";
 const packageJson = readJson(join(repoRoot, "package.json"));
 const defaultRemoteUrl = "https://shape-meet-admin.15.235.86.211.sslip.io";
+const defaultSentryDsn =
+  "https://5fce4a869b7ce84b0e8e7ff1cdef7c4a@o905297.ingest.us.sentry.io/5843617";
 const checks = [];
 const warnings = [];
 const issues = [];
@@ -72,6 +74,10 @@ function checkTriggers() {
     `default: "${defaultRemoteUrl}"`,
     "inputs desktop usan URL remota por defecto",
   );
+  expectText(
+    `default: "${defaultSentryDsn}"`,
+    "input sentry_dsn usa DSN publico por defecto",
+  );
 }
 
 function checkRuntimeConfigJob() {
@@ -90,6 +96,7 @@ function checkRuntimeConfigJob() {
     "vars.DESKTOP_SHAPE_HOST_IDENTIFIER",
     "vars.DESKTOP_SENTRY_DSN",
     "secrets.DESKTOP_SENTRY_DSN",
+    `secrets.DESKTOP_SENTRY_DSN || '${defaultSentryDsn}'`,
     "args+=(--api-url",
     "args+=(--meeting-url",
     "args+=(--ai-url",

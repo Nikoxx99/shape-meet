@@ -63,6 +63,8 @@ const DEFAULT_DESKTOP_API_URL = DEFAULT_SHAPE_PUBLIC_URL;
 const DEFAULT_DESKTOP_APP_URL = DEFAULT_SHAPE_PUBLIC_URL;
 const DEFAULT_DESKTOP_MEETING_URL = DEFAULT_SHAPE_PUBLIC_URL;
 const DEFAULT_DESKTOP_AI_URL = "http://127.0.0.1:7851";
+const DEFAULT_DESKTOP_SENTRY_DSN =
+  "https://5fce4a869b7ce84b0e8e7ff1cdef7c4a@o905297.ingest.us.sentry.io/5843617";
 
 export interface NativeAiPipelineStatus {
   id: string;
@@ -911,7 +913,9 @@ function fallbackDesktopRuntimeConfig(): NativeDesktopRuntimeConfig {
     demoDataEnabled:
       String(import.meta.env.VITE_SHAPE_DEMO_DATA ?? "").toLowerCase() ===
       "true",
-    sentryDsn: (import.meta.env.VITE_SENTRY_DSN as string | undefined) ?? null,
+    sentryDsn:
+      (import.meta.env.VITE_SENTRY_DSN as string | undefined) ??
+      DEFAULT_DESKTOP_SENTRY_DSN,
     sentryEnvironment:
       (import.meta.env.VITE_SENTRY_ENVIRONMENT as string | undefined) ??
       import.meta.env.MODE,
@@ -943,7 +947,7 @@ function normalizeDesktopRuntimeConfig(
     ),
     hostIdentifier: config.hostIdentifier?.trim() || null,
     demoDataEnabled: Boolean(config.demoDataEnabled),
-    sentryDsn: config.sentryDsn?.trim() || null,
+    sentryDsn: config.sentryDsn?.trim() || DEFAULT_DESKTOP_SENTRY_DSN,
     sentryEnvironment: config.sentryEnvironment || "development",
     sentryRelease: config.sentryRelease || "shape-meet-desktop@0.1.0",
     sentryTracesSampleRate: Number.isFinite(config.sentryTracesSampleRate)

@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const DEFAULT_REMOTE_URL = "https://shape-meet-admin.15.235.86.211.sslip.io";
+const DEFAULT_SENTRY_DSN =
+  "https://5fce4a869b7ce84b0e8e7ff1cdef7c4a@o905297.ingest.us.sentry.io/5843617";
 const tempDir = mkdtempSync(join(tmpdir(), "shape-desktop-config-"));
 const coolifyEnv = join(tempDir, "coolify.env");
 
@@ -28,6 +30,7 @@ assertIncludes(
   `VITE_SHAPE_MEETING_URL=${DEFAULT_REMOTE_URL}`,
 );
 assertIncludes(defaultResult.stdout, "SHAPE_HOST_IDENTIFIER=");
+assertIncludes(defaultResult.stdout, `SENTRY_DSN=${DEFAULT_SENTRY_DSN}`);
 
 writeFileSync(
   coolifyEnv,

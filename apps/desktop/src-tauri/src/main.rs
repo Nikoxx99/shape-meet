@@ -18,6 +18,8 @@ const DEFAULT_AI_ENDPOINT: &str = "http://127.0.0.1:7851";
 const DEFAULT_SHAPE_PUBLIC_URL: &str = "https://shape-meet-admin.15.235.86.211.sslip.io";
 const DEFAULT_DESKTOP_API_URL: &str = DEFAULT_SHAPE_PUBLIC_URL;
 const DEFAULT_DESKTOP_APP_URL: &str = DEFAULT_SHAPE_PUBLIC_URL;
+const DEFAULT_SENTRY_DSN: &str =
+    "https://5fce4a869b7ce84b0e8e7ff1cdef7c4a@o905297.ingest.us.sentry.io/5843617";
 const HTTP_TIMEOUT_MS: u64 = 1200;
 const ARTIFACT_DOWNLOAD_TIMEOUT_SECS: u64 = 900;
 const AI_SIDECAR_BINARY_NAME: &str = "shape-ai-sidecar";
@@ -3470,6 +3472,7 @@ fn desktop_runtime_config() -> DesktopRuntimeConfig {
 
 fn sentry_dsn() -> Option<String> {
     local_config_value(&["SENTRY_DSN", "VITE_SENTRY_DSN", "NEXT_PUBLIC_SENTRY_DSN"])
+        .or_else(|| Some(DEFAULT_SENTRY_DSN.to_string()))
 }
 
 fn sentry_environment() -> String {
@@ -3550,12 +3553,12 @@ fn local_env_file_candidates() -> Vec<PathBuf> {
         candidates.push(path);
     }
 
+    push_bundled_desktop_config_candidates(&mut candidates);
+
     if let Ok(data_dir) = shape_meet_data_dir() {
         candidates.push(data_dir.join("shape-meet.env"));
         candidates.push(data_dir.join(".env.local"));
     }
-
-    push_bundled_desktop_config_candidates(&mut candidates);
 
     if let Ok(current_dir) = env::current_dir() {
         push_env_file_candidates(&mut candidates, &current_dir);

@@ -111,7 +111,8 @@ Para un handoff remoto, llena los inputs del workflow manual:
   local en la workstation.
 - `host_identifier`: correo del host autorizado que aparecerá prellenado.
 - `sentry_dsn`, `sentry_environment`, `sentry_release`,
-  `sentry_traces_sample_rate`, `sentry_debug`: debug desktop.
+  `sentry_traces_sample_rate`, `sentry_debug`: debug desktop. El DSN público de
+  Sentry queda configurado por defecto para builds de diagnóstico.
 
 Los mismos valores pueden quedar como GitHub repository variables para builds
 por tag:
@@ -143,9 +144,12 @@ abra una segunda ventana cuando la app ya está corriendo.
 ## Configuración runtime de soporte
 
 La experiencia de cliente final no requiere copiar archivos de configuración:
-el instalador debe llevar el `shape-meet.env` embebido. Para soporte interno,
-QA o una workstation temporal, se puede sobreescribir el runtime creando un
-archivo `shape-meet.env` en el directorio de datos de la app:
+el instalador debe llevar el `shape-meet.env` embebido. La app prioriza ese
+recurso embebido sobre configs heredadas en el directorio de datos, para que un
+reinstall no conserve accidentalmente URLs de localhost. Para soporte interno,
+QA o una workstation temporal, se puede sobreescribir el runtime definiendo
+`SHAPE_DESKTOP_CONFIG_FILE` hacia un archivo `shape-meet.env`. Las rutas de datos
+siguen como fallback legacy:
 
 - Windows: `%LOCALAPPDATA%\Shape Meet\shape-meet.env`
 - macOS: `~/Library/Application Support/Shape Meet/shape-meet.env`

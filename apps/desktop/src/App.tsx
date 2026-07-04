@@ -296,6 +296,7 @@ function canUseDemoHostFallback(
   if (error instanceof ShapeApiError && error.code === "NOT_HOST") return false;
   if (
     error instanceof ShapeApiError &&
+    error.status > 0 &&
     error.status !== 401 &&
     error.status < 500
   )
@@ -309,6 +310,7 @@ function canUseDemoHostFallback(
 function canUseDemoRuntimeFallback(error: unknown) {
   if (!DEMO_DATA_ENABLED) return false;
   if (!(error instanceof ShapeApiError)) return true;
+  if (error.status === 0) return true;
   if (error.status === 404) return true;
   return error.status >= 500;
 }

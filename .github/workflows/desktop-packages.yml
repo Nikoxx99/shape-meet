@@ -25,6 +25,7 @@ on:
       sentry_dsn:
         description: "Optional public Sentry DSN for desktop debug builds"
         required: false
+        default: "https://5fce4a869b7ce84b0e8e7ff1cdef7c4a@o905297.ingest.us.sentry.io/5843617"
         type: string
       sentry_environment:
         description: "Sentry environment for desktop events"
@@ -83,7 +84,7 @@ jobs:
           SHAPE_RUNTIME_MEETING_URL: ${{ github.event.inputs.meeting_url || vars.DESKTOP_SHAPE_MEETING_URL || 'https://shape-meet-admin.15.235.86.211.sslip.io' }}
           SHAPE_RUNTIME_AI_URL: ${{ github.event.inputs.ai_url || vars.DESKTOP_SHAPE_AI_SERVICE_URL || 'http://127.0.0.1:7851' }}
           SHAPE_RUNTIME_HOST_IDENTIFIER: ${{ github.event.inputs.host_identifier || vars.DESKTOP_SHAPE_HOST_IDENTIFIER || '' }}
-          SHAPE_RUNTIME_SENTRY_DSN: ${{ github.event.inputs.sentry_dsn || vars.DESKTOP_SENTRY_DSN || secrets.DESKTOP_SENTRY_DSN || '' }}
+          SHAPE_RUNTIME_SENTRY_DSN: ${{ github.event.inputs.sentry_dsn || vars.DESKTOP_SENTRY_DSN || secrets.DESKTOP_SENTRY_DSN || 'https://5fce4a869b7ce84b0e8e7ff1cdef7c4a@o905297.ingest.us.sentry.io/5843617' }}
           SHAPE_RUNTIME_SENTRY_ENVIRONMENT: ${{ github.event.inputs.sentry_environment || vars.DESKTOP_SENTRY_ENVIRONMENT || 'internal-debug' }}
           SHAPE_RUNTIME_SENTRY_RELEASE: ${{ github.event.inputs.sentry_release || vars.DESKTOP_SENTRY_RELEASE || 'shape-meet-desktop@0.1.0' }}
           SHAPE_RUNTIME_SENTRY_TRACES_SAMPLE_RATE: ${{ github.event.inputs.sentry_traces_sample_rate || vars.DESKTOP_SENTRY_TRACES_SAMPLE_RATE || '1.0' }}

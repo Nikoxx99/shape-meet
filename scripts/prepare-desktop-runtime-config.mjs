@@ -25,6 +25,9 @@ const defaultMeetingUrl =
   defaultAppUrl;
 const defaultAiUrl =
   process.env.SHAPE_DEFAULT_AI_SERVICE_URL ?? "http://127.0.0.1:7851";
+const defaultSentryDsn =
+  process.env.SHAPE_DEFAULT_SENTRY_DSN ??
+  "https://5fce4a869b7ce84b0e8e7ff1cdef7c4a@o905297.ingest.us.sentry.io/5843617";
 const outputPath =
   argValue("--out") ??
   process.env.SHAPE_DESKTOP_CONFIG_FILE ??
@@ -75,7 +78,7 @@ const config = {
     env.VITE_SENTRY_DSN ??
     env.SENTRY_DSN ??
     env.NEXT_PUBLIC_SENTRY_DSN ??
-    "",
+    defaultSentryDsn,
   sentryEnvironment:
     argValue("--sentry-environment") ??
     env.VITE_SENTRY_ENVIRONMENT ??
