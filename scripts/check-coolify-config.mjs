@@ -10,6 +10,11 @@ const envFile = resolve(envFileArg);
 const composeFile = resolve("infra/docker-compose.coolify.yml");
 const issues = [];
 const warnings = [];
+const DESKTOP_CORS_ORIGINS = [
+  "tauri://localhost",
+  "https://tauri.localhost",
+  "http://tauri.localhost",
+];
 
 if (!existsSync(envFile)) {
   fail(`env file not found: ${envFile}`);
@@ -137,6 +142,7 @@ validateCorsOrigins(corsOrigins, [
   ["NEXT_PUBLIC_APP_URL", appUrl],
   ["VITE_SHAPE_MEETING_URL", meetingUrl],
 ]);
+validateDesktopCorsOrigins(corsOrigins);
 
 if (livekitUrl?.hostname && livekitUrl.hostname === turnDomain) {
   issues.push(
@@ -358,6 +364,8 @@ function parseCorsOrigins(key) {
   if (origins.includes("*")) return ["*"];
 
   return origins.map((origin) => {
+    if (DESKTOP_CORS_ORIGINS.includes(origin)) return origin;
+
     try {
       const parsed = new URL(origin);
       if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
@@ -376,7 +384,7 @@ function parseCorsOrigins(key) {
 function validateCorsOrigins(origins, requiredUrls) {
   if (origins.includes("*")) {
     warnings.push(
-      "CORS_ORIGIN=* permite cualquier origen; para producción prefiere NEXT_PUBLIC_APP_URL,VITE_SHAPE_MEETING_URL",
+      "CORS_ORIGIN=* permite cualquier origen; para producción prefiere NEXT_PUBLIC_APP_URL,VITE_SHAPE_MEETING_URL y orígenes Tauri",
     );
     return;
   }
@@ -386,6 +394,18 @@ function validateCorsOrigins(origins, requiredUrls) {
     if (!origins.includes(url.origin)) {
       issues.push(
         `CORS_ORIGIN must include ${url.origin} so ${key} can call the admin API`,
+      );
+    }
+  }
+}
+
+function validateDesktopCorsOrigins(origins) {
+  if (origins.includes("*")) return;
+
+  for (const origin of DESKTOP_CORS_ORIGINS) {
+    if (!origins.includes(origin)) {
+      issues.push(
+        `CORS_ORIGIN must include ${origin} so the packaged Tauri desktop can call the admin API`,
       );
     }
   }

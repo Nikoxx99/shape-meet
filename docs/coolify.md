@@ -53,7 +53,7 @@ POSTGRES_PASSWORD=...
 POSTGRES_DB=shape_meet
 REDIS_PASSWORD=...
 AUTH_SESSION_SECRET=...
-CORS_ORIGIN=https://admin.tudominio.com,https://meet.tudominio.com
+CORS_ORIGIN=https://admin.tudominio.com,https://meet.tudominio.com,tauri://localhost,https://tauri.localhost,http://tauri.localhost
 RUN_SEED=false
 SHAPE_DEBUG_ERRORS=true
 HOST_BOOTSTRAP_EMAIL=admin@shape.test
@@ -98,9 +98,11 @@ NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=1.0
 ```
 
 Si `Admin` y `Meeting` usan dominios distintos, `CORS_ORIGIN` debe incluir ambos
-orígenes separados por coma. El proxy API refleja únicamente el `Origin`
-permitido; una lista mal configurada rompe login, sala de espera y emisión de
-tokens LiveKit desde la app pública.
+orígenes separados por coma. Mantén también `tauri://localhost`,
+`https://tauri.localhost` y `http://tauri.localhost` para la desktop empaquetada.
+El proxy API refleja únicamente el `Origin` permitido; una lista mal configurada
+rompe login, sala de espera y emisión de tokens LiveKit desde la app pública o
+desde Tauri.
 
 Para generar un archivo real sin placeholders:
 

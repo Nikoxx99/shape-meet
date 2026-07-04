@@ -63,12 +63,20 @@ function smokeGeneratedProductionHandoff() {
   );
 
   const env = readFileSync(join(out, "shape-meet.coolify.env"), "utf8");
-  assert(
-    /CORS_ORIGIN="?https:\/\/admin\.shape-demo\.test,https:\/\/meet\.shape-demo\.test"?/m.test(
-      env,
-    ),
-    "generated env did not include admin and meeting CORS origins",
-  );
+  const corsLine =
+    env.split(/\r?\n/).find((line) => line.startsWith("CORS_ORIGIN=")) ?? "";
+  for (const origin of [
+    "https://admin.shape-demo.test",
+    "https://meet.shape-demo.test",
+    "tauri://localhost",
+    "https://tauri.localhost",
+    "http://tauri.localhost",
+  ]) {
+    assert(
+      corsLine.includes(origin),
+      `generated env did not include CORS origin ${origin}`,
+    );
+  }
 
   const readme = readFileSync(join(out, "README.md"), "utf8");
   assert(readme.includes("Shape Meet Coolify Handoff"), "readme title missing");

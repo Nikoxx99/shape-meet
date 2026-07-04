@@ -33,7 +33,13 @@ validateBoolean("debug-errors", debugErrors);
 const adminUrl = `https://${adminDomain}`;
 const meetingUrl = `https://${meetingDomain}`;
 const livekitUrl = `wss://${livekitDomain}`;
-const corsOrigin = [adminUrl, meetingUrl]
+const corsOrigin = [
+  adminUrl,
+  meetingUrl,
+  "tauri://localhost",
+  "https://tauri.localhost",
+  "http://tauri.localhost",
+]
   .filter((value, index, values) => values.indexOf(value) === index)
   .join(",");
 const bootstrapPassword = `${randomHex(12)}Aa1!`;

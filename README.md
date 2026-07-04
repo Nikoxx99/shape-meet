@@ -398,6 +398,10 @@ pnpm check:coolify ruta/a/produccion.env --strict
 
 El modo estricto falla si quedan placeholders de secretos y avisa cuando
 TURN/TLS necesita un balanceador L4 o un puerto `443/tcp` dedicado.
+El env generado incluye `admin`, `meet` y los orígenes Tauri
+(`tauri://localhost`, `https://tauri.localhost`, `http://tauri.localhost`) en
+`CORS_ORIGIN`; no los retires si vas a usar la app instalada contra el API
+remoto.
 
 Después de desplegar en Coolify, corre el doctor remoto desde cualquier máquina
 fuera del servidor para validar DNS, health del admin, signaling LiveKit y
