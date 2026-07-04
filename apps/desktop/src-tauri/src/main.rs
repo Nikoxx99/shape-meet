@@ -3182,25 +3182,8 @@ fn model_endpoint_online() -> bool {
 fn model_endpoint_host_port() -> (String, u16) {
     let runtime_env = load_ai_runtime_env().unwrap_or_default();
 
-    if let (Some(host), Some(port)) = (
-        env_lookup(&runtime_env, "SHAPE_MODEL_ENDPOINT_HOST"),
-        env_lookup(&runtime_env, "SHAPE_MODEL_ENDPOINT_PORT"),
-    ) {
-        if let Ok(port) = port.parse::<u16>() {
-            return (host.to_string(), port);
-        }
-    }
-
-    for key in [
-        "SHAPE_FACE_ENDPOINT",
-        "SHAPE_BACKGROUND_ENDPOINT",
-        "SHAPE_VOICE_ENDPOINT",
-    ] {
-        if let Some(url) = env_lookup(&runtime_env, key) {
-            if let Ok((host, port, _)) = parse_http_url(url) {
-                return (host, port);
-            }
-        }
+    if let Some(host_port) = model_endpoint_host_port_from_runtime_env(&runtime_env) {
+        return host_port;
     }
 
     if let (Some(host), Some(port)) = (
@@ -3213,6 +3196,35 @@ fn model_endpoint_host_port() -> (String, u16) {
     }
 
     ("127.0.0.1".to_string(), 9100)
+}
+
+fn model_endpoint_host_port_from_runtime_env(
+    runtime_env: &[(String, String)],
+) -> Option<(String, u16)> {
+    if let (Some(host), Some(port)) = (
+        env_lookup(runtime_env, "SHAPE_MODEL_ENDPOINT_HOST"),
+        env_lookup(runtime_env, "SHAPE_MODEL_ENDPOINT_PORT"),
+    ) {
+        if let Ok(port) = port.parse::<u16>() {
+            return Some((host.to_string(), port));
+        }
+    }
+
+    for key in [
+        "SHAPE_VIDEO_FRAME_ENDPOINT",
+        "SHAPE_FACE_ENDPOINT",
+        "SHAPE_BACKGROUND_ENDPOINT",
+        "SHAPE_AUDIO_CHUNK_ENDPOINT",
+        "SHAPE_VOICE_ENDPOINT",
+    ] {
+        if let Some(url) = env_lookup(runtime_env, key) {
+            if let Ok((host, port, _)) = parse_http_url(url) {
+                return Some((host, port));
+            }
+        }
+    }
+
+    None
 }
 
 fn sidecar_script_path() -> Option<PathBuf> {
@@ -3959,6 +3971,45 @@ mod tests {
             .values
             .iter()
             .any(|(key, _)| key == "SHAPE_WRAPPER_PASSTHROUGH"));
+    }
+
+    #[test]
+    fn model_endpoint_host_port_accepts_combined_video_endpoint() {
+        let parsed = parse_ai_runtime_env(
+            "SHAPE_VIDEO_FRAME_ENDPOINT=http://127.0.0.1:9410/video-frame",
+        );
+
+        assert_eq!(
+            model_endpoint_host_port_from_runtime_env(&parsed.values),
+            Some(("127.0.0.1".to_string(), 9410))
+        );
+    }
+
+    #[test]
+    fn model_endpoint_host_port_accepts_combined_audio_endpoint() {
+        let parsed =
+            parse_ai_runtime_env("SHAPE_AUDIO_CHUNK_ENDPOINT=http://localhost:9420/audio");
+
+        assert_eq!(
+            model_endpoint_host_port_from_runtime_env(&parsed.values),
+            Some(("localhost".to_string(), 9420))
+        );
+    }
+
+    #[test]
+    fn model_endpoint_host_port_prefers_explicit_endpoint_host() {
+        let parsed = parse_ai_runtime_env(
+            r#"
+            SHAPE_MODEL_ENDPOINT_HOST=127.0.0.1
+            SHAPE_MODEL_ENDPOINT_PORT=9500
+            SHAPE_VIDEO_FRAME_ENDPOINT=http://127.0.0.1:9410/video-frame
+            "#,
+        );
+
+        assert_eq!(
+            model_endpoint_host_port_from_runtime_env(&parsed.values),
+            Some(("127.0.0.1".to_string(), 9500))
+        );
     }
 
     #[test]
