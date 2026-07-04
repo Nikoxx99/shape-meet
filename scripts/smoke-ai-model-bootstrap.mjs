@@ -90,6 +90,7 @@ function smokeWindowsReport() {
   assertFileIncludes(setupScriptPath, "Shape Meet Windows/NVIDIA");
   assertFileIncludes(setupScriptPath, "git clone --depth 1");
   assertFileIncludes(setupScriptPath, "pnpm models:bootstrap");
+  assertFileIncludes(setupScriptPath, "--runtime-preset local-wrappers");
   assertFileIncludes(setupScriptPath, "$RuntimeEnvPath");
   assertFileIncludes(setupScriptPath, "pnpm models:preflight");
   assertFileIncludes(setupScriptPath, "C:\\models\\identities\\host.jpg");
@@ -103,12 +104,16 @@ function smokeWindowsReport() {
 
 function smokeEndpointRuntimeReport() {
   const checklistPath = join(tempDir, "endpoint-checklist.md");
+  const setupScriptPath = join(tempDir, "endpoint-setup.ps1");
   const report = runBootstrap([
     "--json",
     "--dry-run",
     "--write-checklist",
     "--checklist-out",
     checklistPath,
+    "--write-setup-script",
+    "--setup-script-out",
+    setupScriptPath,
     "--skip-hardware",
     "--skip-vcclient",
     "--profile",
@@ -157,6 +162,14 @@ function smokeEndpointRuntimeReport() {
   assertFileIncludes(checklistPath, "Endpoint video combinado");
   assertFileIncludes(checklistPath, "http://127.0.0.1:9191/video-frame");
   assertFileIncludes(checklistPath, "--runtime-preset local-endpoints");
+  assertFileIncludes(checklistPath, "--model-endpoint-port 9191");
+  assertFileIncludes(setupScriptPath, "--runtime-preset local-endpoints");
+  assertFileIncludes(setupScriptPath, "--model-endpoint-host 127.0.0.1");
+  assertFileIncludes(setupScriptPath, "--model-endpoint-port 9191");
+  assertFileIncludes(
+    setupScriptPath,
+    "--video-frame-endpoint http://127.0.0.1:9191/video-frame",
+  );
 }
 
 async function smokeVcclientPostReport() {

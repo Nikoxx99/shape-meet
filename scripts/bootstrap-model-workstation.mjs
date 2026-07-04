@@ -972,10 +972,9 @@ ${readinessSection}
 ## Comandos
 
 \`\`\`bash
-pnpm models:bootstrap -- --profile ${report.profile} --dry-run --write-checklist
-pnpm models:bootstrap -- --profile ${report.profile} --write-setup-script
-pnpm models:bootstrap -- --profile ${report.profile} --write-demo-assets --write-runtime --strict --write-checklist
-pnpm models:bootstrap -- --profile ${report.profile} --runtime-preset local-endpoints --write-runtime --strict --write-checklist
+${modelBootstrapCommand(["--dry-run", "--write-checklist"], report.profile)}
+${modelBootstrapCommand(["--write-setup-script"], report.profile)}
+${modelBootstrapCommand(["--write-demo-assets", "--write-runtime", "--strict", "--write-checklist"], report.profile)}
 pnpm models:preflight -- --env-file "${report.runtimeEnvPath}" --frame "${report.demoAssets.frame}" --identity "${report.demoAssets.identity}" --clean-plate "${report.demoAssets.cleanPlate}" --audio "${report.demoAssets.audio}" --strict
 pnpm demo:real:check -- --env-file "${report.runtimeEnvPath}" --include-desktop --require-real-models --frame "${report.demoAssets.frame}" --identity "${report.demoAssets.identity}" --clean-plate "${report.demoAssets.cleanPlate}" --audio "${report.demoAssets.audio}" --strict
 \`\`\`
@@ -1105,7 +1104,7 @@ Write-Host "  $CleanPlatePath"
 Write-Host "  $AudioPath"
 Write-Host ""
 Write-Host "Validacion:"
-Write-Host "pnpm models:bootstrap -- --profile windows-nvidia --write-demo-assets --write-runtime --strict --write-checklist"
+Write-Host ${psQuote(modelBootstrapCommand(["--write-demo-assets", "--write-runtime", "--strict", "--write-checklist"], "windows-nvidia"))}
 Write-Host ('pnpm models:preflight -- --env-file "{0}" --frame "{1}" --identity "{2}" --clean-plate "{3}" --audio "{4}" --strict' -f $RuntimeEnvPath, $FramePath, $IdentityPath, $CleanPlatePath, $AudioPath)
 Write-Host ('pnpm demo:real:check -- --env-file "{0}" --include-desktop --require-real-models --frame "{1}" --identity "{2}" --clean-plate "{3}" --audio "{4}" --strict' -f $RuntimeEnvPath, $FramePath, $IdentityPath, $CleanPlatePath, $AudioPath)
 `;
@@ -1174,11 +1173,60 @@ Manual pendiente:
   $AUDIO_PATH
 
 Validacion:
-pnpm models:bootstrap -- --profile apple-silicon --write-demo-assets --write-runtime --strict --write-checklist
+${modelBootstrapCommand(["--write-demo-assets", "--write-runtime", "--strict", "--write-checklist"], "apple-silicon")}
 pnpm models:preflight -- --env-file "$RUNTIME_ENV_PATH" --frame "$FRAME_PATH" --identity "$IDENTITY_PATH" --clean-plate "$CLEAN_PLATE_PATH" --audio "$AUDIO_PATH" --strict
 pnpm demo:real:check -- --env-file "$RUNTIME_ENV_PATH" --include-desktop --require-real-models --frame "$FRAME_PATH" --identity "$IDENTITY_PATH" --clean-plate "$CLEAN_PLATE_PATH" --audio "$AUDIO_PATH" --strict
 NEXT
 `;
+}
+
+function modelBootstrapCommand(extraArgs = [], selectedProfile = profile) {
+  return commandLine([
+    "pnpm",
+    "models:bootstrap",
+    "--",
+    ...modelBootstrapRuntimeArgs(selectedProfile),
+    ...extraArgs,
+  ]);
+}
+
+function modelBootstrapRuntimeArgs(selectedProfile) {
+  const values = [
+    "--profile",
+    selectedProfile,
+    "--runtime-preset",
+    runtimePreset,
+  ];
+
+  if (runtimePreset === "local-endpoints") {
+    values.push(
+      "--model-endpoint-host",
+      modelEndpointHost,
+      "--model-endpoint-port",
+      modelEndpointPort,
+    );
+    pushOptional(values, "--video-frame-endpoint", videoFrameEndpoint);
+    pushOptional(values, "--face-endpoint", faceEndpoint);
+    pushOptional(values, "--background-endpoint", backgroundEndpoint);
+    pushOptional(values, "--audio-chunk-endpoint", audioChunkEndpoint);
+    pushOptional(values, "--voice-endpoint", voiceEndpoint);
+  }
+
+  return values;
+}
+
+function commandLine(parts) {
+  return parts.map(commandArg).join(" ");
+}
+
+function commandArg(value) {
+  const text = String(value ?? "");
+  if (/^[A-Za-z0-9_./:@-]+$/.test(text)) return text;
+  return JSON.stringify(text);
+}
+
+function pushOptional(target, name, value) {
+  if (value) target.push(name, value);
 }
 
 function psQuote(value) {
