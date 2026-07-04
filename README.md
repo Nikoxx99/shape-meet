@@ -193,7 +193,7 @@ enseñar. Usa `--skip-ai-adapters` si solo necesitas validar el flujo base.
 
 `pnpm demo:ai-runtime` escribe `shape-ai-runtime.env` con procesadores demo para
 Tauri. Esos procesadores marcan el track de video con una capa visible de IA y
-publican audio passthrough como procesado, sin usar modelos reales. Sirve para
+aplican un efecto de voz demo al PCM local, sin usar modelos reales. Sirve para
 probar sidecar/procesadores antes de conectar FaceFusion, BackgroundMattingV2 o
 vcclient000. Usa `--dry-run` para ver el archivo sin escribirlo. En desarrollo
 usa el script Python fuente cuando el binario empaquetado está desactualizado;

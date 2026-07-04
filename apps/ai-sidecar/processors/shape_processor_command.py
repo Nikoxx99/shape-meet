@@ -3,9 +3,11 @@ import argparse
 import base64
 import html
 import json
+import math
 import os
 import platform
 import shlex
+import struct
 import subprocess
 import tempfile
 import threading
@@ -419,9 +421,17 @@ def process_audio(payload):
                 else:
                     status = "error"
         elif demo_effects_enabled():
+            demo_audio = demo_audio_payload(
+                input_base64,
+                sample_rate,
+                channels,
+                audio_format,
+                sequence,
+            )
+            output_base64 = demo_audio["audioDataBase64"]
             status = "processed"
             processor = "shape-demo-audio-processor"
-            warnings.append("demo_audio_passthrough")
+            warnings.extend(demo_audio["warnings"])
 
     latency_ms = elapsed_ms(started)
     update_state(latency_ms, warnings[-1] if warnings else None)
@@ -856,6 +866,120 @@ def demo_video_data_url(payload, input_data_url, width, height, sequence):
 </svg>
 """.strip()
     return f"data:image/svg+xml;charset=utf-8,{quote(svg, safe='')}"
+
+
+def demo_audio_payload(input_base64, sample_rate, channels, audio_format, sequence):
+    try:
+        raw = base64.b64decode(input_base64)
+    except Exception:
+        return {
+            "audioDataBase64": input_base64,
+            "warnings": ["demo_audio_decode_failed"],
+        }
+
+    normalized = str(audio_format or "pcm_f32le").lower()
+    channels = max(1, min(2, safe_int(channels) or 1))
+    sample_rate = max(8000, safe_int(sample_rate) or 48000)
+
+    if normalized in {"pcm_f32le", "f32le", "float32"}:
+        output = demo_audio_f32(raw, sample_rate, channels, sequence)
+    elif normalized in {"pcm_s16le", "s16le", "int16"}:
+        output = demo_audio_s16(raw, sample_rate, channels, sequence)
+    elif normalized in {"uint8-time-domain", "u8"}:
+        output = demo_audio_u8(raw, sample_rate, channels, sequence)
+    else:
+        return {
+            "audioDataBase64": input_base64,
+            "warnings": [f"demo_audio_unsupported_format:{normalized}"],
+        }
+
+    if output is None:
+        return {
+            "audioDataBase64": input_base64,
+            "warnings": ["demo_audio_empty_payload"],
+        }
+
+    return {
+        "audioDataBase64": base64.b64encode(output).decode("ascii"),
+        "warnings": ["demo_audio_voice_effect"],
+    }
+
+
+def demo_audio_f32(raw, sample_rate, channels, sequence):
+    frame_count = len(raw) // (4 * channels)
+    if frame_count <= 0:
+        return None
+
+    output = bytearray(frame_count * channels * 4)
+    previous = [0.0 for _ in range(channels)]
+
+    for frame_index in range(frame_count):
+        mod = demo_audio_modulator(frame_index, sample_rate, sequence)
+        for channel in range(channels):
+            offset = (frame_index * channels + channel) * 4
+            sample = struct.unpack_from("<f", raw, offset)[0]
+            processed = demo_audio_sample(sample, previous[channel], mod)
+            previous[channel] = processed
+            struct.pack_into("<f", output, offset, processed)
+
+    return bytes(output)
+
+
+def demo_audio_s16(raw, sample_rate, channels, sequence):
+    frame_count = len(raw) // (2 * channels)
+    if frame_count <= 0:
+        return None
+
+    output = bytearray(frame_count * channels * 2)
+    previous = [0.0 for _ in range(channels)]
+
+    for frame_index in range(frame_count):
+        mod = demo_audio_modulator(frame_index, sample_rate, sequence)
+        for channel in range(channels):
+            offset = (frame_index * channels + channel) * 2
+            sample = struct.unpack_from("<h", raw, offset)[0] / 32768.0
+            processed = demo_audio_sample(sample, previous[channel], mod)
+            previous[channel] = processed
+            struct.pack_into(
+                "<h",
+                output,
+                offset,
+                int(max(-1.0, min(0.999969, processed)) * 32768),
+            )
+
+    return bytes(output)
+
+
+def demo_audio_u8(raw, sample_rate, channels, sequence):
+    frame_count = len(raw) // channels
+    if frame_count <= 0:
+        return None
+
+    output = bytearray(frame_count * channels)
+    previous = [0.0 for _ in range(channels)]
+
+    for frame_index in range(frame_count):
+        mod = demo_audio_modulator(frame_index, sample_rate, sequence)
+        for channel in range(channels):
+            offset = frame_index * channels + channel
+            sample = (raw[offset] - 128) / 128.0
+            processed = demo_audio_sample(sample, previous[channel], mod)
+            previous[channel] = processed
+            output[offset] = max(0, min(255, int(processed * 128 + 128)))
+
+    return bytes(output)
+
+
+def demo_audio_modulator(frame_index, sample_rate, sequence):
+    phase_frame = frame_index + sequence * 2048
+    slow = math.sin(2 * math.pi * 38 * phase_frame / sample_rate)
+    robot = math.sin(2 * math.pi * 92 * phase_frame / sample_rate)
+    return 0.72 + 0.18 * robot + 0.10 * slow
+
+
+def demo_audio_sample(sample, previous, mod):
+    shaped = math.tanh((sample * mod + previous * 0.18) * 1.35)
+    return max(-1.0, min(1.0, shaped))
 
 
 def model_timeout():

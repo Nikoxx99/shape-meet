@@ -147,6 +147,7 @@ try {
   );
   console.log("demo video processor ok");
 
+  const demoAudioInput = demoAudioBase64();
   const audio = await request(
     `/sessions/${encodeURIComponent(sessionId)}/audio`,
     {
@@ -157,7 +158,7 @@ try {
         sampleRate: 48000,
         channels: 1,
         format: "pcm_f32le",
-        audioDataBase64: "AAAA",
+        audioDataBase64: demoAudioInput,
       },
     },
   );
@@ -169,6 +170,15 @@ try {
   assert(
     audio.data.audio?.status === "processed",
     "demo audio processor did not mark audio processed",
+  );
+  assert(
+    audio.data.audio?.audio?.audioDataBase64 &&
+      audio.data.audio.audio.audioDataBase64 !== demoAudioInput,
+    "demo audio processor did not change audio payload",
+  );
+  assert(
+    audio.data.audio?.warnings?.includes("demo_audio_voice_effect"),
+    "demo audio processor did not report voice effect warning",
   );
   console.log("demo audio processor ok");
 
@@ -187,6 +197,20 @@ function processorCommand(kind, port) {
 function decodeSvgDataUrl(dataUrl) {
   const [, payload = ""] = String(dataUrl).split(",", 2);
   return decodeURIComponent(payload);
+}
+
+function demoAudioBase64() {
+  const sampleCount = 2048;
+  const bytes = Buffer.alloc(sampleCount * 4);
+
+  for (let index = 0; index < sampleCount; index += 1) {
+    const envelope = Math.sin((Math.PI * index) / sampleCount);
+    const sample =
+      Math.sin((2 * Math.PI * 220 * index) / 48000) * envelope * 0.45;
+    bytes.writeFloatLE(sample, index * 4);
+  }
+
+  return bytes.toString("base64");
 }
 
 async function request(path, options = {}) {

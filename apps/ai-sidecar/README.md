@@ -167,7 +167,8 @@ referencia de FaceFusion, BackgroundMattingV2 y vcclient000.
 
 Para demo sin modelos reales, `SHAPE_PROCESSOR_DEMO_EFFECTS=true` hace que el
 procesador empaquetable devuelva un SVG con una capa visible sobre el frame y
-audio passthrough marcado como procesado. Genera el archivo runtime con:
+un efecto de voz demo sobre PCM local, sin cargar FaceFusion, BMV2 ni
+vcclient000. Genera el archivo runtime con:
 
 ```bash
 pnpm demo:ai-runtime
