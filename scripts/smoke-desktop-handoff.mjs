@@ -164,6 +164,60 @@ try {
     "local handoff README did not describe local bundle",
   );
 
+  const billingRun = {
+    databaseId: 987654321,
+    status: "completed",
+    conclusion: "failure",
+    url: "https://github.com/Luxora-Agency/shape-meet/actions/runs/987654321",
+    name: "Desktop Packages",
+    event: "workflow_dispatch",
+    createdAt: "2026-07-04T00:00:00Z",
+    headSha: currentHead,
+  };
+  const billingResult = spawnSync(
+    process.execPath,
+    [
+      "scripts/prepare-desktop-demo-handoff.mjs",
+      "--json",
+      "--repo",
+      "Luxora-Agency/shape-meet",
+      "--out",
+      join(tempDir, "billing"),
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SHAPE_DESKTOP_HANDOFF_CURRENT_HEAD: currentHead,
+        SHAPE_DESKTOP_HANDOFF_RUNS_JSON: JSON.stringify([billingRun]),
+        SHAPE_DESKTOP_HANDOFF_ARTIFACTS_JSON: JSON.stringify({ artifacts: [] }),
+        SHAPE_DESKTOP_HANDOFF_ANNOTATIONS_JSON: JSON.stringify([
+          {
+            message:
+              "The job was not started because recent account payments have failed or your spending limit needs to be increased.",
+          },
+        ]),
+      },
+    },
+  );
+  if (billingResult.status === 0) {
+    if (billingResult.stdout) process.stdout.write(billingResult.stdout);
+    if (billingResult.stderr) process.stderr.write(billingResult.stderr);
+    throw new Error("billing-blocked desktop handoff should fail");
+  }
+  const billingReport = JSON.parse(billingResult.stdout);
+  assert(
+    billingReport.ciBlocker?.code === "github-actions-billing",
+    "billing blocker was not detected",
+  );
+  assert(
+    readFileSync(join(tempDir, "billing", "README.md"), "utf8").includes(
+      "Fallback local",
+    ),
+    "billing README did not include local fallback",
+  );
+
   console.log("desktop handoff smoke ok");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });

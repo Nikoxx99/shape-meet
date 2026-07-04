@@ -208,6 +208,7 @@ function resolveArtifacts(databaseId) {
 
 function buildReport(run, artifacts) {
   const runReady = run.status === "completed" && run.conclusion === "success";
+  const ciBlocker = detectCiBlocker(run);
   const normalizedArtifacts = artifacts.map((artifact) => ({
     id: artifact.id ?? null,
     name: artifact.name,
@@ -255,6 +256,7 @@ function buildReport(run, artifacts) {
       createdAt: run.createdAt,
       headSha: run.headSha,
     },
+    ciBlocker,
     runReady,
     headMatchesCurrent: headMatchesCurrent(run.headSha),
     expectedArtifacts,
@@ -363,10 +365,32 @@ Estado: ${report.ok ? "listo" : "revisar artifacts"}
 Commit actual: ${report.currentHeadSha ?? "desconocido"}
 Commit de artifacts: ${report.run.headSha}
 Coincide con HEAD actual: ${report.headMatchesCurrent ? "si" : "no"}
+${report.ciBlocker ? `Bloqueo CI: ${report.ciBlocker.label}` : ""}
+
+${report.ciBlocker ? `Detalle: ${report.ciBlocker.message}` : ""}
 
 ## Artifacts
 
 ${artifactLines}
+
+${
+  report.ciBlocker
+    ? `## Fallback local
+
+GitHub Actions no pudo iniciar el workflow. Para no bloquear el demo, usa el
+handoff Windows local:
+
+\`\`\`bash
+pnpm desktop:windows-handoff
+\`\`\`
+
+En el PC Windows, ejecuta \`Build-ShapeMeetWindows.ps1\` para generar el
+instalador y \`Test-ShapeMeetWindows.ps1\` para validar endpoints, Sentry y
+bundle debug.
+
+`
+    : ""
+}
 
 ## Uso operativo
 
@@ -437,6 +461,11 @@ function printReport(report, outputDir) {
   if (!report.runReady) {
     console.error(
       `fail: run no exitoso (${report.run.status}/${report.run.conclusion})`,
+    );
+  }
+  if (report.ciBlocker) {
+    console.error(
+      `fail: ${report.ciBlocker.label}: ${report.ciBlocker.message}`,
     );
   }
   if (!report.headMatchesCurrent && !report.allowStale) {
@@ -574,6 +603,77 @@ function detectCurrentHead() {
   const result = runCommand("git", ["rev-parse", "HEAD"]);
   if (result.status !== 0) return null;
   return result.stdout.trim() || null;
+}
+
+function detectCiBlocker(run) {
+  const annotations = resolveRunAnnotations(run);
+  const messages = annotations
+    .map((annotation) => annotation.message ?? annotation.raw_details ?? "")
+    .filter(Boolean);
+  const billingMessage = messages.find((message) =>
+    /payments have failed|spending limit|billing/i.test(message),
+  );
+
+  if (billingMessage) {
+    return {
+      code: "github-actions-billing",
+      label: "GitHub Actions billing/spending limit",
+      message: billingMessage,
+      nextStep:
+        "Revisar Billing & plans en GitHub o usar el handoff Windows local.",
+    };
+  }
+
+  if (
+    run.status === "completed" &&
+    run.conclusion === "failure" &&
+    annotations.length === 0
+  ) {
+    return {
+      code: "github-actions-no-job-logs",
+      label: "GitHub Actions fallo antes de logs",
+      message:
+        "El workflow fallo antes de ejecutar steps y GitHub no devolvio annotations.",
+      nextStep:
+        "Revisar Actions/runner/billing en GitHub o generar bundle local.",
+    };
+  }
+
+  return null;
+}
+
+function resolveRunAnnotations(run) {
+  const fixture = envJson("SHAPE_DESKTOP_HANDOFF_ANNOTATIONS_JSON");
+  if (fixture) {
+    if (Array.isArray(fixture)) return fixture;
+    return fixture.annotations ?? [];
+  }
+
+  if (!run?.databaseId || !repo) return [];
+
+  const jobs = runCommand("gh", [
+    "api",
+    `repos/${repo}/actions/runs/${run.databaseId}/jobs`,
+  ]);
+  if (jobs.status !== 0) return [];
+
+  const payload = parseJson(jobs.stdout);
+  const jobIds = Array.isArray(payload?.jobs)
+    ? payload.jobs.map((job) => job.id).filter(Boolean)
+    : [];
+  const annotations = [];
+
+  for (const jobId of jobIds) {
+    const result = runCommand("gh", [
+      "api",
+      `repos/${repo}/check-runs/${jobId}/annotations`,
+    ]);
+    if (result.status !== 0) continue;
+    const parsed = parseJson(result.stdout);
+    if (Array.isArray(parsed)) annotations.push(...parsed);
+  }
+
+  return annotations;
 }
 
 function envJson(name) {
