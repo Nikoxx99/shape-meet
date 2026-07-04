@@ -441,7 +441,11 @@ def demo_video_data_url(payload, input_data_url, width, height, sequence):
         if enabled_flag
     ]
     effect_label = " + ".join(effects) if effects else "passthrough"
-    plate_label = "clean plate" if clean_plate.get("ready") else "sin clean plate"
+    plate_label = (
+        "clean plate"
+        if clean_plate.get("ready") or clean_plate.get("dataUrl")
+        else "sin clean plate"
+    )
     safe_frame = html.escape(input_data_url, quote=True)
     safe_identity = html.escape(str(identity_label), quote=True)
     safe_effects = html.escape(effect_label, quote=True)

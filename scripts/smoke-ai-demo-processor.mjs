@@ -140,6 +140,11 @@ try {
     frame.data.frame?.frame?.dataUrl?.startsWith("data:image/svg+xml"),
     "demo video frame did not return SVG data URL",
   );
+  const svg = decodeSvgDataUrl(frame.data.frame.frame.dataUrl);
+  assert(
+    svg.includes("clean plate"),
+    "demo video frame did not receive clean plate metadata",
+  );
   console.log("demo video processor ok");
 
   const audio = await request(
@@ -177,6 +182,11 @@ try {
 
 function processorCommand(kind, port) {
   return `${JSON.stringify(python)} ${JSON.stringify(processorScript)} --kind ${kind} --host 127.0.0.1 --port ${port}`;
+}
+
+function decodeSvgDataUrl(dataUrl) {
+  const [, payload = ""] = String(dataUrl).split(",", 2);
+  return decodeURIComponent(payload);
 }
 
 async function request(path, options = {}) {

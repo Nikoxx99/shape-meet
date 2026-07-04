@@ -973,7 +973,7 @@ async function runHostAiPreflight({
   cameraEnabled: boolean;
   deviceSelection: DeviceSelection;
 }) {
-  const prepared = faceEnabled
+  const prepared = needsIdentityArtifact({ faceEnabled, voiceEnabled })
     ? await prepareIdentityForAiSession(identity, hostToken)
     : { identity, cache: null };
   const resolvedIdentity = prepared.identity;
@@ -1038,6 +1038,16 @@ function evictUnauthorizedIdentityArtifacts(
   void Promise.allSettled(
     staleIdentities.map((identity) => evictIdentityArtifact(identity.id)),
   );
+}
+
+function needsIdentityArtifact({
+  faceEnabled,
+  voiceEnabled,
+}: {
+  faceEnabled: boolean;
+  voiceEnabled: boolean;
+}) {
+  return faceEnabled || voiceEnabled;
 }
 
 function runtimeIdentityFor(
@@ -4810,7 +4820,7 @@ function ActiveCallScreen({
         throw new Error(runtime.message || "No se pudo iniciar el runtime IA.");
       }
 
-      const prepared = faceEnabled
+      const prepared = needsIdentityArtifact({ faceEnabled, voiceEnabled })
         ? await prepareIdentityForAiSession(identity, hostToken)
         : { identity, cache: null };
       const resolvedIdentity = prepared.identity;
