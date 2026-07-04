@@ -644,11 +644,25 @@ function boolStatus(value?: boolean) {
 function modelRuntimeInputFromContent(
   content: string,
 ): NativeModelAiRuntimeInput {
+  const videoFrameEndpoint =
+    envContentValue(content, "SHAPE_VIDEO_FRAME_ENDPOINT") ?? "";
   const faceEndpoint = envContentValue(content, "SHAPE_FACE_ENDPOINT") ?? "";
+  const backgroundEndpoint =
+    envContentValue(content, "SHAPE_BACKGROUND_ENDPOINT") ?? "";
+  const audioChunkEndpoint =
+    envContentValue(content, "SHAPE_AUDIO_CHUNK_ENDPOINT") ?? "";
+  const voiceEndpoint = envContentValue(content, "SHAPE_VOICE_ENDPOINT") ?? "";
+  const endpointPreset =
+    videoFrameEndpoint ||
+    faceEndpoint ||
+    backgroundEndpoint ||
+    audioChunkEndpoint ||
+    voiceEndpoint;
+
   return {
     runtimePreset:
       envContentValue(content, "SHAPE_MODEL_RUNTIME_PRESET") ??
-      (faceEndpoint ? "local-endpoints" : "local-wrappers"),
+      (endpointPreset ? "local-endpoints" : "local-wrappers"),
     workstationProfile:
       envContentValue(content, "SHAPE_MODEL_WORKSTATION_PROFILE") ?? "manual",
     wrapperPassthrough: !["0", "false", "no", "off"].includes(
@@ -669,13 +683,11 @@ function modelRuntimeInputFromContent(
       envContentUrlPort(content, "SHAPE_FACE_ENDPOINT") ??
       "9100",
     videoFrameEndpoint:
-      envContentValue(content, "SHAPE_VIDEO_FRAME_ENDPOINT") ?? "",
+      videoFrameEndpoint,
     faceEndpoint,
-    backgroundEndpoint:
-      envContentValue(content, "SHAPE_BACKGROUND_ENDPOINT") ?? "",
-    audioChunkEndpoint:
-      envContentValue(content, "SHAPE_AUDIO_CHUNK_ENDPOINT") ?? "",
-    voiceEndpoint: envContentValue(content, "SHAPE_VOICE_ENDPOINT") ?? "",
+    backgroundEndpoint,
+    audioChunkEndpoint,
+    voiceEndpoint,
     facefusionDir: envContentValue(content, "FACEFUSION_DIR") ?? "",
     facefusionPython: envContentValue(content, "FACEFUSION_PYTHON") ?? "",
     facefusionProviders:
@@ -707,6 +719,8 @@ function runtimeContentUsesLocalEndpoints(content: string) {
     Boolean(
       envContentValue(content, "SHAPE_FACE_ENDPOINT") ||
       envContentValue(content, "SHAPE_BACKGROUND_ENDPOINT") ||
+      envContentValue(content, "SHAPE_VIDEO_FRAME_ENDPOINT") ||
+      envContentValue(content, "SHAPE_AUDIO_CHUNK_ENDPOINT") ||
       envContentValue(content, "SHAPE_VOICE_ENDPOINT"),
     )
   );
@@ -824,6 +838,62 @@ function modelRuntimeProfileDefaults(
   }
 
   return {};
+}
+
+function modelEndpointDefaults(input: NativeModelAiRuntimeInput) {
+  const host = input.modelEndpointHost?.trim() || "127.0.0.1";
+  const port = input.modelEndpointPort?.trim() || "9100";
+  const baseUrl = `http://${host}:${port}`;
+
+  return {
+    videoFrameEndpoint: `${baseUrl}/video-frame`,
+    faceEndpoint: `${baseUrl}/face`,
+    backgroundEndpoint: `${baseUrl}/background`,
+    voiceEndpoint: `${baseUrl}/voice`,
+  };
+}
+
+function applyLocalEndpointDefaults(
+  input: NativeModelAiRuntimeInput,
+  previous?: NativeModelAiRuntimeInput,
+): NativeModelAiRuntimeInput {
+  const defaults = modelEndpointDefaults(input);
+  const previousDefaults = previous ? modelEndpointDefaults(previous) : null;
+
+  return {
+    ...input,
+    videoFrameEndpoint: endpointWithDefault(
+      input.videoFrameEndpoint,
+      previousDefaults?.videoFrameEndpoint,
+      defaults.videoFrameEndpoint,
+    ),
+    faceEndpoint: endpointWithDefault(
+      input.faceEndpoint,
+      previousDefaults?.faceEndpoint,
+      defaults.faceEndpoint,
+    ),
+    backgroundEndpoint: endpointWithDefault(
+      input.backgroundEndpoint,
+      previousDefaults?.backgroundEndpoint,
+      defaults.backgroundEndpoint,
+    ),
+    voiceEndpoint: endpointWithDefault(
+      input.voiceEndpoint,
+      previousDefaults?.voiceEndpoint,
+      defaults.voiceEndpoint,
+    ),
+  };
+}
+
+function endpointWithDefault(
+  value: string | null | undefined,
+  previousDefault: string | null | undefined,
+  nextDefault: string,
+) {
+  const current = value?.trim() ?? "";
+  if (!current) return nextDefault;
+  if (previousDefault && current === previousDefault) return nextDefault;
+  return current;
 }
 
 function envContentValue(content: string, key: string) {
@@ -3765,11 +3835,18 @@ function AiRuntimeScreen({
     setSaving(true);
     setRuntimeMessage(null);
     try {
-      const normalized = normalizeModelRuntimeInput({
+      const selectedInput = {
         ...modelRuntimeInput,
         runtimePreset,
         wrapperPassthrough: modelRuntimeInput.wrapperPassthrough,
-      });
+      };
+      const inputWithDefaults =
+        runtimePreset === "local-endpoints"
+          ? applyLocalEndpointDefaults(selectedInput)
+          : selectedInput;
+      setModelRuntimeInput(inputWithDefaults);
+
+      const normalized = normalizeModelRuntimeInput(inputWithDefaults);
       const prepared = await prepareModelAiRuntimeEnv(normalized);
       setEnvFile(prepared);
       setContent(prepared.content);
@@ -3812,6 +3889,33 @@ function AiRuntimeScreen({
       ...modelRuntimeProfileDefaults(profile),
       workstationProfile: profile,
     }));
+  }
+
+  function handleRuntimePreset(value: string) {
+    setModelRuntimeInput((current) => {
+      const next = {
+        ...current,
+        runtimePreset: value,
+      };
+      return value === "local-endpoints"
+        ? applyLocalEndpointDefaults(next)
+        : next;
+    });
+  }
+
+  function handleEndpointBaseChange(
+    key: "modelEndpointHost" | "modelEndpointPort",
+    value: string,
+  ) {
+    setModelRuntimeInput((current) => {
+      const next = {
+        ...current,
+        [key]: value,
+      };
+      return current.runtimePreset === "local-endpoints"
+        ? applyLocalEndpointDefaults(next, current)
+        : next;
+    });
   }
 
   async function handleRefresh() {
@@ -3945,12 +4049,7 @@ function AiRuntimeScreen({
                 { value: "local-wrappers", label: "Wrappers locales" },
                 { value: "local-endpoints", label: "Endpoints locales" },
               ]}
-              onChange={(value) =>
-                setModelRuntimeInput((current) => ({
-                  ...current,
-                  runtimePreset: value,
-                }))
-              }
+              onChange={handleRuntimePreset}
             />
             <SelectField
               label="Perfil workstation"
@@ -4001,10 +4100,7 @@ function AiRuntimeScreen({
               icon={<Settings />}
               value={modelRuntimeInput.modelEndpointHost ?? ""}
               onChange={(value) =>
-                setModelRuntimeInput((current) => ({
-                  ...current,
-                  modelEndpointHost: value,
-                }))
+                handleEndpointBaseChange("modelEndpointHost", value)
               }
             />
             <TextField
@@ -4012,12 +4108,64 @@ function AiRuntimeScreen({
               icon={<Settings />}
               value={modelRuntimeInput.modelEndpointPort ?? ""}
               onChange={(value) =>
-                setModelRuntimeInput((current) => ({
-                  ...current,
-                  modelEndpointPort: value,
-                }))
+                handleEndpointBaseChange("modelEndpointPort", value)
               }
               type="number"
+            />
+            <TextField
+              label="Endpoint video combinado"
+              icon={<Video />}
+              value={modelRuntimeInput.videoFrameEndpoint ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  videoFrameEndpoint: value,
+                }))
+              }
+            />
+            <TextField
+              label="Endpoint rostro"
+              icon={<UserRound />}
+              value={modelRuntimeInput.faceEndpoint ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  faceEndpoint: value,
+                }))
+              }
+            />
+            <TextField
+              label="Endpoint fondo"
+              icon={<Video />}
+              value={modelRuntimeInput.backgroundEndpoint ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  backgroundEndpoint: value,
+                }))
+              }
+            />
+            <TextField
+              label="Endpoint audio combinado"
+              icon={<Mic />}
+              value={modelRuntimeInput.audioChunkEndpoint ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  audioChunkEndpoint: value,
+                }))
+              }
+            />
+            <TextField
+              label="Endpoint voz"
+              icon={<Mic />}
+              value={modelRuntimeInput.voiceEndpoint ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  voiceEndpoint: value,
+                }))
+              }
             />
             <TextField
               label="Carpeta FaceFusion"
