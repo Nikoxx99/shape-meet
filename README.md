@@ -217,11 +217,14 @@ de enseñar:
 ```bash
 pnpm demo:status -- --verify-preview --verify-handoff
 pnpm demo:status -- --verify-full --sentry-live
+pnpm demo:status -- --remote-env-file infra/shape-meet.production.env --remote-api-flow --remote-identity-flow
 ```
 
 El porcentaje es de demo verificado, no de producto completo: sube cuando los
 checks realmente se ejecutan y pasan. Si Sentry live o modelos reales siguen
-pendientes, el reporte los deja como siguientes pasos.
+pendientes, el reporte los deja como siguientes pasos. Cuando pasas
+`--remote-env-file`, el status ejecuta el doctor remoto de Coolify/LiveKit/TURN;
+usa `--skip-network` si solo quieres validar configuración sin tocar red.
 
 `pnpm demo:ai-runtime` escribe `shape-ai-runtime.env` con procesadores demo para
 Tauri. Esos procesadores marcan el track de video con una capa visible de IA y

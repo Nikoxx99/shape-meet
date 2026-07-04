@@ -16,6 +16,7 @@ const outputPath = argValue("--output");
 const skipServices = args.includes("--skip-services");
 const skipSentry = args.includes("--skip-sentry");
 const skipRealCheck = args.includes("--skip-real-check");
+const skipRemote = args.includes("--skip-remote");
 const verifyPreview = args.includes("--verify-preview");
 const verifyFull =
   args.includes("--verify-full") || args.includes("--verify-ui");
@@ -25,6 +26,18 @@ const sentryLive =
   args.includes("--live") ||
   args.includes("--send-test-event");
 const remoteEnvFile = argValue("--remote-env-file");
+const verifyRemote =
+  args.includes("--verify-remote") || Boolean(remoteEnvFile && !skipRemote);
+const remoteApiFlow =
+  args.includes("--remote-api-flow") ||
+  args.includes("--api-flow") ||
+  args.includes("--check-api-flow");
+const remoteIdentityFlow =
+  args.includes("--remote-identity-flow") ||
+  args.includes("--identity-flow") ||
+  args.includes("--check-identity-flow");
+const remoteTimeoutMs =
+  argValue("--remote-timeout-ms") ?? argValue("--timeout-ms");
 const apiUrl = trimTrailingSlash(
   argValue("--api-url") ??
     process.env.SHAPE_DEMO_API_URL ??
@@ -57,6 +70,7 @@ const report = {
     preview: verifyPreview,
     fullUi: verifyFull,
     handoff: verifyHandoff,
+    remoteDeployment: verifyRemote,
   },
   checks: {},
   readiness: {},
@@ -86,6 +100,15 @@ async function main() {
   report.checks.realReadiness = skipRealCheck
     ? skipped("Demo real", "omitido por --skip-real-check")
     : runRealReadinessCheck();
+
+  report.checks.remoteDeployment = verifyRemote
+    ? runRemoteDeploymentCheck()
+    : skipped(
+        "Demo remoto",
+        remoteEnvFile
+          ? "omitido por --skip-remote"
+          : "pasa --remote-env-file para validarlo",
+      );
 
   report.checks.preview = verifyPreview
     ? commandStep("Preview local IA", ["demo:local-preview"], {
@@ -162,7 +185,6 @@ function runRealReadinessCheck() {
     "--skip-sentry-live",
     "--skip-model-preflight",
   ];
-  if (remoteEnvFile) commandArgs.push("--remote-env-file", remoteEnvFile);
   const step = commandStep("Demo real", commandArgs, {
     parseJson: true,
     timeout: 90_000,
@@ -171,6 +193,44 @@ function runRealReadinessCheck() {
   step.nextSteps = step.report?.nextSteps ?? [];
   step.realModelsConfigured =
     step.report?.steps?.realModels?.realModelsConfigured === true;
+  return step;
+}
+
+function runRemoteDeploymentCheck() {
+  if (!remoteEnvFile) {
+    return {
+      ok: false,
+      skipped: false,
+      label: "Demo remoto",
+      error: "Falta --remote-env-file para validar Coolify/TURN remoto.",
+    };
+  }
+
+  const commandArgs = [
+    "demo:remote:check",
+    "--",
+    "--json",
+    "--env-file",
+    remoteEnvFile,
+  ];
+  if (strict) commandArgs.push("--strict");
+  if (remoteTimeoutMs) commandArgs.push("--timeout-ms", remoteTimeoutMs);
+  if (remoteApiFlow) commandArgs.push("--api-flow");
+  if (remoteIdentityFlow) commandArgs.push("--identity-flow");
+  forwardRemoteFlag(commandArgs, "--skip-network");
+  forwardRemoteFlag(commandArgs, "--skip-turn-auth");
+  forwardRemoteFlag(commandArgs, "--skip-turnutils");
+  forwardRemoteFlag(commandArgs, "--skip-js-turn-auth");
+  forwardRemoteFlag(commandArgs, "--skip-livekit-handshake");
+
+  const step = commandStep("Demo remoto", commandArgs, {
+    parseJson: true,
+    timeout: positiveInteger(argValue("--remote-command-timeout-ms"), 120_000),
+  });
+  step.statusLabel = step.report?.status ?? (step.ok ? "passed" : "failed");
+  step.target = step.report?.target ?? null;
+  step.issues = step.report?.issues ?? [];
+  step.warnings = step.report?.warnings ?? [];
   return step;
 }
 
@@ -268,6 +328,7 @@ function collectReadiness() {
       : false;
   const realReady =
     !skipRealCheck && report.checks.realReadiness?.readyForRealDemo === true;
+  const remoteOk = verifyRemote && report.checks.remoteDeployment?.ok === true;
   const previewOk =
     report.checks.preview?.ok === true && !report.checks.preview.skipped;
   const fullUiOk =
@@ -282,12 +343,20 @@ function collectReadiness() {
     localPreview: verifyPreview ? (previewOk ? "ok" : "review") : "not-checked",
     localFullDemo: verifyFull ? (fullUiOk ? "ok" : "review") : "not-checked",
     demoHandoff: verifyHandoff ? (handoffOk ? "ok" : "review") : "not-checked",
+    remoteDeployment: verifyRemote
+      ? remoteOk
+        ? "ok"
+        : "review"
+      : remoteEnvFile
+        ? "not-checked"
+        : "not-configured",
     realModelDemo: realReady ? "ok" : skipRealCheck ? "not-checked" : "blocked",
     demoPercent: demoPercent({
       servicesOk,
       sentryOk,
       sentryLiveOk,
       realReady,
+      remoteOk,
       previewOk,
       fullUiOk,
       handoffOk,
@@ -315,6 +384,16 @@ function collectReadiness() {
       "Ejecuta `pnpm demo:status -- --verify-handoff` para validar el paquete operativo Windows/demo.",
     );
   }
+  if (!verifyRemote && !remoteEnvFile) {
+    nextSteps.push(
+      "Cuando exista el env de Coolify, ejecuta `pnpm demo:status -- --remote-env-file infra/shape-meet.production.env --remote-api-flow --remote-identity-flow`.",
+    );
+  }
+  if (verifyRemote && !remoteOk) {
+    nextSteps.push(
+      "Corrige el deployment remoto con `pnpm demo:remote:check -- --env-file <env> --api-flow --identity-flow --strict`.",
+    );
+  }
   if (!sentryLive) {
     nextSteps.push(
       "Ejecuta `pnpm demo:status -- --sentry-live` cuando tengas una DSN válida.",
@@ -340,8 +419,9 @@ function demoPercent(input) {
     [input.previewOk, 15],
     [input.fullUiOk, 25],
     [input.handoffOk, 10],
+    [input.remoteOk, 5],
     [input.sentryLiveOk, 5],
-    [input.realReady, 10],
+    [input.realReady, 5],
   ];
   return weights.reduce((total, [ok, weight]) => total + (ok ? weight : 0), 0);
 }
@@ -386,6 +466,15 @@ function runPnpm(commandArgs, options = {}) {
 
 function skipped(label, reason) {
   return { ok: true, skipped: true, label, reason };
+}
+
+function forwardRemoteFlag(target, name) {
+  if (args.includes(name)) target.push(name);
+}
+
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function parseJson(value) {
