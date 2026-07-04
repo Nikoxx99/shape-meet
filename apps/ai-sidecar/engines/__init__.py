@@ -83,6 +83,7 @@ class InprocRuntime:
         self._loaded = False
         self._load_lock = threading.Lock()
         self._prepared: set[str] = set()
+        self._voice_prepared: set[str] = set()
         self._device = None
         self.load_reports: dict[str, Any] = {}
 
@@ -133,13 +134,28 @@ class InprocRuntime:
                 self.background.prepare_session(session_id, identity, background)
             except EngineDependencyError:
                 pass
+        if enabled.get("voice"):
+            self._ensure_voice_prepared(session_id, identity)
         self._prepared.add(session_id)
+
+    def _ensure_voice_prepared(self, session_id: str, identity) -> None:
+        """Idempotently bootstrap the voice identity (VCClient v2 slot).
+
+        ``VoiceEngine.prepare_session`` never raises, so a bootstrap failure
+        surfaces on the voice stage state without taking down the session.
+        """
+
+        if session_id in self._voice_prepared:
+            return
+        self.voice.prepare_session(session_id, identity)
+        self._voice_prepared.add(session_id)
 
     def release_session(self, session_id: str) -> None:
         self.face.release_session(session_id)
         self.background.release_session(session_id)
         self.voice.release_session(session_id)
         self._prepared.discard(session_id)
+        self._voice_prepared.discard(session_id)
 
     def shutdown(self) -> None:
         self.face.shutdown()
@@ -228,6 +244,7 @@ class InprocRuntime:
         if not enabled.get("voice"):
             return {"output": audio_bytes, "stages": [], "warnings": [], "status": "processed"}
 
+        self._ensure_voice_prepared(session_id, identity)
         out, meta = self.voice.process(audio_bytes, sample_rate, channels, audio_format)
         state = self.voice.state.to_dict()
         stage = {
@@ -239,6 +256,8 @@ class InprocRuntime:
             "device": state.get("device"),
             "vramMb": state.get("vramMb"),
             "latencyMs": state.get("lastLatencyMs"),
+            "mode": meta.get("mode"),
+            "serverLatencyMs": meta.get("serverLatencyMs"),
             "requestsOnConnection": meta.get("requestsOnConnection"),
             "connectionsOpened": meta.get("connectionsOpened"),
         }
