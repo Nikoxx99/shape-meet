@@ -150,6 +150,7 @@ struct SaveAiRuntimeEnvInput {
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct PrepareModelAiRuntimeEnvInput {
+    workstation_profile: Option<String>,
     wrapper_passthrough: Option<bool>,
     facefusion_dir: Option<String>,
     facefusion_python: Option<String>,
@@ -1442,6 +1443,7 @@ fn default_ai_runtime_env_template() -> String {
         "SHAPE_FACE_ENGINE=facefusion",
         "SHAPE_BACKGROUND_ENGINE=backgroundmattingv2",
         "SHAPE_VOICE_ENGINE=vcclient000",
+        "# SHAPE_MODEL_WORKSTATION_PROFILE=windows-nvidia",
         "# Demo sin modelos reales: pnpm demo:ai-runtime genera un archivo listo.",
         "# Wrappers locales: pnpm models:runtime -- --preset local-wrappers --passthrough.",
         "# SHAPE_PROCESSOR_DEMO_EFFECTS=true",
@@ -1524,6 +1526,15 @@ fn model_ai_runtime_env_content(
         "SHAPE_FACE_ENGINE=facefusion".to_string(),
         "SHAPE_BACKGROUND_ENGINE=backgroundmattingv2".to_string(),
         "SHAPE_VOICE_ENGINE=vcclient000".to_string(),
+        format!(
+            "SHAPE_MODEL_WORKSTATION_PROFILE={}",
+            render_env_value(
+                &trimmed_model_input_value(
+                    input.and_then(|value| value.workstation_profile.as_deref())
+                )
+                .unwrap_or_else(|| "manual".to_string())
+            )
+        ),
         format!(
             "SHAPE_PROCESSOR_TIMEOUT_SECS={}",
             render_env_value(&processor_timeout)
@@ -2512,6 +2523,7 @@ mod tests {
             # comment
             SHAPE_AI_MODE=adapter-contract
             SHAPE_VIDEO_FRAME_COMMAND="C:\models\video.exe --input {input} --output {output}"
+            SHAPE_MODEL_WORKSTATION_PROFILE=windows-nvidia
             FACEFUSION_DIR=C:\models\FaceFusion
             BMV2_MODEL_CHECKPOINT=C:\models\BackgroundMattingV2\pytorch_resnet50.pth
             VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test
@@ -2528,6 +2540,7 @@ mod tests {
             vec![
                 "SHAPE_AI_MODE",
                 "SHAPE_VIDEO_FRAME_COMMAND",
+                "SHAPE_MODEL_WORKSTATION_PROFILE",
                 "FACEFUSION_DIR",
                 "BMV2_MODEL_CHECKPOINT",
                 "VCCLIENT000_HTTP_ENDPOINT",
@@ -2620,6 +2633,7 @@ mod tests {
     #[test]
     fn model_ai_runtime_env_accepts_real_paths() {
         let input = PrepareModelAiRuntimeEnvInput {
+            workstation_profile: Some("windows-nvidia".to_string()),
             wrapper_passthrough: Some(false),
             facefusion_dir: Some(r"C:\models\FaceFusion".to_string()),
             facefusion_python: Some(r"C:\models\FaceFusion\.venv\Scripts\python.exe".to_string()),
@@ -2647,6 +2661,11 @@ mod tests {
 
         assert!(parsed.errors.is_empty());
         assert!(parsed.warnings.is_empty());
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_MODEL_WORKSTATION_PROFILE"
+                && value == "windows-nvidia"));
         assert!(parsed
             .values
             .iter()

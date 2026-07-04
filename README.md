@@ -167,12 +167,16 @@ reciben placeholders como `{input}`, `{output}`, `{identity}`, `{clean_plate}`,
 `{sample_rate}` y `{session_id}`.
 Los wrappers de referencia viven en `apps/ai-sidecar/wrappers` y cubren
 FaceFusion, BackgroundMattingV2 y vcclient000.
+Usa `--profile windows-nvidia` para generar defaults estrictos de demo en
+`C:\models\...` con CUDA, BackgroundMattingV2 y VCClient REST. Usa
+`--profile apple-silicon` para prellenar rutas `~/models/...` y BMV2 con MPS.
 
 `pnpm models:doctor` revisa el runtime de modelos sin cargar pesos pesados:
 archivo `shape-ai-runtime.env`, comandos de procesador, placeholders requeridos,
 paths de FaceFusion/BackgroundMattingV2/vcclient000 y hardware NVIDIA/Apple
 Silicon. Usa `--strict` para fallar también con warnings y `--env-file` para
-probar un runtime específico antes de copiarlo a la app.
+probar un runtime específico antes de copiarlo a la app. El reporte incluye
+`next:` con acciones concretas para terminar de preparar la estación.
 
 Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`
 y volver a la llamada. Esa ruta escribe el mismo archivo runtime desde la app y
@@ -180,9 +184,9 @@ reinicia el sidecar gestionado para aplicar los procesadores demo.
 `Cargar wrappers` escribe el runtime `local-wrappers` con FaceFusion,
 BackgroundMattingV2 y vcclient000. La pantalla permite fijar Python por motor,
 providers/procesadores de FaceFusion, dispositivo BMV2, modo REST de
-vcclient000 y timeouts antes de reiniciar el sidecar gestionado. En equipos sin
-GPU o sin modelos instalados deja `Usar passthrough` activo para validar la
-conexión de wrappers sin cargar pesos reales.
+vcclient000, perfil de estación y timeouts antes de reiniciar el sidecar
+gestionado. En equipos sin GPU o sin modelos instalados deja `Usar passthrough`
+activo para validar la conexión de wrappers sin cargar pesos reales.
 `Probar IA` ejecuta un preflight local con la identidad, fondo y voz activos
 antes de entrar a la reunión.
 
@@ -491,25 +495,18 @@ pnpm models:doctor -- --skip-hardware
 
 Ese preset usa `apps/ai-sidecar/wrappers/facefusion_frame.py`,
 `backgroundmattingv2_frame.py` y `vcclient000_chunk.py`. En la máquina NVIDIA,
-usa el mismo preset sin `--passthrough` y agrega las rutas reales:
+usa el perfil de estación:
 
 ```bash
-pnpm models:runtime -- --preset local-wrappers \
-  --facefusion-dir "C:\\models\\FaceFusion" \
-  --facefusion-python "C:\\models\\FaceFusion\\.venv\\Scripts\\python.exe" \
-  --facefusion-providers "cuda" \
-  --facefusion-processors "face_swapper face_enhancer" \
-  --bmv2-repo-dir "C:\\models\\BackgroundMattingV2" \
-  --bmv2-python "C:\\models\\BackgroundMattingV2\\.venv\\Scripts\\python.exe" \
-  --bmv2-checkpoint "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth" \
-  --bmv2-device "cuda" \
-  --model-timeout 30 \
-  --vcclient000-http-endpoint "http://127.0.0.1:18888/test"
+pnpm models:runtime -- --profile windows-nvidia --preset local-wrappers
+pnpm models:doctor -- --profile windows-nvidia
 ```
 
-El endpoint anterior usa el REST oficial de w-okada/VCClient. `models:runtime`
-agrega `VCCLIENT000_HTTP_MODE=w-okada-rest` automáticamente cuando defines
-`--vcclient000-http-endpoint`.
+Ese perfil asume `C:\models\FaceFusion`,
+`C:\models\BackgroundMattingV2`, checkpoint
+`C:\models\BackgroundMattingV2\pytorch_resnet50.pth` y VCClient REST en
+`http://127.0.0.1:18888/test`. Puedes sobreescribir cualquier ruta con las
+banderas `--facefusion-*`, `--bmv2-*` o `--vcclient000-*`.
 
 También puedes usar `--vcclient000-command` si prefieres invocar vcclient000 por
 CLI. El archivo resultante `shape-ai-runtime.env` queda en la ruta local de la

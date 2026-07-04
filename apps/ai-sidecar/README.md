@@ -155,20 +155,20 @@ pnpm models:doctor -- --skip-hardware
 
 Ese modo valida el contrato completo en cualquier PC: levanta los procesadores
 locales, invoca los wrappers versionados y copia input a output cuando los
-modelos no están instalados. Para activar modelos reales, elimina
-`--passthrough` y agrega rutas/endpoints:
+modelos no están instalados. Para activar modelos reales en la estación
+Windows/NVIDIA del demo, usa el perfil estricto:
 
 ```bash
-pnpm models:runtime -- --preset local-wrappers \
-  --facefusion-dir "C:\\models\\FaceFusion" \
-  --bmv2-repo-dir "C:\\models\\BackgroundMattingV2" \
-  --bmv2-checkpoint "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth" \
-  --vcclient000-http-endpoint "http://127.0.0.1:18888/test"
+pnpm models:runtime -- --profile windows-nvidia --preset local-wrappers
+pnpm models:doctor -- --profile windows-nvidia
 ```
 
-Ese endpoint usa el REST oficial de w-okada/VCClient (`POST /test`) y el
-wrapper convierte entre el `pcm_f32le` de Shape Meet y el `pcm_s16le` que espera
-VCClient.
+Ese perfil asume `C:\models\FaceFusion`,
+`C:\models\BackgroundMattingV2`, el checkpoint
+`C:\models\BackgroundMattingV2\pytorch_resnet50.pth` y VCClient REST en
+`http://127.0.0.1:18888/test`. Ese endpoint usa el REST oficial de
+w-okada/VCClient (`POST /test`) y el wrapper convierte entre el `pcm_f32le` de
+Shape Meet y el `pcm_s16le` que espera VCClient.
 
 También puedes usar `--vcclient000-command` para un comando local de vcclient000.
 Usa `--video-frame-command` si prefieres un solo wrapper combinado para rostro y

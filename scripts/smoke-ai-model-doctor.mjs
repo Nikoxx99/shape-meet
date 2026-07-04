@@ -50,6 +50,46 @@ try {
     process.exit(result.status ?? 1);
   }
 
+  const missingEnvPath = join(tempDir, "missing-shape-ai-runtime.env");
+  const reportResult = spawnSync(
+    process.execPath,
+    [
+      "scripts/check-ai-model-runtime.mjs",
+      "--",
+      "--json",
+      "--skip-hardware",
+      "--profile",
+      "windows-nvidia",
+      "--env-file",
+      missingEnvPath,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    },
+  );
+
+  if (reportResult.status !== 0) {
+    console.error(
+      `models doctor next-step smoke failed with ${reportResult.status}`,
+    );
+    if (reportResult.stdout) process.stdout.write(reportResult.stdout);
+    if (reportResult.stderr) process.stderr.write(reportResult.stderr);
+    process.exit(reportResult.status ?? 1);
+  }
+
+  const report = JSON.parse(reportResult.stdout);
+  if (report.profile !== "windows-nvidia") {
+    throw new Error("models doctor JSON did not include requested profile");
+  }
+  if (
+    !report.nextSteps?.some((step) =>
+      step.includes("pnpm models:runtime -- --profile windows-nvidia"),
+    )
+  ) {
+    throw new Error("models doctor JSON did not include profile next step");
+  }
+
   console.log("models doctor smoke ok");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });

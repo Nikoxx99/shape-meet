@@ -21,9 +21,13 @@ const env = {
   ...readEnvFile(envFile),
   ...process.env,
 };
+const workstationProfile = normalizeWorkstationProfile(
+  argValue("--profile") ?? env.SHAPE_MODEL_WORKSTATION_PROFILE ?? "manual",
+);
 const checks = [];
 const warnings = [];
 const issues = [];
+const nextSteps = [];
 let nvidiaAvailable = false;
 
 main();
@@ -67,6 +71,9 @@ function checkRuntimeEnv() {
       "Generalo con `pnpm models:runtime -- --preset local-wrappers --passthrough` o con comandos reales.",
     ].join(" "),
   );
+  nextStep(
+    `Genera runtime local: ${runtimeCommandForProfile(workstationProfile)}`,
+  );
 }
 
 function checkHardware() {
@@ -98,6 +105,9 @@ function checkHardware() {
 
   warn(
     "No se detectó `nvidia-smi`. Las rutas FaceFusion/BMV2 con CUDA deben validarse en la máquina NVIDIA final.",
+  );
+  nextStep(
+    "En Windows/NVIDIA instala drivers RTX/CUDA, reinicia terminal y confirma `nvidia-smi` antes del demo real.",
   );
 }
 
@@ -250,12 +260,16 @@ function checkFaceFusionWrapper() {
         ? "FACEFUSION_DIR no configurado; passthrough de FaceFusion activo."
         : "FACEFUSION_DIR no configurado para el wrapper FaceFusion.",
     );
+    nextStep(
+      "Configura FACEFUSION_DIR y FACEFUSION_PYTHON o usa `pnpm models:runtime -- --profile windows-nvidia --preset local-wrappers`.",
+    );
   } else if (!existsSync(facefusionDir)) {
     if (wrapperPassthroughEnabled()) {
       warn(`FACEFUSION_DIR no existe: ${facefusionDir}; passthrough activo.`);
     } else {
       issue(`FACEFUSION_DIR no existe: ${facefusionDir}`);
     }
+    nextStep(`Clona/instala FaceFusion en ${facefusionDir}.`);
   }
 
   if (!existsSync(resolvedEntrypoint)) {
@@ -266,6 +280,9 @@ function checkFaceFusionWrapper() {
     } else {
       issue(`FaceFusion entrypoint no existe: ${resolvedEntrypoint}`);
     }
+    nextStep(
+      "Revisa FACEFUSION_ENTRYPOINT o actualiza el wrapper si tu versión de FaceFusion usa otro comando.",
+    );
   } else {
     ok(`FaceFusion entrypoint listo: ${resolvedEntrypoint}`);
   }
@@ -306,6 +323,9 @@ function checkBackgroundMattingWrapper() {
         ? "BMV2_REPO_DIR no configurado; passthrough de BackgroundMattingV2 activo."
         : "BMV2_REPO_DIR no configurado para BackgroundMattingV2.",
     );
+    nextStep(
+      "Configura BMV2_REPO_DIR, BMV2_PYTHON y BMV2_MODEL_CHECKPOINT para activar cambio de fondo real.",
+    );
   } else if (!existsSync(join(repoDir, "inference_images.py"))) {
     if (wrapperPassthroughEnabled()) {
       warn(
@@ -314,6 +334,7 @@ function checkBackgroundMattingWrapper() {
     } else {
       issue(`BMV2_REPO_DIR no contiene inference_images.py: ${repoDir}`);
     }
+    nextStep(`Clona BackgroundMattingV2 en ${repoDir}.`);
   } else {
     ok(`BackgroundMattingV2 repo listo: ${repoDir}`);
   }
@@ -324,6 +345,9 @@ function checkBackgroundMattingWrapper() {
         ? "BMV2_MODEL_CHECKPOINT no configurado; passthrough de BackgroundMattingV2 activo."
         : "BMV2_MODEL_CHECKPOINT no configurado.",
     );
+    nextStep(
+      "Configura BMV2_MODEL_CHECKPOINT con el checkpoint de BackgroundMattingV2 antes de probar fondo real.",
+    );
   } else if (!existsSync(checkpoint) || statSync(checkpoint).size <= 0) {
     if (wrapperPassthroughEnabled()) {
       warn(
@@ -332,6 +356,9 @@ function checkBackgroundMattingWrapper() {
     } else {
       issue(`BMV2_MODEL_CHECKPOINT no existe o está vacío: ${checkpoint}`);
     }
+    nextStep(
+      `Descarga el checkpoint BackgroundMattingV2 esperado en ${checkpoint}.`,
+    );
   } else {
     ok(`BackgroundMattingV2 checkpoint listo: ${checkpoint}`);
   }
@@ -370,6 +397,9 @@ function checkVcClientWrapper() {
 
   warn(
     "vcclient000 wrapper requiere VCCLIENT000_CHUNK_COMMAND o VCCLIENT000_HTTP_ENDPOINT.",
+  );
+  nextStep(
+    "Arranca vcclient000/w-okada localmente y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test.",
   );
 }
 
@@ -608,6 +638,10 @@ function issue(message) {
   issues.push(message);
 }
 
+function nextStep(message) {
+  if (message && !nextSteps.includes(message)) nextSteps.push(message);
+}
+
 function printReport() {
   if (json) {
     console.log(
@@ -615,9 +649,11 @@ function printReport() {
         {
           ok: issues.length === 0 && (!strict || warnings.length === 0),
           envFile,
+          profile: workstationProfile,
           checks,
           warnings,
           issues,
+          nextSteps,
         },
         null,
         2,
@@ -628,13 +664,39 @@ function printReport() {
 
   console.log("AI model doctor");
   console.log(`Runtime env: ${envFile}`);
+  console.log(`Perfil: ${workstationProfile}`);
   for (const check of checks) console.log(`ok: ${check}`);
   for (const warning of warnings) console.warn(`warn: ${warning}`);
   for (const currentIssue of issues) console.error(`error: ${currentIssue}`);
+  for (const step of nextSteps) console.log(`next: ${step}`);
 
   if (issues.length === 0 && (!strict || warnings.length === 0)) {
     console.log("AI model doctor ok");
   }
+}
+
+function normalizeWorkstationProfile(value) {
+  const normalized = String(value || "manual")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (!normalized || normalized === "manual") return "manual";
+  if (["windows", "windows-nvidia", "nvidia", "rtx"].includes(normalized)) {
+    return "windows-nvidia";
+  }
+  if (
+    ["apple", "apple-silicon", "mac", "macos", "darwin", "mps"].includes(
+      normalized,
+    )
+  ) {
+    return "apple-silicon";
+  }
+  return "manual";
+}
+
+function runtimeCommandForProfile(profile) {
+  const selected = profile === "manual" ? "windows-nvidia" : profile;
+  return `pnpm models:runtime -- --profile ${selected} --preset local-wrappers`;
 }
 
 function argValue(name) {

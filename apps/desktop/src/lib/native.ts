@@ -96,6 +96,7 @@ export interface NativeAiRuntimeEnvFile {
 }
 
 export interface NativeModelAiRuntimeInput {
+  workstationProfile?: string | null;
   wrapperPassthrough: boolean;
   facefusionDir?: string | null;
   facefusionPython?: string | null;

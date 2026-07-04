@@ -509,6 +509,8 @@ function modelRuntimeInputFromContent(
   content: string,
 ): NativeModelAiRuntimeInput {
   return {
+    workstationProfile:
+      envContentValue(content, "SHAPE_MODEL_WORKSTATION_PROFILE") ?? "manual",
     wrapperPassthrough: !["0", "false", "no", "off"].includes(
       (
         envContentValue(content, "SHAPE_WRAPPER_PASSTHROUGH") ?? "true"
@@ -542,6 +544,7 @@ function normalizeModelRuntimeInput(
   input: NativeModelAiRuntimeInput,
 ): NativeModelAiRuntimeInput {
   return {
+    workstationProfile: input.workstationProfile?.trim() || null,
     wrapperPassthrough: input.wrapperPassthrough,
     facefusionDir: input.facefusionDir?.trim() || null,
     facefusionPython: input.facefusionPython?.trim() || null,
@@ -558,6 +561,52 @@ function normalizeModelRuntimeInput(
     modelTimeoutSecs: input.modelTimeoutSecs?.trim() || null,
     processorTimeoutSecs: input.processorTimeoutSecs?.trim() || null,
   };
+}
+
+function modelRuntimeProfileDefaults(
+  profile: string,
+): Partial<NativeModelAiRuntimeInput> {
+  if (profile === "windows-nvidia") {
+    return {
+      wrapperPassthrough: false,
+      facefusionDir: "C:\\models\\FaceFusion",
+      facefusionPython: "C:\\models\\FaceFusion\\.venv\\Scripts\\python.exe",
+      facefusionProviders: "cuda",
+      facefusionProcessors: "face_swapper face_enhancer",
+      facefusionExtraArgs: "--execution-thread-count 4",
+      bmv2RepoDir: "C:\\models\\BackgroundMattingV2",
+      bmv2Python: "C:\\models\\BackgroundMattingV2\\.venv\\Scripts\\python.exe",
+      bmv2Checkpoint: "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth",
+      bmv2Device: "cuda",
+      bmv2ExtraArgs: "--model-refine-sample-pixels 80000",
+      vcclient000HttpEndpoint: "http://127.0.0.1:18888/test",
+      vcclient000HttpMode: "w-okada-rest",
+      modelTimeoutSecs: "30",
+      processorTimeoutSecs: "12",
+    };
+  }
+
+  if (profile === "apple-silicon") {
+    return {
+      wrapperPassthrough: true,
+      facefusionDir: "~/models/FaceFusion",
+      facefusionPython: "~/models/FaceFusion/.venv/bin/python",
+      facefusionProviders: "cpu",
+      facefusionProcessors: "face_swapper face_enhancer",
+      facefusionExtraArgs: "",
+      bmv2RepoDir: "~/models/BackgroundMattingV2",
+      bmv2Python: "~/models/BackgroundMattingV2/.venv/bin/python",
+      bmv2Checkpoint: "~/models/BackgroundMattingV2/pytorch_resnet50.pth",
+      bmv2Device: "mps",
+      bmv2ExtraArgs: "--model-refine-sample-pixels 80000",
+      vcclient000HttpEndpoint: "",
+      vcclient000HttpMode: "",
+      modelTimeoutSecs: "30",
+      processorTimeoutSecs: "12",
+    };
+  }
+
+  return {};
 }
 
 function envContentValue(content: string, key: string) {
@@ -2943,6 +2992,7 @@ function AiRuntimeScreen({
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [modelRuntimeInput, setModelRuntimeInput] =
     useState<NativeModelAiRuntimeInput>({
+      workstationProfile: "manual",
       wrapperPassthrough: true,
       facefusionDir: "",
       facefusionPython: "",
@@ -3059,6 +3109,14 @@ function AiRuntimeScreen({
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleModelRuntimeProfile(profile: string) {
+    setModelRuntimeInput((current) => ({
+      ...current,
+      ...modelRuntimeProfileDefaults(profile),
+      workstationProfile: profile,
+    }));
   }
 
   async function handleRefresh() {
@@ -3189,6 +3247,16 @@ function AiRuntimeScreen({
             ) : null}
           </div>
           <div className="runtime-model-form">
+            <SelectField
+              label="Perfil workstation"
+              value={modelRuntimeInput.workstationProfile ?? "manual"}
+              options={[
+                { value: "manual", label: "Manual" },
+                { value: "windows-nvidia", label: "Windows/NVIDIA" },
+                { value: "apple-silicon", label: "Apple Silicon" },
+              ]}
+              onChange={handleModelRuntimeProfile}
+            />
             <ToggleRow
               label="Usar passthrough"
               checked={modelRuntimeInput.wrapperPassthrough}

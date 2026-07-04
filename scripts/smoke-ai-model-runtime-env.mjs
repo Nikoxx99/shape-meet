@@ -30,6 +30,7 @@ let stderr = "";
 try {
   renderRuntimeEnv();
   const runtimeEnv = readRuntimeEnv(runtimeEnvPath);
+  assertWindowsNvidiaProfileRuntimeEnv();
 
   assert(
     runtimeEnv.SHAPE_FACE_COMMAND,
@@ -216,6 +217,69 @@ function renderRuntimeEnv() {
       `model runtime env generation failed:\n${result.stderr || result.stdout}`,
     );
   }
+}
+
+function assertWindowsNvidiaProfileRuntimeEnv() {
+  const profileEnvPath = join(tempDir, "shape-ai-runtime-windows-nvidia.env");
+  const result = spawnSync(
+    process.execPath,
+    [
+      "scripts/prepare-ai-runtime-models.mjs",
+      "--out",
+      profileEnvPath,
+      "--processor-command",
+      processorCommand,
+      "--profile",
+      "windows-nvidia",
+      "--preset",
+      "local-wrappers",
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: process.env,
+    },
+  );
+
+  if (result.status !== 0) {
+    fail(
+      `windows-nvidia profile env generation failed:\n${result.stderr || result.stdout}`,
+    );
+  }
+
+  const env = readRuntimeEnv(profileEnvPath);
+  assert(
+    env.SHAPE_MODEL_WORKSTATION_PROFILE === "windows-nvidia",
+    "windows-nvidia profile was not written",
+  );
+  assert(
+    env.SHAPE_WRAPPER_PASSTHROUGH === "false",
+    "windows-nvidia profile should disable passthrough",
+  );
+  assert(
+    env.SHAPE_MODEL_COMMAND_TIMEOUT_SECS === "30" &&
+      env.SHAPE_PROCESSOR_TIMEOUT_SECS === "12",
+    "windows-nvidia profile did not set demo timeouts",
+  );
+  assert(
+    env.FACEFUSION_DIR === "C:\\models\\FaceFusion",
+    "windows-nvidia profile did not set FaceFusion path",
+  );
+  assert(
+    env.FACEFUSION_PYTHON ===
+      "C:\\models\\FaceFusion\\.venv\\Scripts\\python.exe",
+    "windows-nvidia profile did not set FaceFusion Python",
+  );
+  assert(
+    env.BMV2_MODEL_CHECKPOINT ===
+      "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth",
+    "windows-nvidia profile did not set BMV2 checkpoint",
+  );
+  assert(
+    env.VCCLIENT000_HTTP_ENDPOINT === "http://127.0.0.1:18888/test" &&
+      env.VCCLIENT000_HTTP_MODE === "w-okada-rest",
+    "windows-nvidia profile did not set vcclient000 REST endpoint",
+  );
 }
 
 function readRuntimeEnv(path) {

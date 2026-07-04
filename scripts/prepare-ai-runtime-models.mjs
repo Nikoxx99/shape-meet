@@ -15,6 +15,12 @@ const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const printOnly = args.includes("--print");
 const preferBundled = args.includes("--prefer-bundled");
+const workstationProfile = normalizeWorkstationProfile(
+  argValue("--profile") ??
+    process.env.SHAPE_MODEL_WORKSTATION_PROFILE ??
+    "manual",
+);
+const workstationDefaults = workstationProfileDefaults(workstationProfile);
 const processorHost =
   argValue("--processor-host") ??
   process.env.SHAPE_PROCESSOR_HOST ??
@@ -56,11 +62,14 @@ const config = {
   modelTimeout:
     argValue("--model-timeout") ??
     process.env.SHAPE_MODEL_COMMAND_TIMEOUT_SECS ??
+    workstationDefaults.modelTimeout ??
     "8",
   processorTimeout:
     argValue("--processor-timeout") ??
     process.env.SHAPE_PROCESSOR_TIMEOUT_SECS ??
+    workstationDefaults.processorTimeout ??
     "10",
+  workstationProfile,
   modelEnv: resolveModelEnv(),
 };
 
@@ -101,6 +110,7 @@ function renderRuntimeEnv(input) {
     `SHAPE_FACE_ENGINE=${input.faceEngine}`,
     `SHAPE_BACKGROUND_ENGINE=${input.backgroundEngine}`,
     `SHAPE_VOICE_ENGINE=${input.voiceEngine}`,
+    `SHAPE_MODEL_WORKSTATION_PROFILE=${input.workstationProfile}`,
     `SHAPE_PROCESSOR_TIMEOUT_SECS=${input.processorTimeout}`,
     `SHAPE_MODEL_COMMAND_TIMEOUT_SECS=${input.modelTimeout}`,
     `SHAPE_VIDEO_PROCESSOR_COMMAND=${input.processorCommand} --kind video --host ${processorHost} --port ${videoPort}`,
@@ -174,14 +184,17 @@ function resolveModelEnv() {
   };
 
   for (const [key, argName] of Object.entries(mappedArgs)) {
-    const value = argValue(argName) ?? process.env[key];
+    const value =
+      argValue(argName) ??
+      process.env[key] ??
+      workstationDefaults.modelEnv[key];
     if (value) values[key] = value;
   }
 
   const passthroughValue =
     argValue("--wrapper-passthrough") ??
     process.env.SHAPE_WRAPPER_PASSTHROUGH ??
-    (passthrough ? "true" : null);
+    (passthrough ? "true" : workstationDefaults.wrapperPassthrough);
   if (passthroughValue) {
     values.SHAPE_WRAPPER_PASSTHROUGH = passthroughValue;
   }
@@ -190,6 +203,75 @@ function resolveModelEnv() {
   }
 
   return values;
+}
+
+function normalizeWorkstationProfile(value) {
+  const normalized = String(value || "manual")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (!normalized || normalized === "manual") return "manual";
+  if (["windows", "windows-nvidia", "nvidia", "rtx"].includes(normalized)) {
+    return "windows-nvidia";
+  }
+  if (
+    ["apple", "apple-silicon", "mac", "macos", "darwin", "mps"].includes(
+      normalized,
+    )
+  ) {
+    return "apple-silicon";
+  }
+  fail(
+    `Perfil de workstation no soportado: ${value}. Usa manual, windows-nvidia o apple-silicon.`,
+  );
+}
+
+function workstationProfileDefaults(profile) {
+  if (profile === "windows-nvidia") {
+    return {
+      modelTimeout: "30",
+      processorTimeout: "12",
+      wrapperPassthrough: "false",
+      modelEnv: {
+        FACEFUSION_DIR: "C:\\models\\FaceFusion",
+        FACEFUSION_PYTHON: "C:\\models\\FaceFusion\\.venv\\Scripts\\python.exe",
+        FACEFUSION_EXECUTION_PROVIDERS: "cuda",
+        FACEFUSION_PROCESSORS: "face_swapper face_enhancer",
+        FACEFUSION_EXTRA_ARGS: "--execution-thread-count 4",
+        BMV2_REPO_DIR: "C:\\models\\BackgroundMattingV2",
+        BMV2_PYTHON:
+          "C:\\models\\BackgroundMattingV2\\.venv\\Scripts\\python.exe",
+        BMV2_MODEL_CHECKPOINT:
+          "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth",
+        BMV2_DEVICE: "cuda",
+        BMV2_EXTRA_ARGS: "--model-refine-sample-pixels 80000",
+        VCCLIENT000_HTTP_ENDPOINT: "http://127.0.0.1:18888/test",
+        VCCLIENT000_HTTP_MODE: "w-okada-rest",
+      },
+    };
+  }
+
+  if (profile === "apple-silicon") {
+    return {
+      modelTimeout: "30",
+      processorTimeout: "12",
+      wrapperPassthrough: "true",
+      modelEnv: {
+        FACEFUSION_DIR: "~/models/FaceFusion",
+        FACEFUSION_PYTHON: "~/models/FaceFusion/.venv/bin/python",
+        FACEFUSION_EXECUTION_PROVIDERS: "cpu",
+        FACEFUSION_PROCESSORS: "face_swapper face_enhancer",
+        BMV2_REPO_DIR: "~/models/BackgroundMattingV2",
+        BMV2_PYTHON: "~/models/BackgroundMattingV2/.venv/bin/python",
+        BMV2_MODEL_CHECKPOINT:
+          "~/models/BackgroundMattingV2/pytorch_resnet50.pth",
+        BMV2_DEVICE: "mps",
+        BMV2_EXTRA_ARGS: "--model-refine-sample-pixels 80000",
+      },
+    };
+  }
+
+  return { modelEnv: {} };
 }
 
 function wrapperPath(file) {
