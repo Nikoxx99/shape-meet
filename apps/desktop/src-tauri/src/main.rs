@@ -235,7 +235,7 @@ struct EvictIdentityArtifactInput {
     identity_id: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct IdentityArtifactCacheResult {
     identity_id: String,
@@ -1407,9 +1407,14 @@ fn cache_identity_artifact_from_reader<R: Read>(
         .map_err(|error| format!("No se pudo cerrar cache de artefacto: {error}"))?;
 
     let actual_sha = to_hex(&hasher.finalize());
-    validate_artifact_integrity(input, size_bytes, &actual_sha)?;
-    fs::rename(&temp_path, target_path)
-        .map_err(|error| format!("No se pudo finalizar cache de artefacto: {error}"))?;
+    if let Err(error) = validate_artifact_integrity(input, size_bytes, &actual_sha) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
+    if let Err(error) = fs::rename(&temp_path, target_path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("No se pudo finalizar cache de artefacto: {error}"));
+    }
 
     Ok(identity_artifact_result(
         identity_id,
@@ -3975,9 +3980,8 @@ mod tests {
 
     #[test]
     fn model_endpoint_host_port_accepts_combined_video_endpoint() {
-        let parsed = parse_ai_runtime_env(
-            "SHAPE_VIDEO_FRAME_ENDPOINT=http://127.0.0.1:9410/video-frame",
-        );
+        let parsed =
+            parse_ai_runtime_env("SHAPE_VIDEO_FRAME_ENDPOINT=http://127.0.0.1:9410/video-frame");
 
         assert_eq!(
             model_endpoint_host_port_from_runtime_env(&parsed.values),
@@ -3987,8 +3991,7 @@ mod tests {
 
     #[test]
     fn model_endpoint_host_port_accepts_combined_audio_endpoint() {
-        let parsed =
-            parse_ai_runtime_env("SHAPE_AUDIO_CHUNK_ENDPOINT=http://localhost:9420/audio");
+        let parsed = parse_ai_runtime_env("SHAPE_AUDIO_CHUNK_ENDPOINT=http://localhost:9420/audio");
 
         assert_eq!(
             model_endpoint_host_port_from_runtime_env(&parsed.values),
@@ -4092,6 +4095,74 @@ mod tests {
             .any(|step| step.contains("Desactiva SHAPE_WRAPPER_PASSTHROUGH")));
     }
 
+    #[test]
+    fn identity_artifact_cache_validates_and_reuses_local_artifacts() {
+        let root = test_temp_dir("identity-cache");
+        let cache_dir = root.join("cache");
+        let artifact_path = root.join("identity.jpg");
+        let payload = b"shape meet identity artifact";
+        fs::write(&artifact_path, payload).expect("write identity artifact");
+        env::set_var("SHAPE_IDENTITY_CACHE_DIR", &cache_dir);
+
+        let sha = sha256_string(payload);
+        let input = CacheIdentityArtifactInput {
+            identity_id: "identity/host:demo".to_string(),
+            artifact_uri: Some(artifact_path.display().to_string()),
+            artifact_sha256: Some(sha.clone()),
+            artifact_size_bytes: Some(payload.len() as u64),
+        };
+
+        let cached = prepare_identity_artifact(input).expect("cache identity artifact");
+        assert!(cached.cached);
+        assert_eq!(cached.sha256.as_deref(), Some(sha.as_str()));
+        assert_eq!(cached.size_bytes, Some(payload.len() as u64));
+        let local_path = PathBuf::from(cached.local_path.as_ref().expect("local path"));
+        assert_eq!(
+            fs::read(&local_path).expect("read cached artifact"),
+            payload
+        );
+
+        let reused = prepare_identity_artifact(CacheIdentityArtifactInput {
+            identity_id: "identity/host:demo".to_string(),
+            artifact_uri: Some(artifact_path.display().to_string()),
+            artifact_sha256: Some(sha.clone()),
+            artifact_size_bytes: Some(payload.len() as u64),
+        })
+        .expect("reuse cached artifact");
+        assert_eq!(reused.local_path, cached.local_path);
+        assert!(reused.message.contains("reutilizado"));
+
+        let bad_sha = "0".repeat(64);
+        let bad_sha_result = prepare_identity_artifact(CacheIdentityArtifactInput {
+            identity_id: "identity/host:demo".to_string(),
+            artifact_uri: Some(artifact_path.display().to_string()),
+            artifact_sha256: Some(bad_sha),
+            artifact_size_bytes: Some(payload.len() as u64),
+        });
+        assert!(bad_sha_result
+            .expect_err("bad sha should fail")
+            .contains("Checksum SHA-256 inválido"));
+
+        let bad_size_result = prepare_identity_artifact(CacheIdentityArtifactInput {
+            identity_id: "identity/host:demo".to_string(),
+            artifact_uri: Some(artifact_path.display().to_string()),
+            artifact_sha256: Some(sha),
+            artifact_size_bytes: Some((payload.len() + 1) as u64),
+        });
+        assert!(bad_size_result
+            .expect_err("bad size should fail")
+            .contains("Tamaño inválido"));
+
+        let part_files = list_files_with_extension(&cache_dir, "part");
+        fs::remove_dir_all(root).ok();
+        env::remove_var("SHAPE_IDENTITY_CACHE_DIR");
+
+        assert!(
+            part_files.is_empty(),
+            "invalid artifacts left temp files: {part_files:?}"
+        );
+    }
+
     fn test_temp_dir(label: &str) -> PathBuf {
         let id = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -4100,5 +4171,33 @@ mod tests {
         let path = env::temp_dir().join(format!("shape-meet-{label}-{id}"));
         fs::create_dir_all(&path).expect("create test temp dir");
         path
+    }
+
+    fn list_files_with_extension(root: &Path, extension: &str) -> Vec<PathBuf> {
+        let mut matches = Vec::new();
+        if !root.exists() {
+            return matches;
+        }
+
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(path) = pending.pop() {
+            let Ok(entries) = fs::read_dir(&path) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else if path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| value == extension)
+                {
+                    matches.push(path);
+                }
+            }
+        }
+
+        matches
     }
 }
