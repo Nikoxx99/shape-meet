@@ -6,7 +6,8 @@ export type MeetingAccess = "INVITE_ONLY" | "PUBLIC_LINK";
 
 export type MeetingStatus = "SCHEDULED" | "WAITING" | "LIVE" | "ENDED";
 
-export type IdentityKind = "PHOTO_IDENTITY" | "TRAINED_IDENTITY" | "OPEN_MODEL_IDENTITY";
+export type IdentityKind =
+  "PHOTO_IDENTITY" | "TRAINED_IDENTITY" | "OPEN_MODEL_IDENTITY";
 
 export type IdentityStatus = "AVAILABLE" | "TRAINING" | "REVOKED";
 
@@ -114,7 +115,7 @@ export const mockUsers: ShapeUser[] = [
     email: "nicolas@luxora.co",
     rank: "HOST",
     status: "ACTIVE",
-    lastAccess: "Hoy 09:14"
+    lastAccess: "Hoy 09:14",
   },
   {
     id: "usr_maria",
@@ -122,7 +123,7 @@ export const mockUsers: ShapeUser[] = [
     email: "maria@luxora.co",
     rank: "USER",
     status: "ACTIVE",
-    lastAccess: "Ayer 17:20"
+    lastAccess: "Ayer 17:20",
   },
   {
     id: "usr_andres",
@@ -131,7 +132,7 @@ export const mockUsers: ShapeUser[] = [
     rank: "HOST",
     status: "PENDING",
     lastAccess: "Nunca",
-    temporaryPassword: true
+    temporaryPassword: true,
   },
   {
     id: "usr_founder",
@@ -139,15 +140,15 @@ export const mockUsers: ShapeUser[] = [
     email: "founder@luxora.co",
     rank: "ADMIN",
     status: "ACTIVE",
-    lastAccess: "Hoy 10:32"
-  }
+    lastAccess: "Hoy 10:32",
+  },
 ];
 
 export const mockIdentities: HostIdentity[] = [
   {
     id: "identity_exec",
     userId: "usr_nicolas",
-    name: "Executive demo",
+    name: "Executive",
     kind: "PHOTO_IDENTITY",
     status: "AVAILABLE",
     version: "v1.0.3",
@@ -155,7 +156,7 @@ export const mockIdentities: HostIdentity[] = [
     artifactSha256: "dev-demo",
     artifactSizeBytes: 0,
     deliveryStatus: "PUSHED",
-    publishedAt: new Date(0).toISOString()
+    publishedAt: new Date(0).toISOString(),
   },
   {
     id: "identity_founder",
@@ -168,7 +169,7 @@ export const mockIdentities: HostIdentity[] = [
     artifactSha256: "dev-demo",
     artifactSizeBytes: 0,
     deliveryStatus: "PUSHED",
-    publishedAt: new Date(0).toISOString()
+    publishedAt: new Date(0).toISOString(),
   },
   {
     id: "identity_board",
@@ -177,8 +178,8 @@ export const mockIdentities: HostIdentity[] = [
     kind: "TRAINED_IDENTITY",
     status: "TRAINING",
     version: "74%",
-    deliveryStatus: "PENDING"
-  }
+    deliveryStatus: "PENDING",
+  },
 ];
 
 export const mockMeetings: Meeting[] = [
@@ -199,7 +200,7 @@ export const mockMeetings: Meeting[] = [
         role: "host",
         mic: "on",
         camera: "on",
-        aiEffects: { faceSwap: false, background: true, voice: false }
+        aiEffects: { faceSwap: false, background: true, voice: false },
       },
       {
         id: "p_maria",
@@ -207,12 +208,12 @@ export const mockMeetings: Meeting[] = [
         email: "maria@luxora.co",
         role: "guest",
         mic: "muted",
-        camera: "on"
-      }
-    ]
+        camera: "on",
+      },
+    ],
   },
   {
-    id: "meet_demo_internal",
+    id: "meet_internal_briefing",
     title: "Deep Mind en Shape Meet",
     code: "SM-104-221",
     startsAt: "Hoy 1:45 PM",
@@ -221,7 +222,7 @@ export const mockMeetings: Meeting[] = [
     status: "WAITING",
     maxParticipants: 4,
     invitedEmails: [],
-    participants: []
+    participants: [],
   },
   {
     id: "meet_windows_qa",
@@ -233,7 +234,7 @@ export const mockMeetings: Meeting[] = [
     status: "SCHEDULED",
     maxParticipants: 4,
     invitedEmails: [],
-    participants: []
+    participants: [],
   },
   {
     id: "meet_sales_followup",
@@ -245,20 +246,20 @@ export const mockMeetings: Meeting[] = [
     status: "SCHEDULED",
     maxParticipants: 4,
     invitedEmails: ["maria@luxora.co"],
-    participants: []
-  }
+    participants: [],
+  },
 ];
 
 export const defaultDeviceStatus: DeviceStatus = {
   camera: "ready",
   microphone: "ready",
   gpu: "limited",
-  aiService: "offline"
+  aiService: "offline",
 };
 
 export const defaultPipelineMetrics: PipelineMetric[] = [
   { label: "Video", value: "720p / 30 FPS", state: "ok" },
   { label: "Fondo", value: "Matting listo", state: "ok" },
   { label: "Rostro", value: "Sin activar", state: "idle" },
-  { label: "Voz", value: "Sin activar", state: "idle" }
+  { label: "Voz", value: "Sin activar", state: "idle" },
 ];

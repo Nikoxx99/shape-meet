@@ -467,7 +467,7 @@ def copy_file(input_path, output_path):
 def demo_video_data_url(stage, payload, frame, identity, background, width, height, sequence):
     enabled = payload.get("enabled") if isinstance(payload.get("enabled"), dict) else {}
     clean_plate = background.get("cleanPlate") if isinstance(background.get("cleanPlate"), dict) else {}
-    identity_label = identity.get("version") or identity.get("id") or "identidad demo"
+    identity_label = identity.get("version") or identity.get("id") or "identidad local"
     effects = [
         label
         for enabled_flag, label in (
@@ -504,7 +504,7 @@ def demo_video_data_url(stage, payload, frame, identity, background, width, heig
   <ellipse cx="{int(width * 0.5)}" cy="{int(height * 0.42)}" rx="{int(width * 0.18)}" ry="{int(height * 0.27)}" fill="none" stroke="{accent}" stroke-width="5" stroke-opacity="0.78"/>
   <rect x="28" y="28" width="324" height="94" rx="14" fill="#020617" fill-opacity="0.74"/>
   <circle cx="{pulse_x}" cy="75" r="12" fill="#22c55e"/>
-  <text x="86" y="66" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">Endpoint IA demo</text>
+  <text x="86" y="66" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">Endpoint IA</text>
   <text x="86" y="95" fill="#bfdbfe" font-family="Inter, Arial, sans-serif" font-size="14">{safe_stage} · {safe_effects}</text>
   <rect x="28" y="{height - 116}" width="{width - 56}" height="88" rx="16" fill="#020617" fill-opacity="0.74"/>
   <text x="56" y="{height - 74}" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700">{safe_identity}</text>
@@ -774,7 +774,7 @@ def wrapper_stage_diagnostics(stage_id, label, file_name, requirements):
     if passthrough_enabled():
         warnings.append("passthrough activo; no valida modelo real.")
     elif demo_effects_enabled():
-        warnings.append("demo-effects activo; no valida modelo real.")
+        warnings.append("preset local activo; no valida modelo real.")
     else:
         issues.extend(requirements["issues"])
         warnings.extend(requirements["warnings"])

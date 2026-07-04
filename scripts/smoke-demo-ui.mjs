@@ -32,7 +32,7 @@ const hostPassword =
   process.env.SHAPE_DEMO_HOST_PASSWORD ??
   readEnvFileValue("apps/admin/.env.local", "HOST_BOOTSTRAP_PASSWORD") ??
   "ChangeMe123!";
-const guestName = process.env.SHAPE_DEMO_GUEST_NAME ?? "Invitada Demo";
+const guestName = process.env.SHAPE_DEMO_GUEST_NAME ?? "Invitada";
 
 await main();
 
@@ -97,7 +97,7 @@ async function main() {
         "final public link",
       );
       console.log("");
-      console.log(`Demo limpio listo: ${finalLink}`);
+      console.log(`Entorno limpio listo: ${finalLink}`);
     }
   }
 
@@ -177,8 +177,9 @@ async function enterHostCall(page, meetingCode) {
   await enableControlButton(page, "Micrófono");
   await clickByRole(page, "button", "Configurar como host");
   await expectVisibleText(page, "Ajustes de cámara e identidad");
-  await expectVisibleText(page, "Rostro demo aprobado");
+  await expectVisibleText(page, "Identidad principal");
   await enableToggleRow(page, "Activar voz configurada");
+  await openDetailsByTestId(page, "host-setup-diagnostics");
   await clickByRole(page, "button", "Runtime IA local");
   await expectVisibleText(page, "Runtime IA local");
   await expectVisibleText(page, "Variables");
@@ -186,7 +187,7 @@ async function enterHostCall(page, meetingCode) {
   await expectVisibleText(page, "Operación");
   await expectVisibleText(page, "Log sidecar");
   await expectVisibleText(page, "Log endpoints");
-  await expectVisibleText(page, "Cargar demo");
+  await expectVisibleText(page, "Cargar preset");
   await expectVisibleText(page, "Probar IA");
   await clickByRole(page, "button", "Probar IA");
   await expectAnyVisibleText(
@@ -201,6 +202,7 @@ async function enterHostCall(page, meetingCode) {
   await clickByRole(page, "button", "Capturar fondo", 15_000);
   await clickByRole(page, "button", "Continuar", 15_000);
   await expectVisibleText(page, "Ajustes de cámara e identidad", 15_000);
+  await openDetailsByTestId(page, "host-setup-diagnostics");
   await expectTestIdText(page, "host-ai-preflight-status", "Pendiente");
   await page.getByTestId("host-enter-meeting").click();
   await expectVisibleText(page, meetingCode, 20_000);
@@ -335,6 +337,13 @@ async function expectTestIdText(page, testId, expected, timeout = 10_000) {
   throw new Error(
     `Expected ${testId} to include ${expected}; last text was: ${lastText}`,
   );
+}
+
+async function openDetailsByTestId(page, testId) {
+  const details = page.getByTestId(testId);
+  await details.waitFor({ state: "visible", timeout: 10_000 });
+  const isOpen = await details.evaluate((element) => element.open);
+  if (!isOpen) await details.locator("summary").click();
 }
 
 async function expectProcessedPrimaryVideo(

@@ -543,7 +543,7 @@ export async function prepareDemoAiRuntimeEnv(
       warnings: [
         error instanceof Error
           ? error.message
-          : "Demo IA local disponible solo dentro de Tauri.",
+          : "Preset IA local disponible solo dentro de Tauri.",
       ],
     };
   }

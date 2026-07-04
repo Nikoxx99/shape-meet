@@ -36,11 +36,11 @@ const password =
   readEnvFileValue("apps/admin/.env.local", "HOST_BOOTSTRAP_PASSWORD") ??
   "ChangeMe123!";
 const title =
-  argValue("--title") ?? process.env.SHAPE_DEMO_TITLE ?? "Demo Shape Meet";
+  argValue("--title") ?? process.env.SHAPE_DEMO_TITLE ?? "Shape Meet";
 const identityName =
   argValue("--identity-name") ??
   process.env.SHAPE_DEMO_IDENTITY_NAME ??
-  "Rostro demo aprobado";
+  "Identidad principal";
 const identityArtifactFile =
   argValue("--identity-artifact-file") ??
   process.env.SHAPE_DEMO_IDENTITY_ARTIFACT_FILE ??
@@ -83,14 +83,14 @@ async function main() {
   const meetingUrl = `${appUrl}/r/${meeting.code}`;
   console.log(`meeting ok: ${meeting.title} ${meeting.code}`);
   console.log("");
-  console.log("Demo listo:");
+  console.log("Entorno listo:");
   console.log(`- Host: ${identifier}`);
   console.log(
     "- Password: usa HOST_BOOTSTRAP_PASSWORD (local default: ChangeMe123!)",
   );
   console.log(`- Meeting code: ${meeting.code}`);
   console.log(`- Public link: ${meetingUrl}`);
-  console.log(`- Guest name: Invitada Demo`);
+  console.log(`- Guest name: Invitada`);
 }
 
 async function ensureDemoIdentity(session) {
@@ -236,9 +236,9 @@ function resetKnownLocalDemoData() {
   }
 
   const sql = [
-    "DELETE FROM \"Meeting\" WHERE title LIKE 'Smoke%' OR title LIKE 'Launcher smoke%' OR title LIKE 'Invite rejection UI%' OR title LIKE 'Revisión con Luxora%' OR title = 'Demo Shape Meet';",
+    "DELETE FROM \"Meeting\" WHERE title LIKE 'Smoke%' OR title LIKE 'Launcher smoke%' OR title LIKE 'Invite rejection UI%' OR title LIKE 'Revisión con Luxora%' OR title IN ('Demo Shape Meet', 'Shape Meet');",
     "DELETE FROM \"User\" WHERE email LIKE 'smoke_%@shape.test' OR username LIKE 'smoke_%';",
-    "DELETE FROM \"HostIdentity\" WHERE name = 'Rostro demo aprobado' OR name = 'Demo rostro aprobado';",
+    "DELETE FROM \"HostIdentity\" WHERE name IN ('Rostro demo aprobado', 'Demo rostro aprobado', 'Identidad principal');",
   ].join(" ");
   const reset = spawnSync(
     "docker",

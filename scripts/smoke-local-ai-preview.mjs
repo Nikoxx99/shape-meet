@@ -172,6 +172,7 @@ async function enterDemoHostCall(page) {
   await clickByRole(page, "button", "Capturar fondo", 15_000);
   await clickByRole(page, "button", "Continuar", 15_000);
   await expectVisibleText(page, "Ajustes de cámara e identidad", 15_000);
+  await openDetailsByTestId(page, "host-setup-diagnostics");
   await expectTestIdText(page, "host-ai-preflight-status", "Pendiente");
   await page.getByTestId("host-enter-meeting").click();
   await expectVisibleText(page, "1 participante", 15_000);
@@ -275,6 +276,13 @@ async function expectTestIdText(page, testId, expected, timeout = 10_000) {
   throw new Error(
     `Expected ${testId} to include ${expected}; last text was: ${lastText}`,
   );
+}
+
+async function openDetailsByTestId(page, testId) {
+  const details = page.getByTestId(testId);
+  await details.waitFor({ state: "visible", timeout: 10_000 });
+  const isOpen = await details.evaluate((element) => element.open);
+  if (!isOpen) await details.locator("summary").click();
 }
 
 async function waitForHttp(url, { label, timeoutMs }) {

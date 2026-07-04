@@ -94,8 +94,8 @@ async function createAndPublishIdentity(
   page,
   { host, identityName, artifactName, artifactPayload },
 ) {
-  await clickByRole(page, "button", "Rostros aprobados");
-  await expectVisibleText(page, "Rostros aprobados");
+  await clickByRole(page, "button", "Rostros");
+  await expectVisibleText(page, "Rostros");
   await clickByRole(page, "button", "Agregar rostro");
 
   const dialog = page.getByRole("dialog", { name: "Agregar rostro" });

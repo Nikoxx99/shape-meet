@@ -535,9 +535,9 @@ const preflightWarningMessages: Record<string, string> = {
   model_adapters_not_loaded: "Los adaptadores de modelos no están cargados.",
   voice_adapter_not_loaded: "El adaptador de voz no está cargado.",
   demo_video_processor:
-    "Procesador demo de video activo; no son modelos reales.",
+    "Procesador local de video activo; no son modelos reales.",
   demo_audio_passthrough:
-    "Procesador demo de voz activo; audio en passthrough.",
+    "Procesador local de voz activo; audio en passthrough.",
 };
 
 const aiWarningStageLabels: Record<string, string> = {
@@ -1732,7 +1732,7 @@ export default function App() {
       runtimeEnv = prepared;
       if (!prepared.exists) {
         throw new Error(
-          prepared.warnings[0] ?? "No se pudo preparar runtime IA demo.",
+          prepared.warnings[0] ?? "No se pudo preparar runtime IA local.",
         );
       }
     }
@@ -2233,7 +2233,7 @@ export default function App() {
           token: null,
           room: currentMeeting.code,
           identity,
-          warning: "Modo demo sin LiveKit local.",
+          warning: "Modo local sin conexión LiveKit.",
         });
         setWaitingParticipantId(null);
         if (isHostFlow) setWaitingParticipantToken(null);
@@ -3464,35 +3464,41 @@ function DeviceTestScreen({
             ) : null}
           </Panel>
           {hostMode ? (
-            <Panel title="Estado demo">
-              <StatusRow
-                label="Readiness"
-                testId="demo-readiness-status"
-                value={
-                  demoReadiness
-                    ? `${demoReadiness.percent}% · ${readinessStatusLabel(demoReadiness.status)}`
-                    : "Detectando"
-                }
-                tone={readinessTone(demoReadiness)}
-              />
-              {demoReadiness?.checks.slice(0, 5).map((check) => (
+            <details
+              className="panel debug-details setup-diagnostics"
+              data-testid="device-setup-diagnostics"
+            >
+              <summary>Diagnóstico</summary>
+              <div className="debug-details-body">
                 <StatusRow
-                  key={check.id}
-                  label={check.label}
-                  value={readinessCheckValue(check)}
-                  tone={readinessCheckTone(check.status)}
+                  label="Estado"
+                  testId="demo-readiness-status"
+                  value={
+                    demoReadiness
+                      ? `${demoReadiness.percent}% · ${readinessStatusLabel(demoReadiness.status)}`
+                      : "Detectando"
+                  }
+                  tone={readinessTone(demoReadiness)}
                 />
-              ))}
-              <div className="stacked-actions compact">
-                <Button
-                  variant="outline"
-                  icon={<RefreshCw />}
-                  onClick={() => void onRefreshDemoReadiness()}
-                >
-                  Actualizar
-                </Button>
+                {demoReadiness?.checks.slice(0, 5).map((check) => (
+                  <StatusRow
+                    key={check.id}
+                    label={check.label}
+                    value={readinessCheckValue(check)}
+                    tone={readinessCheckTone(check.status)}
+                  />
+                ))}
+                <div className="stacked-actions compact">
+                  <Button
+                    variant="outline"
+                    icon={<RefreshCw />}
+                    onClick={() => void onRefreshDemoReadiness()}
+                  >
+                    Actualizar
+                  </Button>
+                </div>
               </div>
-            </Panel>
+            </details>
           ) : null}
           <Panel title="Al entrar">
             <ToggleRow
@@ -3623,6 +3629,7 @@ function HostSettingsScreen({
             cameraDeviceId={deviceSelection.cameraId}
             darkFooter
             footerText={hostIdentity?.name ?? host?.username ?? "Host"}
+            footerMeta={backgroundEnabled ? "Fondo activo" : "Cámara lista"}
           />
         </section>
         <aside className="settings-column">
@@ -3645,7 +3652,7 @@ function HostSettingsScreen({
               onClick={() => setLightingEnhanced((current) => !current)}
             />
           </Panel>
-          <Panel title="Rostro aprobado">
+          <Panel title="Identidad">
             <SelectField
               label="Identidad"
               value={faceEnabled && hostIdentity ? hostIdentity.id : ""}
@@ -3659,7 +3666,7 @@ function HostSettingsScreen({
               ]}
             />
             <ToggleRow
-              label="Activar rostro aprobado"
+              label="Activar cambio de rostro"
               checked={faceEnabled}
               onClick={onToggleFace}
             />
@@ -3673,51 +3680,59 @@ function HostSettingsScreen({
               checked={voiceEnabled}
               onClick={onToggleVoice}
             />
-            <StatusRow
-              label="Sidecar"
-              value={
-                aiServiceStatus
-                  ? `${boolStatus(aiServiceStatus.online)} · ${aiServiceStatus.mode}`
-                  : "Detectando"
-              }
-              tone={serviceTone(aiServiceStatus?.online)}
-            />
-            <StatusRow
-              label="Prueba IA"
-              testId="host-ai-preflight-status"
-              value={
-                preflightRunning
-                  ? "Ejecutando"
-                  : (preflight?.status ??
-                    (aiEffectsEnabled ? "Pendiente" : "Sin efectos"))
-              }
-              tone={preflightTone(
-                preflightRunning ? "running" : preflight?.status,
-              )}
-            />
-            {preflightError ? (
-              <InlineNotice icon={<ShieldAlert />}>
-                {preflightError}
-              </InlineNotice>
-            ) : null}
-            <div className="stacked-actions compact">
-              <Button
-                variant="outline"
-                icon={<ShieldCheck />}
-                onClick={onTestAi}
-                disabled={!aiEffectsEnabled || preflightRunning}
-              >
-                {preflightRunning ? "Probando" : "Probar IA"}
-              </Button>
-              <Button
-                variant="outline"
-                icon={<Settings />}
-                onClick={onOpenAiRuntime}
-              >
-                Runtime IA local
-              </Button>
-            </div>
           </Panel>
+          <details
+            className="panel debug-details setup-diagnostics"
+            data-testid="host-setup-diagnostics"
+          >
+            <summary>Diagnóstico</summary>
+            <div className="debug-details-body">
+              <StatusRow
+                label="Sidecar"
+                value={
+                  aiServiceStatus
+                    ? `${boolStatus(aiServiceStatus.online)} · ${aiServiceStatus.mode}`
+                    : "Detectando"
+                }
+                tone={serviceTone(aiServiceStatus?.online)}
+              />
+              <StatusRow
+                label="Prueba IA"
+                testId="host-ai-preflight-status"
+                value={
+                  preflightRunning
+                    ? "Ejecutando"
+                    : (preflight?.status ??
+                      (aiEffectsEnabled ? "Pendiente" : "Sin efectos"))
+                }
+                tone={preflightTone(
+                  preflightRunning ? "running" : preflight?.status,
+                )}
+              />
+              {preflightError ? (
+                <InlineNotice icon={<ShieldAlert />}>
+                  {preflightError}
+                </InlineNotice>
+              ) : null}
+              <div className="stacked-actions compact">
+                <Button
+                  variant="outline"
+                  icon={<ShieldCheck />}
+                  onClick={onTestAi}
+                  disabled={!aiEffectsEnabled || preflightRunning}
+                >
+                  {preflightRunning ? "Probando" : "Probar IA"}
+                </Button>
+                <Button
+                  variant="outline"
+                  icon={<Settings />}
+                  onClick={onOpenAiRuntime}
+                >
+                  Runtime IA local
+                </Button>
+              </div>
+            </div>
+          </details>
           <div className="stacked-actions host-actions">
             <Button
               data-testid="host-enter-meeting"
@@ -3893,12 +3908,12 @@ function AiRuntimeScreen({
       await onStopSidecar();
       await onStartSidecar();
       await loadRuntimeState();
-      setRuntimeMessage("Demo IA cargada y sidecar reiniciado.");
+      setRuntimeMessage("Preset IA cargado y sidecar reiniciado.");
     } catch (error) {
       setRuntimeError(
         error instanceof Error
           ? error.message
-          : "No se pudo preparar config demo IA.",
+          : "No se pudo preparar config IA.",
       );
     } finally {
       setSaving(false);
@@ -4488,7 +4503,7 @@ function AiRuntimeScreen({
               onClick={() => void handlePrepareDemo()}
               disabled={saving}
             >
-              Cargar demo
+              Cargar preset
             </Button>
             <Button
               variant="outline"
@@ -5641,7 +5656,7 @@ function ActiveCallScreen({
         envFile = prepared;
         setAiRuntimeStartupMessage(
           prepared.exists
-            ? "Runtime demo preparado."
+            ? "Runtime preparado."
             : (prepared.warnings[0] ?? "Runtime IA pendiente."),
         );
       }
@@ -6828,12 +6843,14 @@ function VideoPreview({
   cameraDeviceId,
   darkFooter,
   footerText,
+  footerMeta,
 }: {
   enabled: boolean;
   label: string;
   cameraDeviceId?: string;
   darkFooter?: boolean;
   footerText?: string;
+  footerMeta?: string;
 }) {
   const { videoRef, active, error } = useCameraPreview({
     enabled,
@@ -6855,7 +6872,7 @@ function VideoPreview({
       {darkFooter ? (
         <div className="video-footer">
           <strong>{footerText}</strong>
-          <span>720p30 · BackgroundMattingV2</span>
+          <span>{footerMeta ?? "Cámara lista"}</span>
         </div>
       ) : null}
       {error ? <span className="video-error">{error}</span> : null}

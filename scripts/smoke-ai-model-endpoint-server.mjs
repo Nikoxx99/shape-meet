@@ -226,9 +226,7 @@ function assertStageRuntimeEnv() {
 function assertManagedRuntimeEnv() {
   const content = readFileSync(managedEnvPath, "utf8");
   assert(
-    content.includes(
-      `SHAPE_MODEL_ENDPOINT_PORT=${managedEndpointPort}`,
-    ),
+    content.includes(`SHAPE_MODEL_ENDPOINT_PORT=${managedEndpointPort}`),
     "managed runtime did not include model endpoint port",
   );
   assert(
@@ -376,7 +374,7 @@ async function assertEndpointDiagnostics() {
       (stage) =>
         stage.id === "face" &&
         stage.ready === true &&
-        stage.warnings?.includes("demo-effects activo; no valida modelo real."),
+        stage.warnings?.includes("preset local activo; no valida modelo real."),
     ),
     "endpoint diagnostics did not explain demo-effects face readiness",
   );

@@ -703,7 +703,7 @@ if (-not $SkipDemoStatus) {
   if ($RemoteIdentityFlow) {
     $statusArgs += "--remote-identity-flow"
   }
-  Invoke-Step "Estado demo" { pnpm @statusArgs }
+  Invoke-Step "Estado" { pnpm @statusArgs }
 }
 Invoke-Step "Sentry formato local" { pnpm check:sentry }
 if (-not $SkipSentryLive) {

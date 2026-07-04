@@ -97,8 +97,8 @@ const sectionMeta: Record<
   users: { label: "Usuarios", title: "Usuarios y hosts", icon: <Users /> },
   meetings: { label: "Reuniones", title: "Reuniones", icon: <Video /> },
   identities: {
-    label: "Rostros aprobados",
-    title: "Rostros aprobados",
+    label: "Rostros",
+    title: "Rostros",
     icon: <ShieldCheck />,
   },
   deliveries: { label: "Sistema", title: "Sistema", icon: <Database /> },
@@ -1419,7 +1419,7 @@ function IdentitiesSection({
       {loading ? (
         <div className="empty-row">Cargando rostros</div>
       ) : identities.length === 0 ? (
-        <div className="empty-row">No hay rostros aprobados</div>
+        <div className="empty-row">No hay rostros</div>
       ) : (
         identities.map((identity) => (
           <div className="table-row identities-table" key={identity.id}>

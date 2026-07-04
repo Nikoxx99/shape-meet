@@ -820,7 +820,7 @@ def demo_video_data_url(payload, input_data_url, width, height, sequence):
     enabled = payload.get("enabled") if isinstance(payload.get("enabled"), dict) else {}
     background = payload.get("background") if isinstance(payload.get("background"), dict) else {}
     clean_plate = background.get("cleanPlate") if isinstance(background.get("cleanPlate"), dict) else {}
-    identity_label = identity.get("version") or identity.get("id") or "identidad demo"
+    identity_label = identity.get("version") or identity.get("id") or "identidad local"
     effects = [
         label
         for enabled_flag, label in (
@@ -861,7 +861,7 @@ def demo_video_data_url(payload, input_data_url, width, height, sequence):
   <ellipse cx="{int(width * 0.5)}" cy="{int(height * 0.42)}" rx="{int(width * 0.18)}" ry="{int(height * 0.27)}" fill="none" stroke="#60a5fa" stroke-width="5" stroke-opacity="0.72"/>
   <rect x="28" y="28" width="286" height="92" rx="14" fill="#020617" fill-opacity="0.72"/>
   <circle cx="{pulse_x}" cy="74" r="12" fill="#22c55e"/>
-  <text x="86" y="66" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">IA demo activa</text>
+  <text x="86" y="66" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">IA activa</text>
   <text x="86" y="94" fill="#bfdbfe" font-family="Inter, Arial, sans-serif" font-size="14">{safe_effects}</text>
   <rect x="28" y="{height - 116}" width="{width - 56}" height="88" rx="16" fill="#020617" fill-opacity="0.72"/>
   <text x="56" y="{height - 74}" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700">{safe_identity}</text>

@@ -64,7 +64,7 @@ const identityName =
   argValue("--name") ??
   argValue("--identity-name") ??
   process.env.SHAPE_DEMO_IDENTITY_NAME ??
-  `Rostro demo ${new Date().toISOString()}`;
+  `Identidad ${new Date().toISOString()}`;
 const identityKind =
   argValue("--kind") ??
   process.env.SHAPE_DEMO_IDENTITY_KIND ??
