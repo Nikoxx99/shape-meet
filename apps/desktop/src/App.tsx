@@ -502,10 +502,50 @@ function preflightTone(status?: string | null): "ok" | "warning" | "idle" {
   return statusTone(status);
 }
 
+const preflightWarningMessages: Record<string, string> = {
+  identity_artifact_missing:
+    "Falta el artefacto local o descargable del rostro seleccionado.",
+  background_clean_plate_missing:
+    "Captura el fondo limpio antes de activar el cambio de fondo.",
+  video_processor_endpoint_missing:
+    "Configura el endpoint o procesador local de video para rostro/fondo.",
+  audio_processor_endpoint_missing:
+    "Configura el endpoint o procesador local de audio para cambio de voz.",
+  invalid_frame_data_url:
+    "No se pudo capturar un frame válido de la cámara seleccionada.",
+  invalid_audio_data:
+    "No se pudo capturar una muestra válida del micrófono seleccionado.",
+  video_model_output_missing:
+    "El modelo de video no devolvió un frame procesado.",
+  audio_model_output_missing: "El modelo de voz no devolvió audio procesado.",
+};
+
 function preflightMessage(result: AiPreflightResult) {
   if (result.status === "passed") return "Prueba IA completada.";
-  if (result.status === "warning") return "Prueba IA completada con avisos.";
-  return "Prueba IA falló.";
+
+  const warning = firstPreflightWarning(result);
+  const detail = warning ? preflightWarningMessage(warning) : null;
+
+  if (result.status === "warning") {
+    return detail ?? "Prueba IA completada con avisos.";
+  }
+
+  return detail ?? "Prueba IA falló.";
+}
+
+function firstPreflightWarning(result: AiPreflightResult) {
+  return (
+    result.warnings.find((warning) => preflightWarningMessages[warning]) ??
+    result.checks
+      .flatMap((check) => check.warnings)
+      .find((warning) => preflightWarningMessages[warning]) ??
+    result.warnings[0] ??
+    null
+  );
+}
+
+function preflightWarningMessage(warning: string) {
+  return preflightWarningMessages[warning] ?? warning;
 }
 
 function boolStatus(value?: boolean) {
@@ -4023,7 +4063,7 @@ function AiRuntimeScreen({
             ))}
             {preflight?.warnings.slice(0, 3).map((warning) => (
               <InlineNotice icon={<ShieldAlert />} key={warning}>
-                {warning}
+                {preflightWarningMessage(warning)}
               </InlineNotice>
             ))}
           </Panel>
