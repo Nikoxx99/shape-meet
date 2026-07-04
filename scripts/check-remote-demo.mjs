@@ -14,6 +14,7 @@ const skipNetwork = args.includes("--skip-network");
 const skipTurnAuth = args.includes("--skip-turn-auth");
 const skipTurnutils = args.includes("--skip-turnutils");
 const skipJsTurnAuth = args.includes("--skip-js-turn-auth");
+const skipTurnTls = args.includes("--skip-turn-tls");
 const skipLiveKitHandshake = args.includes("--skip-livekit-handshake");
 const apiFlow =
   args.includes("--api-flow") || args.includes("--check-api-flow");
@@ -234,7 +235,9 @@ async function runNetworkChecks() {
     await checkStunUdp();
   }
 
-  if (turnHost && turnTlsPort) {
+  if (skipTurnTls) {
+    skipped("network.turn-tls-tcp", "TURN TLS TCP omitido por flag.");
+  } else if (turnHost && turnTlsPort) {
     await checkTcp(
       "network.turn-tls-tcp",
       turnHost,
