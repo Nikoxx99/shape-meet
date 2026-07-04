@@ -77,7 +77,7 @@ const env = [
   ["SHAPE_VOICE_ENGINE", ""],
   ["SHAPE_VIDEO_PROCESSOR_ENDPOINT", ""],
   ["SHAPE_AUDIO_PROCESSOR_ENDPOINT", ""],
-  ["SHAPE_PROCESSOR_TIMEOUT_SECS", "0.8"],
+  ["SHAPE_PROCESSOR_TIMEOUT_SECS", "15"],
   ["SENTRY_DSN", sentryDsn],
   ["SENTRY_ORG", sentryOrg],
   ["SENTRY_PROJECT", sentryProject],

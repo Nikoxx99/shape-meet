@@ -141,6 +141,18 @@ Secuencia recomendada para el primer deploy:
 6. Cambiar `RUN_SEED=false` y redeploy.
 7. Probar una reunión 1:1 desde dos redes distintas para validar ICE/TURN.
 
+Antes de invitar a otra persona al demo, corre también el doctor remoto desde
+una máquina fuera del servidor:
+
+```bash
+pnpm demo:remote:check -- --env-file infra/shape-meet.production.env --strict
+```
+
+Este check valida `/api/health`, signaling LiveKit, DNS de TURN, puertos TCP de
+RTC/TURN y una petición STUN UDP contra coturn. Si la máquina tiene
+`turnutils_uclient`, además prueba la autenticación TURN REST con el
+`LIVEKIT_TURN_SHARED_SECRET`.
+
 Durante las primeras pruebas deja `SHAPE_DEBUG_ERRORS=true` para que las APIs
 devuelvan `requestId`, `code` y detalle técnico controlado cuando fallen. Antes
 de entregar a usuarios finales, cámbialo a `false` para conservar solo errores

@@ -81,5 +81,8 @@ jobs:
       - name: Smoke desktop runtime config
         run: pnpm smoke:desktop-config
 
+      - name: Smoke remote demo checker
+        run: pnpm smoke:remote-demo
+
       - name: Validate Coolify compose
         run: pnpm check:coolify infra/env.coolify.example

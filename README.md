@@ -316,6 +316,18 @@ pnpm check:coolify ruta/a/produccion.env --strict
 El modo estricto falla si quedan placeholders de secretos y avisa cuando
 TURN/TLS necesita un balanceador L4 o un puerto `443/tcp` dedicado.
 
+Después de desplegar en Coolify, corre el doctor remoto desde cualquier máquina
+fuera del servidor para validar DNS, health del admin, signaling LiveKit y
+puertos TURN/RTC:
+
+```bash
+pnpm demo:remote:check -- --env-file infra/shape-meet.production.env --strict
+```
+
+Si tienes `turnutils_uclient` instalado, el comando también valida credenciales
+TURN REST generadas desde `LIVEKIT_TURN_SHARED_SECRET`. Sin esa herramienta,
+mantiene el check de STUN UDP y deja un aviso operativo.
+
 Para preparar una desktop instalada contra ese mismo entorno, deriva un
 `shape-meet.env` sin copiar secretos del servidor:
 
