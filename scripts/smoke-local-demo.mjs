@@ -46,6 +46,9 @@ async function main() {
   runPnpm("smoke:meeting-flow", {
     SHAPE_SMOKE_API_URL: apiUrl,
   });
+  runPnpm("smoke:livekit-handshake", {
+    SHAPE_SMOKE_API_URL: apiUrl,
+  });
 
   if (!skipAiContract) {
     runPnpm("smoke:ai-contract");
