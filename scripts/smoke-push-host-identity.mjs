@@ -278,6 +278,7 @@ function runIdentityHandoffOnly() {
         "--skip-prepare",
         "--skip-debug",
         "--skip-real-check",
+        "--skip-local-preview",
         "--skip-desktop",
         "--skip-model-bootstrap",
         "--remote-env-file",

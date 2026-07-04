@@ -24,6 +24,7 @@ const strict = args.includes("--strict");
 const skipPrepare = args.includes("--skip-prepare");
 const skipDebug = args.includes("--skip-debug");
 const skipRealCheck = args.includes("--skip-real-check");
+const skipLocalPreview = args.includes("--skip-local-preview");
 const skipDesktop = args.includes("--skip-desktop");
 const skipModelBootstrap = args.includes("--skip-model-bootstrap");
 const skipIdentityPush = args.includes("--skip-identity-push");
@@ -42,6 +43,8 @@ const runtimeEnvFile =
 const remoteEnvFile = argValue("--remote-env-file") ?? null;
 const timeoutMs = argValue("--timeout-ms") ?? "45000";
 const remoteTimeoutMs = argValue("--remote-timeout-ms") ?? null;
+const localPreviewTimeoutMs =
+  argValue("--local-preview-timeout-ms") ?? "120000";
 const identityArtifactFile =
   argValue("--identity-artifact-file") ??
   argValue("--artifact-file") ??
@@ -61,6 +64,7 @@ const report = {
     remoteEnvFile,
     timeoutMs,
     remoteTimeoutMs,
+    localPreviewTimeoutMs,
     identityArtifactFile,
   },
   steps: {},
@@ -94,6 +98,10 @@ function main() {
   report.steps.realReadiness = skipRealCheck
     ? skipped("Readiness demo real", "omitido por --skip-real-check")
     : runRealReadinessStep();
+
+  report.steps.localPreview = skipLocalPreview
+    ? skipped("Preview local IA", "omitido por --skip-local-preview")
+    : runLocalPreviewStep();
 
   report.steps.identityPush = resolveIdentityPushStep();
 
@@ -264,6 +272,22 @@ function runRealReadinessStep() {
     step.report = parseJson(readFileSync(outputPath, "utf8"));
   }
   report.artifacts.realReadiness = existsSync(outputPath) ? outputPath : null;
+  return step;
+}
+
+function runLocalPreviewStep() {
+  const commandArgs = ["demo:local-preview", "--"];
+  if (args.includes("--local-preview-headed")) commandArgs.push("--headed");
+  forwardValue(commandArgs, "--app-port");
+  forwardValue(commandArgs, "--ai-port");
+  forwardValue(commandArgs, "--video-port");
+  forwardValue(commandArgs, "--audio-port");
+
+  const step = commandStep("Preview local IA", commandArgs, {
+    timeout: positiveInteger(localPreviewTimeoutMs, 120_000),
+  });
+  step.verified =
+    step.ok && /local AI preview smoke ok/i.test(step.stdout ?? "");
   return step;
 }
 
@@ -441,6 +465,11 @@ function collectSummary() {
       "Genera o descarga el bundle desktop antes del handoff de instalacion.",
     );
   }
+  if (!report.steps.localPreview?.ok && !report.steps.localPreview?.skipped) {
+    nextSteps.push(
+      "Ejecuta `pnpm demo:local-preview` para validar que la app abre, el host entra y publica IA demo.",
+    );
+  }
   if (!report.steps.identityPush?.ok && !report.steps.identityPush?.skipped) {
     nextSteps.push(
       "Publica la identidad real con `pnpm demo:identity:push` antes de entrar como host con face swap.",
@@ -475,6 +504,15 @@ function renderReadme(currentReport) {
     currentReport.demo.realReadiness
       ? `- Demo real listo: ${
           currentReport.demo.realReadiness.readyForRealDemo ? "si" : "no"
+        }`
+      : null,
+    currentReport.steps.localPreview
+      ? `- Preview local IA: ${
+          currentReport.steps.localPreview.skipped
+            ? "omitido"
+            : currentReport.steps.localPreview.ok
+              ? "ok"
+              : "revisar"
         }`
       : null,
     currentReport.demo.desktop?.artifacts?.length
@@ -518,6 +556,7 @@ ${nextStepLines}
 
 \`\`\`bash
 pnpm demo:up
+pnpm demo:local-preview
 pnpm demo:verify
 pnpm demo:handoff
 pnpm demo:handoff -- --remote-env-file infra/shape-meet.production.env --identity-artifact-file /ruta/rostro-o-modelo.bin

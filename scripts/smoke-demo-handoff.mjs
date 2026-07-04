@@ -62,6 +62,10 @@ try {
 
   const report = JSON.parse(result.stdout);
   assert(report.ok === true, "demo handoff report was not ok");
+  assert(
+    report.steps.localPreview.ok === true,
+    "local preview step did not pass",
+  );
   assert(report.steps.desktop.ok === true, "desktop step did not pass");
   assert(report.steps.desktop.mode === "github", "desktop mode mismatch");
   assert(
@@ -84,6 +88,7 @@ try {
 
   const readme = readFileSync(readmePath, "utf8");
   assert(readme.includes("Shape Meet Demo Handoff"), "README title missing");
+  assert(readme.includes("Preview local IA: ok"), "README preview missing");
   assert(readme.includes("Desktop handoff: ok"), "README status missing");
   assert(readme.includes("shape-meet-windows-x64"), "README artifact missing");
 

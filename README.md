@@ -101,8 +101,9 @@ hardware y runtime de modelos, sin incluir secretos:
 pnpm demo:debug
 ```
 
-Para preparar un paquete unico de handoff del demo con manifest, README,
-readiness real, debug bundle, instalador desktop y checklist/setup de modelos:
+Para preparar un paquete unico de handoff del demo con manifest, README, preview
+local IA, readiness real, debug bundle, instalador desktop y checklist/setup de
+modelos:
 
 ```bash
 pnpm demo:handoff
@@ -114,7 +115,9 @@ estacion final usa `pnpm demo:handoff -- --require-real-models --strict` y pasa
 `--audio` cuando ya existan assets reales de prueba. Si quieres que el paquete
 publique el rostro/modelo real del host contra el admin remoto, agrega
 `--identity-artifact-file /ruta/rostro-o-modelo.bin`; el handoff ejecutará
-`demo:identity:push` usando `--remote-env-file`.
+`demo:identity:push` usando `--remote-env-file`. Si esa máquina no tiene
+Chromium/Playwright disponible, agrega `--skip-local-preview` y corre
+`pnpm demo:local-preview` en la estación donde se probará la app.
 
 Si `demo:doctor` muestra `IA local: online sin demo`, detén el sidecar actual y
 vuelve a correr `pnpm demo:up -- --replace-ai`. Ese flag solo reemplaza el
