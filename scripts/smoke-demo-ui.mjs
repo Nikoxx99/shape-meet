@@ -68,6 +68,7 @@ async function main() {
     await assertHostAiVideoBridge(hostPage);
     await admitGuest(hostPage, guestPage);
     await guestJoinsCall(guestPage, meetingCode);
+    await assertGuestReceivesHostAiVideo(guestPage);
     await expectVisibleText(hostPage, "2 participantes", 20_000);
     await expectVisibleText(guestPage, "2 participantes", 20_000);
   } catch (error) {
@@ -168,6 +169,14 @@ async function guestJoinsCall(page, meetingCode) {
   await expectVisibleText(page, meetingCode, 20_000);
 }
 
+async function assertGuestReceivesHostAiVideo(page) {
+  await expectProcessedPrimaryVideo(
+    page,
+    30_000,
+    "El invitado no recibió el video procesado del host",
+  );
+}
+
 async function clickByRole(page, role, name, timeout = 10_000) {
   await page.getByRole(role, { name }).click({ timeout });
 }
@@ -200,7 +209,11 @@ async function expectAnyVisibleText(page, texts, timeout = 10_000) {
   throw lastError ?? new Error(`Expected one of: ${texts.join(", ")}`);
 }
 
-async function expectProcessedPrimaryVideo(page, timeout = 30_000) {
+async function expectProcessedPrimaryVideo(
+  page,
+  timeout = 30_000,
+  failurePrefix = "El video primario no mostró frames procesados por IA",
+) {
   const deadline = Date.now() + timeout;
   let lastSample = null;
 
@@ -221,9 +234,7 @@ async function expectProcessedPrimaryVideo(page, timeout = 30_000) {
     await page.waitForTimeout(500);
   }
 
-  throw new Error(
-    `El video primario no mostró frames procesados por IA. Última muestra: ${JSON.stringify(lastSample)}`,
-  );
+  throw new Error(`${failurePrefix}. Última muestra: ${JSON.stringify(lastSample)}`);
 }
 
 async function samplePrimaryVideo(page) {
