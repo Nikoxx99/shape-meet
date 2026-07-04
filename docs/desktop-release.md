@@ -66,6 +66,24 @@ bundle en `apps/desktop/src-tauri/target/release/bundle`. Agrega
 `-- --local-bundle --copy-local` si quieres copiar los instaladores al directorio
 de handoff.
 
+Cuando GitHub Actions esté bloqueado por billing o no haya runner Windows
+disponible, prepara un handoff manual para el PC Windows:
+
+```bash
+pnpm desktop:windows-handoff -- \
+  --api-url https://admin.tudominio.com \
+  --meeting-url https://meet.tudominio.com \
+  --ai-url http://127.0.0.1:7851 \
+  --host-identifier host@tudominio.com \
+  --sentry-dsn "https://..."
+```
+
+El paquete queda en `output/windows-demo-handoff/...` e incluye
+`Build-ShapeMeetWindows.ps1` y `shape-meet.env`. En Windows, desde la raiz del
+repo, ejecuta ese PowerShell para instalar el runtime config local, construir el
+sidecar Windows, generar el instalador Tauri y producir
+`desktop:handoff --local-bundle --copy-local`.
+
 Desde GitHub Actions:
 
 1. Abrir `Desktop Packages`.
