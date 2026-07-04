@@ -63,6 +63,17 @@ try {
     join("apps", "desktop", ".env.local"),
     "VITE_SHAPE_MEETING_URL=http://localhost:1420",
   );
+  assertRepoScriptIncludes("package.json", "demo:desktop", "--tauri");
+  assertRepoScriptIncludes(
+    join("apps", "desktop", "package.json"),
+    "tauri:dev:attach",
+    "tauri.attach.conf.json",
+  );
+  assertRepoJsonValue(
+    join("apps", "desktop", "src-tauri", "tauri.attach.conf.json"),
+    (config) => config.build?.beforeDevCommand,
+    'node -e "process.exit(0)"',
+  );
 
   console.log("local demo config smoke ok");
 } finally {
@@ -84,4 +95,25 @@ function assertFileIncludes(file, expected) {
   if (!content.includes(expected)) {
     throw new Error(`expected ${file} to include ${expected}`);
   }
+}
+
+function assertRepoScriptIncludes(file, scriptName, expected) {
+  const packageJson = readRepoJson(file);
+  const script = packageJson.scripts?.[scriptName];
+  if (typeof script !== "string" || !script.includes(expected)) {
+    throw new Error(
+      `expected ${file} script ${scriptName} to include ${expected}`,
+    );
+  }
+}
+
+function assertRepoJsonValue(file, selector, expected) {
+  const value = selector(readRepoJson(file));
+  if (value !== expected) {
+    throw new Error(`expected ${file} value ${expected}, got ${String(value)}`);
+  }
+}
+
+function readRepoJson(file) {
+  return JSON.parse(readFileSync(resolve(file), "utf8"));
 }

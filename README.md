@@ -77,6 +77,9 @@ Para abrir la app nativa Tauri contra el mismo stack demo:
 pnpm demo:desktop
 ```
 
+Ese comando reutiliza Vite en `1420` si ya está activo; si no, lo levanta y
+luego abre Tauri con `tauri:dev:attach` para evitar conflictos de puerto.
+
 Para validar que el stack queda listo y salir sin dejar procesos locales vivos:
 
 ```bash

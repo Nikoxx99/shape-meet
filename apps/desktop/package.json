@@ -11,6 +11,7 @@
     "check:native": "cargo check --manifest-path src-tauri/Cargo.toml",
     "sidecar:build": "node ../../scripts/build-ai-sidecar.mjs",
     "tauri:dev": "tauri dev",
+    "tauri:dev:attach": "tauri dev --config src-tauri/tauri.attach.conf.json",
     "tauri:build": "pnpm sidecar:build && tauri build --config src-tauri/tauri.sidecar.conf.json",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"

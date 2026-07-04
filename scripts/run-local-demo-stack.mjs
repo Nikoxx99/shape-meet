@@ -55,6 +55,7 @@ try {
   await main();
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
+  await stopStartedProcesses().catch(() => undefined);
   process.exit(1);
 }
 
@@ -144,9 +145,7 @@ async function main() {
     startProcess("IA demo", ["dev:ai:demo"]);
   }
 
-  if (tauriMode) {
-    startProcess("Desktop Tauri", ["dev:desktop"]);
-  } else if (!services.desktop.ok) {
+  if (!services.desktop.ok) {
     startProcess("Desktop web", [
       "--filter",
       "@shape-meet/desktop",
@@ -170,6 +169,15 @@ async function main() {
     const link = prepared.stdout.match(/Public link:\s+(\S+)/)?.[1] ?? appUrl;
     console.log("");
     console.log(`Demo listo: ${link}`);
+  }
+
+  if (tauriMode && !exitAfterReady) {
+    const tauri = startProcess("Desktop Tauri", [
+      "--filter",
+      "@shape-meet/desktop",
+      "tauri:dev:attach",
+    ]);
+    await ensureProcessKeepsRunning("Desktop Tauri", tauri, 8000);
   }
 
   if (children.length === 0) {
@@ -561,6 +569,28 @@ function startProcess(label, pnpmArgs) {
     if (code && code !== 0) {
       console.error(`${label} terminó con código ${code}.`);
     }
+  });
+  return child;
+}
+
+async function ensureProcessKeepsRunning(label, child, timeoutMs) {
+  if (child.exitCode !== null) {
+    throw new Error(`${label} terminó durante el arranque.`);
+  }
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.off("exit", onExit);
+      resolve();
+    }, timeoutMs);
+
+    function onExit(code, signal) {
+      clearTimeout(timer);
+      const detail = signal ? `señal ${signal}` : `código ${code ?? 0}`;
+      reject(new Error(`${label} terminó durante el arranque (${detail}).`));
+    }
+
+    child.once("exit", onExit);
   });
 }
 
