@@ -5493,7 +5493,7 @@ function RemoteAudioTrackElement({
     };
   }, [speakerId, track]);
 
-  return <audio autoPlay ref={audioRef} />;
+  return <audio autoPlay data-testid="remote-audio-element" ref={audioRef} />;
 }
 
 function StepDots({ active }: { active: number }) {

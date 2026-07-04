@@ -66,9 +66,11 @@ async function main() {
     await enterGuestWaitingRoom(guestPage, publicLink, meetingCode);
     await enterHostCall(hostPage, meetingCode);
     await assertHostAiVideoBridge(hostPage);
+    await assertHostAiAudioBridge(hostPage);
     await admitGuest(hostPage, guestPage);
     await guestJoinsCall(guestPage, meetingCode);
     await assertGuestReceivesHostAiVideo(guestPage);
+    await assertGuestReceivesHostAudio(guestPage);
     await expectVisibleText(hostPage, "2 participantes", 20_000);
     await expectVisibleText(guestPage, "2 participantes", 20_000);
   } catch (error) {
@@ -121,9 +123,11 @@ async function enterHostCall(page, meetingCode) {
   await expectVisibleText(page, "Copiar enlace");
   await clickByRole(page, "button", "Probar equipo");
   await expectVisibleText(page, "Revisa cámara y micrófono");
+  await enableControlButton(page, "Micrófono");
   await clickByRole(page, "button", "Configurar como host");
   await expectVisibleText(page, "Ajustes de cámara e identidad");
   await expectVisibleText(page, "Rostro demo aprobado");
+  await enableToggleRow(page, "Activar voz configurada");
   await clickByRole(page, "button", "Runtime IA local");
   await expectVisibleText(page, "Runtime IA local");
   await expectVisibleText(page, "Variables");
@@ -159,6 +163,14 @@ async function assertHostAiVideoBridge(page) {
   await expectProcessedPrimaryVideo(page);
 }
 
+async function assertHostAiAudioBridge(page) {
+  await expectAnyVisibleText(
+    page,
+    ["Track voz publicado", "Bridge voz"],
+    30_000,
+  );
+}
+
 async function admitGuest(hostPage, guestPage) {
   await clickByRole(hostPage, "button", "Admitir", 20_000);
   await expectVisibleText(guestPage, "Admitido por el host", 20_000);
@@ -175,6 +187,42 @@ async function assertGuestReceivesHostAiVideo(page) {
     30_000,
     "El invitado no recibió el video procesado del host",
   );
+}
+
+async function assertGuestReceivesHostAudio(page, timeout = 30_000) {
+  const deadline = Date.now() + timeout;
+  let lastSample = null;
+  const audio = page.getByTestId("remote-audio-element").first();
+
+  await audio.waitFor({ state: "attached", timeout });
+
+  while (Date.now() < deadline) {
+    lastSample = await sampleRemoteAudio(page);
+    if (lastSample.liveTrackCount > 0) return;
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(
+    `El invitado no recibió audio remoto vivo del host. Última muestra: ${JSON.stringify(lastSample)}`,
+  );
+}
+
+async function enableControlButton(page, name) {
+  const button = page.getByRole("button", { name }).first();
+  await button.waitFor({ state: "visible", timeout: 10_000 });
+  const active = await button.evaluate((element) =>
+    element.classList.contains("active"),
+  );
+  if (!active) await button.click();
+}
+
+async function enableToggleRow(page, name) {
+  const button = page.getByRole("button", { name }).first();
+  await button.waitFor({ state: "visible", timeout: 10_000 });
+  const active = await button.evaluate((element) =>
+    Boolean(element.querySelector(".toggle.checked")),
+  );
+  if (!active) await button.click();
 }
 
 async function clickByRole(page, role, name, timeout = 10_000) {
@@ -234,7 +282,9 @@ async function expectProcessedPrimaryVideo(
     await page.waitForTimeout(500);
   }
 
-  throw new Error(`${failurePrefix}. Última muestra: ${JSON.stringify(lastSample)}`);
+  throw new Error(
+    `${failurePrefix}. Última muestra: ${JSON.stringify(lastSample)}`,
+  );
 }
 
 async function samplePrimaryVideo(page) {
@@ -275,6 +325,32 @@ async function samplePrimaryVideo(page) {
       greenRatio: greenPixels / (width * height),
     };
   });
+}
+
+async function sampleRemoteAudio(page) {
+  return page
+    .getByTestId("remote-audio-element")
+    .first()
+    .evaluate((audio) => {
+      const stream =
+        audio.srcObject instanceof MediaStream ? audio.srcObject : null;
+      const tracks = stream ? stream.getAudioTracks() : [];
+
+      return {
+        currentTime: audio.currentTime,
+        muted: audio.muted,
+        paused: audio.paused,
+        readyState: audio.readyState,
+        trackCount: tracks.length,
+        liveTrackCount: tracks.filter((track) => track.readyState === "live")
+          .length,
+        tracks: tracks.map((track) => ({
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState,
+        })),
+      };
+    });
 }
 
 async function assertReachableApp() {
