@@ -4375,6 +4375,10 @@ function ActiveCallScreen({
     "participants",
   );
   const [callDiagnosticsOpen, setCallDiagnosticsOpen] = useState(false);
+  const [callDebugMessage, setCallDebugMessage] = useState<string | null>(null);
+  const [callDebugBusy, setCallDebugBusy] = useState<
+    "bundle" | "sentry" | null
+  >(null);
   const [chatMessages, setChatMessages] = useState<CallChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
@@ -4980,6 +4984,55 @@ function ActiveCallScreen({
     return () => window.clearInterval(interval);
   }, [aiSession?.id, aiSession?.status]);
 
+  async function handleCallDebugBundle() {
+    setCallDebugBusy("bundle");
+    setCallDebugMessage(null);
+
+    try {
+      const result = await exportDebugBundle();
+      setCallDebugMessage(result);
+    } catch (error) {
+      setCallDebugMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo preparar el bundle debug.",
+      );
+    } finally {
+      setCallDebugBusy(null);
+    }
+  }
+
+  async function handleCallSentryEvent() {
+    setCallDebugBusy("sentry");
+    setCallDebugMessage(null);
+
+    try {
+      const result = await captureNativeDebugEvent(
+        [
+          "Shape Meet call diagnostic",
+          `meeting=${meeting.code}`,
+          `host=${hostMode ? "true" : "false"}`,
+          `livekit=${liveKitState}`,
+          `ai=${aiSession?.status ?? aiRuntimeStartupState}`,
+          `participants=${activeParticipants.length}`,
+        ].join(" "),
+      );
+      setCallDebugMessage(
+        result.captured && result.eventId
+          ? `Evento Sentry enviado: ${result.eventId}`
+          : result.message,
+      );
+    } catch (error) {
+      setCallDebugMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo enviar el evento Sentry.",
+      );
+    } finally {
+      setCallDebugBusy(null);
+    }
+  }
+
   async function handleToggleScreenShare() {
     if (!room) {
       setCallActionError("Compartir pantalla requiere LiveKit conectado.");
@@ -5530,6 +5583,29 @@ function ActiveCallScreen({
                     tone="warning"
                   />
                 ) : null}
+                {callDebugMessage ? (
+                  <InlineNotice icon={<Check />}>
+                    {callDebugMessage}
+                  </InlineNotice>
+                ) : null}
+                <div className="stacked-actions compact">
+                  <Button
+                    variant="outline"
+                    icon={<Copy />}
+                    onClick={() => void handleCallDebugBundle()}
+                    disabled={callDebugBusy !== null}
+                  >
+                    {callDebugBusy === "bundle" ? "Generando" : "Bundle debug"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    icon={<ShieldCheck />}
+                    onClick={() => void handleCallSentryEvent()}
+                    disabled={callDebugBusy !== null}
+                  >
+                    {callDebugBusy === "sentry" ? "Enviando" : "Evento Sentry"}
+                  </Button>
+                </div>
               </div>
             </details>
           ) : null}

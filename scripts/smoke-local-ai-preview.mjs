@@ -53,6 +53,8 @@ async function main() {
     await clickByRole(page, "button", "Más", 15_000);
     await expectVisibleText(page, "Track IA publicado", 30_000);
     await expectVisibleText(page, "Runtime IA", 30_000);
+    await expectVisibleText(page, "Bundle debug", 30_000);
+    await expectVisibleText(page, "Evento Sentry", 30_000);
     await expectTestIdText(page, "call-ai-preflight-status", /passed|warning/);
     await expectVisibleText(page, "Bridge voz", 30_000);
     console.log(
