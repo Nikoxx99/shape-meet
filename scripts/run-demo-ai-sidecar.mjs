@@ -1,5 +1,11 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,6 +13,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 
 const args = process.argv.slice(2);
+const daemon = args.includes("--daemon");
 const host = argValue("--host") ?? process.env.SHAPE_AI_HOST ?? "127.0.0.1";
 const port = argValue("--port") ?? process.env.SHAPE_AI_PORT ?? "7851";
 const processorHost =
@@ -21,6 +28,19 @@ const audioPort =
   argValue("--audio-port") ??
   process.env.SHAPE_DEMO_AUDIO_PROCESSOR_PORT ??
   "7861";
+const pidFile =
+  argValue("--pid-file") ??
+  process.env.SHAPE_AI_DEMO_PID_FILE ??
+  join(repoRoot, "output", "ai-demo.pid");
+const logFile =
+  argValue("--log-file") ??
+  process.env.SHAPE_AI_DEMO_LOG_FILE ??
+  join(repoRoot, "output", "ai-demo.log");
+
+if (daemon) {
+  startDaemon();
+}
+
 const python = resolveSidecarPython();
 const runtimeEnv = readRuntimeEnv(renderRuntimeEnv());
 const sidecarEnv = {
@@ -67,6 +87,33 @@ sidecar.on("exit", (code, signal) => {
   }
   process.exit(code ?? 0);
 });
+
+function startDaemon() {
+  mkdirSync(dirname(pidFile), { recursive: true });
+  mkdirSync(dirname(logFile), { recursive: true });
+  const logFd = openSync(logFile, "a");
+  const childArgs = [
+    fileURLToPath(import.meta.url),
+    ...args.filter((arg) => arg !== "--daemon"),
+  ];
+  const child = spawn(process.execPath, childArgs, {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      SHAPE_AI_DEMO_DAEMON: "1",
+    },
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+    windowsHide: true,
+  });
+
+  child.unref();
+  writeFileSync(pidFile, `${child.pid}\n`);
+  console.log(`[shape-ai-sidecar] daemon iniciado pid=${child.pid}`);
+  console.log(`[shape-ai-sidecar] pid=${pidFile}`);
+  console.log(`[shape-ai-sidecar] log=${logFile}`);
+  process.exit(0);
+}
 
 function renderRuntimeEnv() {
   const result = spawnSync(

@@ -78,6 +78,9 @@ jobs:
       - name: Smoke AI model runtime preflight
         run: pnpm smoke:ai-model-preflight
 
+      - name: Smoke AI demo daemon
+        run: pnpm smoke:ai-demo-daemon
+
       - name: Smoke desktop runtime config
         run: pnpm smoke:desktop-config
 

@@ -29,6 +29,15 @@ usa:
 pnpm dev:ai:demo
 ```
 
+Para dejar el sidecar IA demo corriendo en background mientras se usa la app:
+
+```bash
+pnpm dev:ai:demo:daemon
+```
+
+Ese comando escribe `output/ai-demo.pid` y `output/ai-demo.log`. Para detenerlo
+puedes hacer `kill -INT $(cat output/ai-demo.pid)`.
+
 Para la ruta de demo local de videollamada, levanta LiveKit dev en `17880`.
 El script usa `livekit-server` nativo si está instalado; si no, levanta el
 compose dev con la imagen oficial:
