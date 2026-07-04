@@ -331,16 +331,30 @@ async function ensureApplication(
   };
 
   if (existing) {
+    const updatePayload = {
+      name: payload.name,
+      description: payload.description,
+      git_repository: payload.git_repository,
+      git_branch: payload.git_branch,
+      build_pack: payload.build_pack,
+      docker_compose_location: payload.docker_compose_location,
+      docker_compose_domains: payload.docker_compose_domains,
+      is_auto_deploy_enabled: payload.is_auto_deploy_enabled,
+      is_force_https_enabled: payload.is_force_https_enabled,
+      force_domain_override: payload.force_domain_override,
+      instant_deploy: payload.instant_deploy,
+    };
     try {
       await api(`/applications/${existing.uuid}`, {
         method: "PATCH",
-        body: JSON.stringify(payload),
+        body: JSON.stringify(updatePayload),
       });
     } catch (error) {
       if (!String(error.message).includes("Cannot set docker_compose_domains")) {
         throw error;
       }
-      const { docker_compose_domains: _domains, ...withoutDomains } = payload;
+      const { docker_compose_domains: _domains, ...withoutDomains } =
+        updatePayload;
       await api(`/applications/${existing.uuid}`, {
         method: "PATCH",
         body: JSON.stringify(withoutDomains),
