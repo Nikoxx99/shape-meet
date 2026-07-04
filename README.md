@@ -296,6 +296,9 @@ pnpm desktop:config -- \
 
 Ese archivo contiene solo URLs públicas, Sentry y el host inicial; no incluye
 `LIVEKIT_API_SECRET`, passwords de Postgres ni otros secretos de Coolify.
+El workflow `Desktop Packages` también sube el artifact
+`shape-meet-runtime-config` con un `shape-meet.env` local/demo editable para
+acompañar los instaladores.
 
 ## Build desktop con sidecar
 

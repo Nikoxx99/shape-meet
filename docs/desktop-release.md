@@ -25,7 +25,13 @@ Desde GitHub Actions:
 1. Abrir `Desktop Packages`.
 2. Ejecutar `Run workflow`, o crear un tag `desktop-v0.1.0`.
 3. Descargar los artifacts `shape-meet-windows-x64`,
-   `shape-meet-macos-arm64` y `shape-meet-macos-x64`.
+   `shape-meet-macos-arm64`, `shape-meet-macos-x64` y
+   `shape-meet-runtime-config`.
+
+`shape-meet-runtime-config` contiene un `shape-meet.env` sin secretos. Para una
+demo local apunta por defecto a `http://localhost:13000`,
+`http://localhost:1420` y `http://127.0.0.1:7851`; edítalo o regenéralo con
+`pnpm desktop:config` para apuntar a Coolify antes de entregarlo a otra máquina.
 
 ## Enlaces de reunión
 

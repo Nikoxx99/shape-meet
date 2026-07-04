@@ -14,6 +14,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  runtime-config:
+    name: Runtime config
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate demo runtime config
+        run: pnpm desktop:config -- --out output/desktop-runtime/shape-meet.env
+
+      - name: Upload runtime config
+        uses: actions/upload-artifact@v4
+        with:
+          name: shape-meet-runtime-config
+          path: output/desktop-runtime/shape-meet.env
+          if-no-files-found: error
+          retention-days: 14
+
   package:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
