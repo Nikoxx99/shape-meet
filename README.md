@@ -315,10 +315,16 @@ archivo `shape-ai-runtime.env`, comandos de procesador, placeholders requeridos,
 paths de FaceFusion/BackgroundMattingV2/vcclient000 y hardware NVIDIA/Apple
 Silicon. Usa `--strict` para fallar también con warnings y `--env-file` para
 probar un runtime específico antes de copiarlo a la app. El reporte incluye
-`realModelReadiness` en JSON con estado por etapa: procesador video, face swap,
-background, procesador audio y voz; `blockers` lista lo que falta para dejar de
-usar passthrough. También incluye `next:` con acciones concretas para terminar
-de preparar la estación.
+`hardwareReadiness` en JSON para distinguir una máquina que solo puede abrir la
+app de una workstation lista para IA local, y `realModelReadiness` con estado por
+etapa: procesador video, face swap, background, procesador audio y voz;
+`blockers` lista lo que falta para dejar de usar passthrough. También incluye
+`next:` con acciones concretas para terminar de preparar la estación.
+
+Para el PC AMD sin CUDA, `hardwareReadiness.status` debe quedar `missing`; eso es
+válido para probar login, UI, LiveKit, Sentry y flujo local sin modelos. En las
+máquinas de demo con RTX 4070+ debe quedar `ready` antes de correr
+`pnpm demo:real:check -- --require-real-models`.
 
 Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`
 y volver a la llamada. Esa ruta escribe el mismo archivo runtime desde la app y

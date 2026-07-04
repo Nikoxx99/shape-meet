@@ -85,6 +85,15 @@ try {
   if (!report.realModelReadiness) {
     throw new Error("models doctor JSON did not include realModelReadiness");
   }
+  if (!report.hardwareReadiness) {
+    throw new Error("models doctor JSON did not include hardwareReadiness");
+  }
+  if (report.hardwareReadiness.status !== "skipped") {
+    throw new Error("skip-hardware report should mark hardware as skipped");
+  }
+  if (report.hardwareReadiness.readyForLocalModels !== false) {
+    throw new Error("skip-hardware should not mark local models ready");
+  }
   if (report.realModelReadiness.ready !== false) {
     throw new Error("missing runtime env should not be real model ready");
   }

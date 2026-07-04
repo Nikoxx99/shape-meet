@@ -30,6 +30,21 @@ const warnings = [];
 const issues = [];
 const nextSteps = [];
 let nvidiaAvailable = false;
+const hardware = {
+  checked: !skipHardware,
+  profile: workstationProfile,
+  platform: platform(),
+  arch: process.arch,
+  gpuRuntime: "unknown",
+  status: skipHardware ? "skipped" : "unknown",
+  readyForLocalModels: false,
+  message: skipHardware
+    ? "Hardware omitido por --skip-hardware."
+    : "Hardware pendiente de validar.",
+  gpus: [],
+  warnings: [],
+  issues: [],
+};
 
 main();
 
@@ -109,18 +124,48 @@ function checkHardware() {
     },
   );
   if (nvidia.status === 0 && nvidia.stdout.trim()) {
+    const gpus = parseNvidiaSmiCsv(nvidia.stdout);
     nvidiaAvailable = true;
+    hardware.gpuRuntime = "cuda";
+    hardware.gpus = gpus;
+    hardware.readyForLocalModels = gpus.some((gpu) => gpu.readyForDemo);
+    hardware.status = hardware.readyForLocalModels ? "ready" : "limited";
+    hardware.message = hardware.readyForLocalModels
+      ? "GPU NVIDIA compatible detectada para modelos locales."
+      : "NVIDIA detectada, pero no parece RTX 4070+ para el demo IA real.";
+    hardware.warnings = gpus.flatMap((gpu) => gpu.warnings);
     ok(`NVIDIA detectada: ${firstLine(nvidia.stdout)}`);
+    for (const warning of hardware.warnings) warn(warning);
+    if (!hardware.readyForLocalModels) {
+      nextStep(
+        "Valida el demo real en una workstation RTX 4070 o superior; esta máquina puede abrir la app pero quizá no sostenga IA local.",
+      );
+    }
     return;
   }
 
   if (platform() === "darwin" && process.arch === "arm64") {
-    warn(
-      "Apple Silicon detectado: CUDA no está disponible; usa comandos/modelos compatibles con Metal/MPS para esta máquina.",
+    hardware.gpuRuntime = "apple-silicon";
+    hardware.status =
+      workstationProfile === "apple-silicon" ? "limited" : "profile-mismatch";
+    hardware.readyForLocalModels = workstationProfile === "apple-silicon";
+    hardware.message =
+      workstationProfile === "apple-silicon"
+        ? "Apple Silicon detectado; valida motores MPS/CoreML específicos antes del demo real."
+        : "Apple Silicon detectado con perfil no Apple Silicon.";
+    hardware.warnings.push(
+      "Apple Silicon no tiene CUDA; usa comandos/modelos compatibles con Metal/MPS para esta máquina.",
     );
+    for (const warning of hardware.warnings) warn(warning);
     return;
   }
 
+  hardware.gpuRuntime = "none";
+  hardware.status = "missing";
+  hardware.readyForLocalModels = false;
+  hardware.message =
+    "No se detectó NVIDIA CUDA ni Apple Silicon; esta máquina sirve para abrir la app, no para demo IA local real.";
+  hardware.issues.push("GPU local compatible no detectada.");
   warn(
     "No se detectó `nvidia-smi`. Las rutas FaceFusion/BMV2 con CUDA deben validarse en la máquina NVIDIA final.",
   );
@@ -709,6 +754,63 @@ function firstLine(value) {
   return String(value).trim().split(/\r?\n/)[0] ?? "";
 }
 
+function parseNvidiaSmiCsv(output) {
+  return String(output)
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => {
+      const [name = "", memoryRaw = "", driverVersion = ""] = line
+        .split(",")
+        .map((part) => part.trim());
+      const memoryTotalMb = Number.parseInt(memoryRaw, 10);
+      const generation = rtxGeneration(name);
+      const modelTier = rtxModelTier(name);
+      const readyByModel =
+        generation !== null &&
+        modelTier !== null &&
+        ((generation === 40 && modelTier >= 70) ||
+          (generation >= 50 && modelTier >= 70));
+      const readyByMemory = Number.isFinite(memoryTotalMb)
+        ? memoryTotalMb >= 8_000
+        : true;
+      const warnings = [];
+
+      if (!readyByModel) {
+        warnings.push(
+          `${name || "GPU NVIDIA"} no parece RTX 4070/4080/4090/5070/5080/5090.`,
+        );
+      }
+      if (!readyByMemory) {
+        warnings.push(
+          `${name || "GPU NVIDIA"} reporta ${memoryTotalMb} MB VRAM; 8 GB es el mínimo práctico para demo 720p30.`,
+        );
+      }
+
+      return {
+        name,
+        memoryTotalMb: Number.isFinite(memoryTotalMb) ? memoryTotalMb : null,
+        driverVersion,
+        generation,
+        modelTier,
+        readyForDemo: readyByModel && readyByMemory,
+        warnings,
+      };
+    })
+    .filter((gpu) => gpu.name || gpu.memoryTotalMb || gpu.driverVersion);
+}
+
+function rtxGeneration(name) {
+  const match = String(name).match(/\bRTX\s+(\d{2})(\d{2})(?:\s*Ti)?\b/i);
+  if (!match) return null;
+  return Number.parseInt(match[1], 10);
+}
+
+function rtxModelTier(name) {
+  const match = String(name).match(/\bRTX\s+(\d{2})(\d{2})(?:\s*Ti)?\b/i);
+  if (!match) return null;
+  return Number.parseInt(match[2], 10);
+}
+
 function ok(message) {
   checks.push(message);
 }
@@ -726,6 +828,7 @@ function nextStep(message) {
 }
 
 function printReport() {
+  const hardwareReadiness = buildHardwareReadiness();
   const realModelReadiness = buildRealModelReadiness();
 
   if (json) {
@@ -735,6 +838,7 @@ function printReport() {
           ok: issues.length === 0 && (!strict || warnings.length === 0),
           envFile,
           profile: workstationProfile,
+          hardwareReadiness,
           realModelReadiness,
           checks,
           warnings,
@@ -752,6 +856,10 @@ function printReport() {
   console.log(`Runtime env: ${envFile}`);
   console.log(`Perfil: ${workstationProfile}`);
   console.log(
+    `Hardware demo: ${hardwareReadiness.readyForLocalModels ? "listo" : hardwareReadiness.status}`,
+  );
+  console.log(`Hardware detalle: ${hardwareReadiness.message}`);
+  console.log(
     `Modelos reales: ${realModelReadiness.ready ? "listos" : realModelReadiness.passthroughEnabled ? "passthrough" : "pendientes"}`,
   );
   for (const stage of realModelReadiness.stages) {
@@ -768,6 +876,18 @@ function printReport() {
   if (issues.length === 0 && (!strict || warnings.length === 0)) {
     console.log("AI model doctor ok");
   }
+}
+
+function buildHardwareReadiness() {
+  return {
+    ...hardware,
+    checked: !skipHardware,
+    profile: workstationProfile,
+    recommendedMinimum: "RTX 4070 / Apple Silicon M-series",
+    target: "RTX 4090/5090 para demo premium 720p30",
+    blockers: hardware.issues,
+    warnings: hardware.warnings,
+  };
 }
 
 function buildRealModelReadiness() {
