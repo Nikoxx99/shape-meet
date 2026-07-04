@@ -149,6 +149,7 @@ function summarizeEnv(env) {
       env.LIVEKIT_TURN_RELAY_RANGE_START && env.LIVEKIT_TURN_RELAY_RANGE_END
         ? `${env.LIVEKIT_TURN_RELAY_RANGE_START}-${env.LIVEKIT_TURN_RELAY_RANGE_END}/udp`
         : null,
+    corsOrigin: env.CORS_ORIGIN ?? null,
     runSeed: env.RUN_SEED ?? null,
     debugErrors: env.SHAPE_DEBUG_ERRORS ?? null,
     sentryConfigured: Boolean(env.SENTRY_DSN || env.NEXT_PUBLIC_SENTRY_DSN),
@@ -196,6 +197,7 @@ function readme(report) {
     `LiveKit: ${coolify.livekitUrl ?? "pendiente"}`,
     `TURN: ${coolify.turnDomain ?? "pendiente"}`,
     `TURN external IP: ${coolify.turnExternalIp ?? "pendiente"}`,
+    `CORS origin: ${coolify.corsOrigin ?? "pendiente"}`,
     `RUN_SEED: ${coolify.runSeed ?? "pendiente"}`,
     `SHAPE_DEBUG_ERRORS: ${coolify.debugErrors ?? "pendiente"}`,
     `Sentry: ${coolify.sentryConfigured ? "configurado" : "sin DSN"}`,

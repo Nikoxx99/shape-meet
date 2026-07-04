@@ -33,6 +33,9 @@ validateBoolean("debug-errors", debugErrors);
 const adminUrl = `https://${adminDomain}`;
 const meetingUrl = `https://${meetingDomain}`;
 const livekitUrl = `wss://${livekitDomain}`;
+const corsOrigin = [adminUrl, meetingUrl]
+  .filter((value, index, values) => values.indexOf(value) === index)
+  .join(",");
 const bootstrapPassword = `${randomHex(12)}Aa1!`;
 const env = [
   ["POSTGRES_USER", "shape_meet"],
@@ -40,7 +43,7 @@ const env = [
   ["POSTGRES_DB", "shape_meet"],
   ["REDIS_PASSWORD", randomHex(24)],
   ["AUTH_SESSION_SECRET", randomHex(32)],
-  ["CORS_ORIGIN", adminUrl],
+  ["CORS_ORIGIN", corsOrigin],
   ["RUN_SEED", runSeed],
   ["SHAPE_DEBUG_ERRORS", debugErrors],
   ["HOST_BOOTSTRAP_EMAIL", bootstrapEmail],

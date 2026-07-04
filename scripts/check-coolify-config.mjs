@@ -89,6 +89,7 @@ const livekitUrl = parseUrl("LIVEKIT_URL");
 const desktopApiUrl = parseUrl("VITE_SHAPE_API_URL");
 const desktopAppUrl = parseUrl("VITE_SHAPE_APP_URL");
 const meetingUrl = parseUrl("VITE_SHAPE_MEETING_URL");
+const corsOrigins = parseCorsOrigins("CORS_ORIGIN");
 const turnDomain = env.LIVEKIT_TURN_DOMAIN;
 const turnExternalIp = env.LIVEKIT_TURN_EXTERNAL_IP;
 const livekitNodeIp = env.LIVEKIT_NODE_IP;
@@ -131,6 +132,11 @@ for (const [key, url] of [
     );
   }
 }
+
+validateCorsOrigins(corsOrigins, [
+  ["NEXT_PUBLIC_APP_URL", appUrl],
+  ["VITE_SHAPE_MEETING_URL", meetingUrl],
+]);
 
 if (livekitUrl?.hostname && livekitUrl.hostname === turnDomain) {
   issues.push(
@@ -338,6 +344,50 @@ function parseUrl(key) {
   } catch {
     issues.push(`${key} is not a valid URL`);
     return null;
+  }
+}
+
+function parseCorsOrigins(key) {
+  const value = env[key];
+  if (!value) return [];
+  const origins = value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (origins.includes("*")) return ["*"];
+
+  return origins.map((origin) => {
+    try {
+      const parsed = new URL(origin);
+      if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
+        issues.push(
+          `${key} origin must not include path, query or fragment: ${origin}`,
+        );
+      }
+      return parsed.origin;
+    } catch {
+      issues.push(`${key} contains an invalid origin: ${origin}`);
+      return origin;
+    }
+  });
+}
+
+function validateCorsOrigins(origins, requiredUrls) {
+  if (origins.includes("*")) {
+    warnings.push(
+      "CORS_ORIGIN=* permite cualquier origen; para producción prefiere NEXT_PUBLIC_APP_URL,VITE_SHAPE_MEETING_URL",
+    );
+    return;
+  }
+
+  for (const [key, url] of requiredUrls) {
+    if (!url) continue;
+    if (!origins.includes(url.origin)) {
+      issues.push(
+        `CORS_ORIGIN must include ${url.origin} so ${key} can call the admin API`,
+      );
+    }
   }
 }
 

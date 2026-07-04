@@ -53,7 +53,7 @@ POSTGRES_PASSWORD=...
 POSTGRES_DB=shape_meet
 REDIS_PASSWORD=...
 AUTH_SESSION_SECRET=...
-CORS_ORIGIN=*
+CORS_ORIGIN=https://admin.tudominio.com,https://meet.tudominio.com
 RUN_SEED=false
 SHAPE_DEBUG_ERRORS=true
 HOST_BOOTSTRAP_EMAIL=admin@shape.test
@@ -96,6 +96,11 @@ NEXT_PUBLIC_SENTRY_RELEASE=shape-meet-admin@0.1.0
 SENTRY_TRACES_SAMPLE_RATE=1.0
 NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=1.0
 ```
+
+Si `Admin` y `Meeting` usan dominios distintos, `CORS_ORIGIN` debe incluir ambos
+orígenes separados por coma. El proxy API refleja únicamente el `Origin`
+permitido; una lista mal configurada rompe login, sala de espera y emisión de
+tokens LiveKit desde la app pública.
 
 Para generar un archivo real sin placeholders:
 
