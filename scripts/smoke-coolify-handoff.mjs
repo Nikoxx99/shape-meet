@@ -50,6 +50,24 @@ function smokeGeneratedProductionHandoff() {
     report.coolify.turnDomain === "turn.shape-demo.test",
     "turn domain mismatch",
   );
+  assert(Array.isArray(report.firewall), "firewall checklist missing");
+  assert(
+    report.firewall.some(
+      (entry) =>
+        entry.id === "livekit-signaling" &&
+        entry.destination === "livekit.shape-demo.test" &&
+        entry.externalPort === "443/tcp",
+    ),
+    "livekit signaling firewall row missing",
+  );
+  assert(
+    report.firewall.some(
+      (entry) =>
+        entry.id === "turn-relay-udp-range" &&
+        entry.externalPort === "30000-30100/udp",
+    ),
+    "turn relay firewall row missing",
+  );
   assert(existsSync(join(out, "shape-meet.coolify.env")), "env not written");
   assert(
     existsSync(join(out, "docker-compose.coolify.yml")),
@@ -83,6 +101,15 @@ function smokeGeneratedProductionHandoff() {
   assert(
     readme.includes("Resource type: Docker Compose"),
     "resource instructions missing",
+  );
+  assert(readme.includes("## Firewall y routing"), "firewall section missing");
+  assert(
+    readme.includes("| livekit.shape-demo.test | 7882/udp |"),
+    "rtc udp firewall row missing",
+  );
+  assert(
+    readme.includes("| turn.shape-demo.test | 3478/udp,tcp |"),
+    "turn firewall row missing",
   );
   assert(readme.includes("pnpm demo:remote:check"), "remote check missing");
 }

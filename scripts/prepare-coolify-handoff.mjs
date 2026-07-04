@@ -52,6 +52,7 @@ const report = {
   readme: readmeOutput,
   manifest: manifestOutput,
   coolify: summarizeEnv(env),
+  firewall: firewallChecklist(env),
   check,
   nextSteps: nextSteps(env),
 };
@@ -162,7 +163,7 @@ function nextSteps(env) {
   return [
     "Crear un recurso Docker Compose en Coolify apuntando a Luxora-Agency/shape-meet, branch main, compose infra/docker-compose.coolify.yml.",
     `Copiar las variables de ${envPath} al recurso de Coolify.`,
-    "Publicar admin/livekit por proxy HTTP y exponer directamente puertos RTC/TURN en firewall/L4.",
+    "Aplicar la matriz de firewall/routing del README antes del primer test WebRTC remoto.",
     "Desplegar una vez con RUN_SEED=true, entrar con el bootstrap y crear hosts reales.",
     "Cambiar RUN_SEED=false y redeploy.",
     `Validar health: ${adminUrl}/api/health.`,
@@ -170,8 +171,90 @@ function nextSteps(env) {
   ];
 }
 
+function firewallChecklist(env) {
+  const adminHost = hostnameFromUrl(env.NEXT_PUBLIC_APP_URL);
+  const livekitHost = hostnameFromUrl(env.LIVEKIT_URL);
+  const turnHost = env.LIVEKIT_TURN_DOMAIN ?? "turn.tudominio.com";
+  const relayStart = env.LIVEKIT_TURN_RELAY_RANGE_START ?? "30000";
+  const relayEnd = env.LIVEKIT_TURN_RELAY_RANGE_END ?? "30100";
+
+  return [
+    {
+      id: "admin-http",
+      destination: adminHost ?? "admin.tudominio.com",
+      protocol: "HTTPS",
+      externalPort: "443/tcp",
+      target: "shape-admin:3000/tcp via Coolify HTTP proxy",
+      purpose: "Admin API, panel web y launcher publico.",
+    },
+    {
+      id: "livekit-signaling",
+      destination: livekitHost ?? "livekit.tudominio.com",
+      protocol: "WSS/HTTPS",
+      externalPort: "443/tcp",
+      target: "shape-livekit:7880/tcp via Coolify HTTP proxy",
+      purpose: "Signaling LiveKit y emision de conexion WebRTC.",
+    },
+    {
+      id: "livekit-rtc-tcp",
+      destination: livekitHost ?? "livekit.tudominio.com",
+      protocol: "TCP",
+      externalPort: `${env.LIVEKIT_RTC_TCP_PORT ?? "7881"}/tcp`,
+      target: "shape-livekit rtc.tcp_port",
+      purpose: "Fallback ICE TCP directo hacia LiveKit.",
+    },
+    {
+      id: "livekit-rtc-udp",
+      destination: livekitHost ?? "livekit.tudominio.com",
+      protocol: "UDP",
+      externalPort: `${env.LIVEKIT_RTC_UDP_PORT ?? "7882"}/udp`,
+      target: "shape-livekit rtc.udp_port",
+      purpose: "Media WebRTC UDP directo hacia LiveKit.",
+    },
+    {
+      id: "turn-udp-tcp",
+      destination: turnHost,
+      protocol: "UDP/TCP",
+      externalPort: `${env.LIVEKIT_TURN_UDP_PORT ?? "3478"}/udp,tcp`,
+      target: "shape-turn listening-port",
+      purpose: "STUN/TURN principal con auth REST compartida.",
+    },
+    {
+      id: "turn-tls",
+      destination: turnHost,
+      protocol: "TLS/DTLS",
+      externalPort: `${env.LIVEKIT_TURN_TLS_PORT ?? "5349"}/tcp,udp`,
+      target: "shape-turn tls-listening-port",
+      purpose: "TURN/TLS para redes restrictivas.",
+    },
+    {
+      id: "turn-relay-udp-range",
+      destination: turnHost,
+      protocol: "UDP",
+      externalPort: `${relayStart}-${relayEnd}/udp`,
+      target: "shape-turn relay min/max ports",
+      purpose: "Puertos relay asignados por coturn para medios.",
+    },
+  ];
+}
+
+function hostnameFromUrl(value) {
+  if (!value) return null;
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
+}
+
 function readme(report) {
   const coolify = report.coolify;
+  const firewallRows = report.firewall
+    .map(
+      (entry) =>
+        `| ${entry.destination} | ${entry.externalPort} | ${entry.target} | ${entry.purpose} |`,
+    )
+    .join("\n");
   const lines = [
     "# Shape Meet Coolify Handoff",
     "",
@@ -211,6 +294,17 @@ function readme(report) {
     `- TURN UDP/TCP: ${coolify.turnUdpPort ?? "3478"}/udp,tcp`,
     `- TURN TLS/DTLS: ${coolify.turnTlsPort ?? "5349"}/tcp,udp`,
     `- TURN relay: ${coolify.turnRelayRange ?? "30000-30100/udp"}`,
+    "",
+    "## Firewall y routing",
+    "",
+    "| Destino | Puerto externo | Target interno | Uso |",
+    "| --- | --- | --- | --- |",
+    firewallRows,
+    "",
+    "Notas:",
+    "- `shape-admin` y `shape-livekit:7880` van por el proxy HTTP/TLS de Coolify.",
+    "- RTC, TURN y relay UDP/TCP deben exponerse directamente en firewall o L4; no dependen del proxy HTTP.",
+    "- Para máxima compatibilidad corporativa, publica TURN/TLS en `443/tcp` con IP dedicada o L4/SNI si el proxy HTTP ya usa 443.",
     "",
     "## Validación",
     "",
