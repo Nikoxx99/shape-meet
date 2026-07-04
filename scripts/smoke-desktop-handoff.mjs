@@ -116,7 +116,7 @@ try {
   const localOutputDir = join(tempDir, "local-handoff");
   mkdirSync(join(localBundleDir, "dmg"), { recursive: true });
   writeFileSync(
-    join(localBundleDir, "dmg", "Shape Meet_0.1.0_aarch64.dmg"),
+    join(localBundleDir, "dmg", "Shape Meet_0.1.1_aarch64.dmg"),
     "demo",
   );
   const localResult = spawnSync(

@@ -1,6 +1,6 @@
 [package]
 name = "shape-meet"
-version = "0.1.0"
+version = "0.1.1"
 description = "Shape Meet desktop client"
 authors = ["Luxora Agency"]
 edition = "2021"

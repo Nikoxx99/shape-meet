@@ -91,7 +91,7 @@ usa el mismo script sin `-DemoEffects` despues de instalar los modelos reales.
 Desde GitHub Actions:
 
 1. Abrir `Desktop Packages`.
-2. Ejecutar `Run workflow`, o crear un tag `desktop-v0.1.0`.
+2. Ejecutar `Run workflow`, o crear un tag `desktop-v0.1.1`.
 3. Descargar los artifacts `shape-meet-windows-x64`,
    `shape-meet-macos-arm64`, `shape-meet-macos-x64` y
    `shape-meet-runtime-config`.
@@ -126,7 +126,7 @@ DESKTOP_SHAPE_AI_SERVICE_URL=http://127.0.0.1:7851
 DESKTOP_SHAPE_HOST_IDENTIFIER=host@tudominio.com
 DESKTOP_SENTRY_DSN=https://...
 DESKTOP_SENTRY_ENVIRONMENT=internal-debug
-DESKTOP_SENTRY_RELEASE=shape-meet-desktop@0.1.0
+DESKTOP_SENTRY_RELEASE=shape-meet-desktop@0.1.1
 DESKTOP_SENTRY_TRACES_SAMPLE_RATE=1.0
 DESKTOP_SENTRY_DEBUG=false
 ```

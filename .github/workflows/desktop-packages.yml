@@ -45,7 +45,7 @@ on:
       sentry_release:
         description: "Sentry release name for desktop events"
         required: false
-        default: "shape-meet-desktop@0.1.0"
+        default: "shape-meet-desktop@0.1.1"
         type: string
       sentry_traces_sample_rate:
         description: "Sentry traces sample rate from 0 to 1"
@@ -124,7 +124,7 @@ jobs:
           SHAPE_RUNTIME_HOST_IDENTIFIER: ${{ github.event.inputs.host_identifier || vars.DESKTOP_SHAPE_HOST_IDENTIFIER || '' }}
           SHAPE_RUNTIME_SENTRY_DSN: ${{ github.event.inputs.sentry_dsn || vars.DESKTOP_SENTRY_DSN || secrets.DESKTOP_SENTRY_DSN || 'https://5fce4a869b7ce84b0e8e7ff1cdef7c4a@o905297.ingest.us.sentry.io/5843617' }}
           SHAPE_RUNTIME_SENTRY_ENVIRONMENT: ${{ github.event.inputs.sentry_environment || vars.DESKTOP_SENTRY_ENVIRONMENT || 'internal-debug' }}
-          SHAPE_RUNTIME_SENTRY_RELEASE: ${{ github.event.inputs.sentry_release || vars.DESKTOP_SENTRY_RELEASE || 'shape-meet-desktop@0.1.0' }}
+          SHAPE_RUNTIME_SENTRY_RELEASE: ${{ github.event.inputs.sentry_release || vars.DESKTOP_SENTRY_RELEASE || 'shape-meet-desktop@0.1.1' }}
           SHAPE_RUNTIME_SENTRY_TRACES_SAMPLE_RATE: ${{ github.event.inputs.sentry_traces_sample_rate || vars.DESKTOP_SENTRY_TRACES_SAMPLE_RATE || '1.0' }}
           SHAPE_RUNTIME_SENTRY_DEBUG: ${{ github.event.inputs.sentry_debug || vars.DESKTOP_SENTRY_DEBUG || 'false' }}
         run: |

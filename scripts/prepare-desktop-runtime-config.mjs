@@ -88,7 +88,7 @@ const config = {
     argValue("--release") ??
     env.VITE_SENTRY_RELEASE ??
     env.SENTRY_RELEASE ??
-    "shape-meet-desktop@0.1.0",
+    "shape-meet-desktop@0.1.1",
   sentryTracesSampleRate:
     argValue("--sentry-traces-sample-rate") ??
     env.VITE_SENTRY_TRACES_SAMPLE_RATE ??
