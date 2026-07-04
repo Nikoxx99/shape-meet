@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
+const json = args.has("--json");
+const outputPath = argValue("--output");
+const root = resolve(argValue("--root") ?? process.cwd());
 const liveCheck = args.has("--live") || args.has("--send-test-event");
 const strict = args.has("--strict");
 const sources = [
@@ -16,9 +20,10 @@ const mergedEnv = { ...process.env };
 const issues = [];
 const warnings = [];
 const resolvedChecks = [];
+const liveResults = [];
 
 for (const source of sources) {
-  const path = resolve(source);
+  const path = resolve(root, source);
   if (!existsSync(path)) continue;
   const parsed = parseEnvFile(path);
   envByFile.set(source, parsed);
@@ -70,7 +75,7 @@ async function main() {
 
     const parsed = validateDsn(`${check.label} (${found.key})`, found.value);
     resolvedChecks.push({ ...found, label: check.label, parsed });
-    console.log(
+    log(
       `${check.label} ok: ${maskDsn(found.value)} via ${found.source}:${found.key}`,
     );
   }
@@ -84,20 +89,34 @@ async function main() {
   }
 
   if (warnings.length > 0) {
-    console.warn("Sentry config warnings:");
-    for (const warning of warnings) console.warn(`- ${warning}`);
+    warn("Sentry config warnings:");
+    for (const warning of warnings) warn(`- ${warning}`);
   }
 
-  if (issues.length > 0 || (strict && warnings.length > 0)) {
-    console.error("Sentry config check failed:");
-    for (const issue of issues) console.error(`- ${issue}`);
+  const ok = issues.length === 0 && !(strict && warnings.length > 0);
+  const report = buildReport(ok);
+
+  if (!ok) {
+    error("Sentry config check failed:");
+    for (const issue of issues) error(`- ${issue}`);
     if (strict) {
-      for (const warning of warnings) console.error(`- ${warning}`);
+      for (const warning of warnings) error(`- ${warning}`);
     }
-    process.exit(1);
   }
 
-  console.log(liveCheck ? "Sentry config live ok" : "Sentry config ok");
+  if (outputPath) {
+    const fullPath = resolve(outputPath);
+    mkdirSync(dirname(fullPath), { recursive: true });
+    writeFileSync(fullPath, `${JSON.stringify(report, null, 2)}\n`);
+  }
+
+  if (json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else if (ok) {
+    console.log(liveCheck ? "Sentry config live ok" : "Sentry config ok");
+  }
+
+  if (!ok) process.exit(1);
 }
 
 function parseEnvFile(path) {
@@ -241,8 +260,15 @@ async function validateLiveDsns() {
   for (const item of unique.values()) {
     const label = item.labels.join(", ");
     const result = await sendSentryProbe(item.parsed);
+    liveResults.push({
+      ok: result.ok,
+      dsn: maskParsedDsn(item.parsed),
+      labels: item.labels,
+      status: result.status,
+      message: result.message,
+    });
     if (result.ok) {
-      console.log(`sentry live ok: ${maskParsedDsn(item.parsed)} (${label})`);
+      log(`sentry live ok: ${maskParsedDsn(item.parsed)} (${label})`);
       continue;
     }
     issues.push(
@@ -284,6 +310,7 @@ async function sendSentryProbe(dsn) {
     const text = await response.text();
     return {
       ok: response.ok,
+      status: response.status,
       message: response.ok
         ? "ok"
         : sentryHttpErrorMessage(response.status, text),
@@ -291,6 +318,7 @@ async function sendSentryProbe(dsn) {
   } catch (error) {
     return {
       ok: false,
+      status: null,
       message: error instanceof Error ? error.message : String(error),
     };
   } finally {
@@ -304,6 +332,50 @@ function sentryHttpErrorMessage(status, text) {
     ? "La clave pública y el project id de la DSN no pertenecen al mismo proyecto, o el proyecto no acepta ingesta para esa DSN. Copia de nuevo la DSN desde Project Settings > Client Keys en Sentry."
     : "";
   return [`HTTP ${status}: ${detail}`, hint].filter(Boolean).join(" ");
+}
+
+function buildReport(ok) {
+  return {
+    generatedAt: new Date().toISOString(),
+    ok,
+    live: liveCheck,
+    strict,
+    checks: resolvedChecks.map((check) => ({
+      label: check.label,
+      source: check.source,
+      key: check.key,
+      dsn: maskDsn(check.value),
+      parsed: check.parsed
+        ? {
+            host: check.parsed.host,
+            publicKey: maskKey(check.parsed.publicKey),
+            projectId: check.parsed.projectId,
+          }
+        : null,
+    })),
+    liveResults,
+    warnings: [...warnings],
+    issues: [...issues],
+    nextSteps: sentryNextSteps(),
+  };
+}
+
+function sentryNextSteps() {
+  if (issues.some((issue) => issue.includes("live check failed"))) {
+    return [
+      "Copia de nuevo la DSN desde Sentry Project Settings > Client Keys.",
+      'Ejecuta `pnpm sentry:configure -- --dsn "https://..." --environment internal-debug --debug true`.',
+      "Repite `pnpm check:sentry:live` antes del demo real.",
+    ];
+  }
+  if (issues.length > 0) {
+    return [
+      'Configura Sentry con `pnpm sentry:configure -- --dsn "https://..." --environment internal-debug --debug true`.',
+      "Repite `pnpm check:sentry`.",
+    ];
+  }
+  if (liveCheck) return [];
+  return ["Ejecuta `pnpm check:sentry:live` para validar ingesta real."];
 }
 
 function maskDsn(value) {
@@ -330,4 +402,24 @@ function sourceList(check) {
   return [check.source, ...(check.fallbackSources ?? []), "process.env"].join(
     ", ",
   );
+}
+
+function argValue(name) {
+  const prefix = `${name}=`;
+  const inline = rawArgs.find((arg) => arg.startsWith(prefix));
+  if (inline) return inline.slice(prefix.length);
+  const index = rawArgs.indexOf(name);
+  return index >= 0 ? (rawArgs[index + 1] ?? null) : null;
+}
+
+function log(message) {
+  if (!json) console.log(message);
+}
+
+function warn(message) {
+  if (!json) console.warn(message);
+}
+
+function error(message) {
+  if (!json) console.error(message);
 }

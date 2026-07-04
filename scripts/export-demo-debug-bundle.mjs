@@ -206,13 +206,15 @@ function inspectGit() {
 }
 
 function inspectSentry() {
-  const result = runPnpm(["check:sentry"]);
+  const result = runPnpm(["check:sentry", "--", "--json"]);
+  const parsed = parseJson(result.stdout);
 
   return {
-    ok: result.status === 0,
+    ok: result.status === 0 && parsed?.ok === true,
     command: result.command,
     status: result.status,
-    stdout: result.stdout.trim(),
+    report: parsed,
+    stdoutPreview: parsed ? undefined : result.stdout.slice(0, 2000),
     stderr: result.stderr.trim(),
   };
 }

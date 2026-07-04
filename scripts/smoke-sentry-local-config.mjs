@@ -69,6 +69,24 @@ try {
     "VITE_SENTRY_DEBUG=true",
   );
 
+  const sentryJson = execFileSync(
+    process.execPath,
+    [resolve("scripts/check-sentry-config.mjs"), "--json", "--root", tempDir],
+    {
+      encoding: "utf8",
+    },
+  );
+  const sentryReport = JSON.parse(sentryJson);
+  assert(sentryReport.ok === true, "sentry JSON check did not pass");
+  assert(
+    sentryReport.checks.length >= 5,
+    "sentry JSON check did not include all surfaces",
+  );
+  assert(
+    !sentryJson.includes("https://publickey@example.ingest.us.sentry.io/123"),
+    "sentry JSON leaked raw DSN",
+  );
+
   console.log("sentry local config smoke ok");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
@@ -89,4 +107,8 @@ function assertFileIncludes(file, expected) {
   if (!content.includes(expected)) {
     throw new Error(`expected ${file} to include ${expected}`);
   }
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
 }
