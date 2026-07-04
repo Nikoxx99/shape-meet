@@ -181,6 +181,20 @@ modelos pesados; usa `--env-file` para revisar un runtime concreto.
 `pnpm models:bootstrap` envuelve esa preparación: puede crear carpetas con
 `--init-dirs`, clonar los repos con `--clone`, validar GPU/rutas/checkpoints y
 escribir el runtime final con `--write-runtime`.
+Después del bootstrap, `pnpm models:preflight` arranca un sidecar temporal con
+ese runtime y ejecuta frame/audio contra los procesadores configurados:
+
+```bash
+pnpm models:preflight -- \
+  --identity C:\models\identities\host.jpg \
+  --frame C:\models\samples\frame.jpg \
+  --clean-plate C:\models\samples\clean-plate.jpg \
+  --audio C:\models\samples\audio.f32le \
+  --strict
+```
+
+El reporte muestra estado, procesador, latencia y warnings por check. Si no
+pasas assets, usa muestras mínimas internas para validar contrato/passthrough.
 
 El adaptador escribe archivos temporales y ejecuta el comando sin shell. Tambien
 inyecta variables como `SHAPE_FRAME_INPUT_PATH`, `SHAPE_FRAME_OUTPUT_PATH`,

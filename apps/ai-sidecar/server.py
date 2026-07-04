@@ -579,7 +579,7 @@ def session_payload(session):
         else:
             status = "running" if is_enabled else "standby"
             detail = "Activo en sesión local." if is_enabled else pipeline["detail"]
-            latency_ms = session.get("lastFrameLatencyMs") if is_enabled and session.get("frameBridgeActive") else pipeline.get("latencyMs")
+            latency_ms = pipeline_latency_ms(session, pipeline_id, is_enabled, pipeline)
 
         pipelines.append(
             {
@@ -608,6 +608,19 @@ def session_payload(session):
         "warnings": session.get("warnings", []),
         "adapterError": session.get("lastAdapterError"),
     }
+
+
+def pipeline_latency_ms(session, pipeline_id, is_enabled, pipeline):
+    if not is_enabled:
+        return pipeline.get("latencyMs")
+
+    if pipeline_id == "voice" and session.get("audioBridgeActive"):
+        return session.get("lastAudioLatencyMs")
+
+    if session.get("frameBridgeActive"):
+        return session.get("lastFrameLatencyMs")
+
+    return pipeline.get("latencyMs")
 
 
 def tick_session(session):

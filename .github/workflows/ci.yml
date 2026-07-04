@@ -75,6 +75,9 @@ jobs:
       - name: Smoke AI model workstation bootstrap
         run: pnpm smoke:ai-model-bootstrap
 
+      - name: Smoke AI model runtime preflight
+        run: pnpm smoke:ai-model-preflight
+
       - name: Smoke desktop runtime config
         run: pnpm smoke:desktop-config
 

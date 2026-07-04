@@ -189,6 +189,22 @@ Puedes agregar `--init-dirs --clone` para crear el workspace y clonar
 FaceFusion/BackgroundMattingV2. Las dependencias Python, checkpoints y modelos
 licenciados se instalan manualmente según la estación.
 
+`pnpm models:preflight` levanta un sidecar temporal con el runtime generado y
+ejecuta una prueba real de frame/audio antes de abrir la app:
+
+```bash
+pnpm models:preflight -- \
+  --identity C:\models\identities\host.jpg \
+  --frame C:\models\samples\frame.jpg \
+  --clean-plate C:\models\samples\clean-plate.jpg \
+  --audio C:\models\samples\audio.f32le \
+  --strict
+```
+
+Si no pasas assets, usa muestras mínimas internas; eso sirve para validar
+contrato/passthrough, pero la prueba real de calidad debe usar una foto de
+identidad, frame y clean plate de la cámara del demo.
+
 `pnpm models:doctor` revisa el runtime de modelos sin cargar pesos pesados:
 archivo `shape-ai-runtime.env`, comandos de procesador, placeholders requeridos,
 paths de FaceFusion/BackgroundMattingV2/vcclient000 y hardware NVIDIA/Apple
@@ -525,6 +541,9 @@ Ese perfil asume `C:\models\FaceFusion`,
 `C:\models\BackgroundMattingV2\pytorch_resnet50.pth` y VCClient REST en
 `http://127.0.0.1:18888/test`. Puedes sobreescribir cualquier ruta con las
 banderas `--facefusion-*`, `--bmv2-*` o `--vcclient000-*`.
+Después de escribir el runtime, ejecuta `pnpm models:preflight` con assets reales
+de esa máquina para confirmar procesador, latencia y warnings antes de iniciar
+la llamada.
 
 También puedes usar `--vcclient000-command` si prefieres invocar vcclient000 por
 CLI. El archivo resultante `shape-ai-runtime.env` queda en la ruta local de la
