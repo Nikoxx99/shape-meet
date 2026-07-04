@@ -118,6 +118,24 @@ El archivo generado contiene secretos reales y queda ignorado por git bajo
 imprime la contraseña bootstrap una sola vez; úsala para el primer login,
 crea los usuarios reales y luego vuelve a desplegar con `RUN_SEED=false`.
 
+Para generar un paquete operacional con compose, manifest y README de despliegue:
+
+```bash
+pnpm coolify:handoff -- \
+  --admin-domain admin.tudominio.com \
+  --meeting-domain meet.tudominio.com \
+  --livekit-domain livekit.tudominio.com \
+  --turn-domain turn.tudominio.com \
+  --public-ip IP_PUBLICA_DEL_SERVIDOR \
+  --bootstrap-email admin@tudominio.com \
+  --sentry-dsn "https://..." \
+  --strict
+```
+
+El paquete queda en `output/coolify-handoff/...`, copia
+`infra/docker-compose.coolify.yml`, genera `shape-meet.coolify.env`, valida con
+`pnpm check:coolify --strict` y deja `bootstrap-password.txt` fuera de Git.
+
 Para el primer deploy contra una base vacía, usa `RUN_SEED=true` una sola vez.
 Eso crea el admin bootstrap con `HOST_BOOTSTRAP_EMAIL` y
 `HOST_BOOTSTRAP_PASSWORD`; después vuelve a `RUN_SEED=false`.
