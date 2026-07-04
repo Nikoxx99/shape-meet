@@ -82,6 +82,21 @@ try {
   if (report.profile !== "windows-nvidia") {
     throw new Error("models doctor JSON did not include requested profile");
   }
+  if (!report.realModelReadiness) {
+    throw new Error("models doctor JSON did not include realModelReadiness");
+  }
+  if (report.realModelReadiness.ready !== false) {
+    throw new Error("missing runtime env should not be real model ready");
+  }
+  if (
+    !report.realModelReadiness.stages?.some((stage) => stage.id === "face") ||
+    !report.realModelReadiness.stages?.some(
+      (stage) => stage.id === "background",
+    ) ||
+    !report.realModelReadiness.stages?.some((stage) => stage.id === "voice")
+  ) {
+    throw new Error("models doctor JSON did not include model stage readiness");
+  }
   if (
     !report.nextSteps?.some((step) =>
       step.includes("pnpm models:runtime -- --profile windows-nvidia"),

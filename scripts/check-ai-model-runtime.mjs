@@ -10,6 +10,7 @@ const args = process.argv.slice(2);
 const strict = args.includes("--strict");
 const json = args.includes("--json");
 const skipHardware = args.includes("--skip-hardware");
+const skipWrapperSmoke = args.includes("--skip-wrapper-smoke");
 const envFile =
   argValue("--env-file") ??
   process.env.SHAPE_AI_RUNTIME_ENV_FILE ??
@@ -46,17 +47,34 @@ function main() {
 }
 
 function checkBaseFiles() {
-  for (const path of [
+  const wrapperPaths = [
     "apps/ai-sidecar/server.py",
     "apps/ai-sidecar/processors/shape_processor_command.py",
     "apps/ai-sidecar/wrappers/facefusion_frame.py",
     "apps/ai-sidecar/wrappers/backgroundmattingv2_frame.py",
     "apps/ai-sidecar/wrappers/vcclient000_chunk.py",
-  ]) {
+  ];
+
+  for (const path of wrapperPaths) {
     if (!existsSync(join(repoRoot, path))) issue(`Falta ${path}.`);
   }
 
   ok("contrato local de sidecar y wrappers presentes");
+
+  if (!skipWrapperSmoke) {
+    checkWrapperCliSmoke(
+      "FaceFusion wrapper",
+      "apps/ai-sidecar/wrappers/facefusion_frame.py",
+    );
+    checkWrapperCliSmoke(
+      "BackgroundMattingV2 wrapper",
+      "apps/ai-sidecar/wrappers/backgroundmattingv2_frame.py",
+    );
+    checkWrapperCliSmoke(
+      "vcclient000 wrapper",
+      "apps/ai-sidecar/wrappers/vcclient000_chunk.py",
+    );
+  }
 }
 
 function checkRuntimeEnv() {
@@ -449,20 +467,26 @@ function checkModelCommand(command, label, placeholders) {
 }
 
 function checkCommandExecutable(command, label) {
-  const executable = commandExecutable(command);
-  if (!executable) {
-    issue(`${label} no tiene ejecutable detectable.`);
+  const result = commandExecutableStatus(command);
+  if (!result.ok) {
+    issue(`${label} ${result.message}`);
     return;
   }
+
+  ok(`${label} ${result.message}`);
+}
+
+function commandExecutableStatus(command) {
+  const executable = commandExecutable(command);
+  if (!executable)
+    return { ok: false, message: "no tiene ejecutable detectable." };
 
   if (isPathLike(executable)) {
     const resolved = resolvePath(executable);
     if (!existsSync(resolved)) {
-      issue(`${label} ejecutable no existe: ${resolved}`);
-      return;
+      return { ok: false, message: `ejecutable no existe: ${resolved}` };
     }
-    ok(`${label} ejecutable disponible: ${resolved}`);
-    return;
+    return { ok: true, message: `ejecutable disponible: ${resolved}` };
   }
 
   const result = spawnSync(executable, ["--version"], {
@@ -471,11 +495,36 @@ function checkCommandExecutable(command, label) {
     shell: process.platform === "win32" && /\.cmd$/i.test(executable),
   });
   if (result.status !== 0 && !which(executable)) {
-    issue(`${label} ejecutable no disponible en PATH: ${executable}`);
+    return {
+      ok: false,
+      message: `ejecutable no disponible en PATH: ${executable}`,
+    };
+  }
+
+  return { ok: true, message: `ejecutable disponible: ${executable}` };
+}
+
+function checkWrapperCliSmoke(label, wrapperPath) {
+  const fullPath = join(repoRoot, wrapperPath);
+  if (!existsSync(fullPath)) return;
+
+  const result = spawnSync(defaultPython(), [fullPath, "--help"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+
+  if (result.status === 0 && result.stdout.includes("usage:")) {
+    ok(`${label} CLI carga correctamente`);
     return;
   }
 
-  ok(`${label} ejecutable disponible: ${executable}`);
+  const detail = [result.stderr, result.stdout]
+    .filter(Boolean)
+    .join("\n")
+    .trim()
+    .slice(0, 400);
+  issue(`${label} CLI no carga con ${defaultPython()} --help: ${detail}`);
 }
 
 function commandExecutable(command) {
@@ -643,6 +692,8 @@ function nextStep(message) {
 }
 
 function printReport() {
+  const realModelReadiness = buildRealModelReadiness();
+
   if (json) {
     console.log(
       JSON.stringify(
@@ -650,6 +701,7 @@ function printReport() {
           ok: issues.length === 0 && (!strict || warnings.length === 0),
           envFile,
           profile: workstationProfile,
+          realModelReadiness,
           checks,
           warnings,
           issues,
@@ -665,6 +717,15 @@ function printReport() {
   console.log("AI model doctor");
   console.log(`Runtime env: ${envFile}`);
   console.log(`Perfil: ${workstationProfile}`);
+  console.log(
+    `Modelos reales: ${realModelReadiness.ready ? "listos" : realModelReadiness.passthroughEnabled ? "passthrough" : "pendientes"}`,
+  );
+  for (const stage of realModelReadiness.stages) {
+    console.log(`- ${stage.label}: ${stage.status}`);
+    for (const currentIssue of stage.issues)
+      console.log(`  error: ${currentIssue}`);
+    for (const warning of stage.warnings) console.log(`  warn: ${warning}`);
+  }
   for (const check of checks) console.log(`ok: ${check}`);
   for (const warning of warnings) console.warn(`warn: ${warning}`);
   for (const currentIssue of issues) console.error(`error: ${currentIssue}`);
@@ -672,6 +733,315 @@ function printReport() {
 
   if (issues.length === 0 && (!strict || warnings.length === 0)) {
     console.log("AI model doctor ok");
+  }
+}
+
+function buildRealModelReadiness() {
+  const passthroughEnabled = wrapperPassthroughEnabled();
+  const stages = [
+    buildProcessorReadiness("video"),
+    buildFaceReadiness(),
+    buildBackgroundReadiness(),
+    buildProcessorReadiness("audio"),
+    buildVoiceReadiness(),
+  ];
+  const ready =
+    !passthroughEnabled &&
+    stages.every(
+      (stage) => stage.status === "ready" || stage.status === "optional",
+    );
+
+  return {
+    ready,
+    passthroughEnabled,
+    profile: workstationProfile,
+    envFile,
+    stages,
+    blockers: stages.flatMap((stage) =>
+      stage.issues.map((message) => `${stage.label}: ${message}`),
+    ),
+    warnings: stages.flatMap((stage) =>
+      stage.warnings.map((message) => `${stage.label}: ${message}`),
+    ),
+  };
+}
+
+function buildProcessorReadiness(kind) {
+  const prefix = kind === "video" ? "SHAPE_VIDEO" : "SHAPE_AUDIO";
+  const label = kind === "video" ? "Procesador video" : "Procesador audio";
+  const issues = [];
+  const warnings = [];
+  const command = env[`${prefix}_PROCESSOR_COMMAND`];
+  const endpoint = env[`${prefix}_PROCESSOR_ENDPOINT`];
+  const healthUrl = env[`${prefix}_PROCESSOR_HEALTH_URL`];
+
+  if (!command) {
+    issues.push(`${prefix}_PROCESSOR_COMMAND no configurado.`);
+  } else {
+    pushExecutableIssue(issues, command, `${prefix}_PROCESSOR_COMMAND`);
+  }
+  if (!endpoint || !validHttpUrl(endpoint)) {
+    issues.push(`${prefix}_PROCESSOR_ENDPOINT no configurado o inválido.`);
+  }
+  if (!healthUrl || !validHttpUrl(healthUrl)) {
+    warnings.push(`${prefix}_PROCESSOR_HEALTH_URL no configurado o inválido.`);
+  }
+
+  return readinessStage(
+    kind === "video" ? "video-processor" : "audio-processor",
+    label,
+    issues,
+    warnings,
+    { allowPassthrough: false },
+  );
+}
+
+function buildFaceReadiness() {
+  const issues = [];
+  const warnings = [];
+  const command = env.SHAPE_VIDEO_FRAME_COMMAND ?? env.SHAPE_FACE_COMMAND;
+
+  if (!command) {
+    issues.push("Falta SHAPE_FACE_COMMAND o SHAPE_VIDEO_FRAME_COMMAND.");
+    return readinessStage("face", "Face swap", issues, warnings);
+  }
+
+  requireCommandPlaceholder(command, "input", "comando de face swap", issues);
+  requireCommandPlaceholder(command, "output", "comando de face swap", issues);
+  requireCommandPlaceholder(
+    command,
+    "identity",
+    "comando de face swap",
+    issues,
+  );
+  pushExecutableIssue(issues, command, "comando de face swap");
+
+  if (command.includes("facefusion_frame.py")) {
+    appendFaceFusionReadiness(issues, warnings);
+  }
+
+  return readinessStage("face", "Face swap", issues, warnings);
+}
+
+function buildBackgroundReadiness() {
+  const issues = [];
+  const warnings = [];
+  const command = env.SHAPE_VIDEO_FRAME_COMMAND ?? env.SHAPE_BACKGROUND_COMMAND;
+
+  if (!command) {
+    issues.push("Falta SHAPE_BACKGROUND_COMMAND o SHAPE_VIDEO_FRAME_COMMAND.");
+    return readinessStage("background", "Background matting", issues, warnings);
+  }
+
+  requireCommandPlaceholder(command, "input", "comando de background", issues);
+  requireCommandPlaceholder(command, "output", "comando de background", issues);
+  requireCommandPlaceholder(
+    command,
+    "clean_plate",
+    "comando de background",
+    issues,
+  );
+  pushExecutableIssue(issues, command, "comando de background");
+
+  if (command.includes("backgroundmattingv2_frame.py")) {
+    appendBackgroundReadiness(issues, warnings);
+  }
+
+  return readinessStage("background", "Background matting", issues, warnings);
+}
+
+function buildVoiceReadiness() {
+  const issues = [];
+  const warnings = [];
+  const command = env.SHAPE_AUDIO_CHUNK_COMMAND ?? env.SHAPE_VOICE_COMMAND;
+
+  if (!command) {
+    issues.push("Falta SHAPE_VOICE_COMMAND o SHAPE_AUDIO_CHUNK_COMMAND.");
+    return readinessStage("voice", "Cambio de voz", issues, warnings);
+  }
+
+  requireCommandPlaceholder(command, "input", "comando de voz", issues);
+  requireCommandPlaceholder(command, "output", "comando de voz", issues);
+  requireCommandPlaceholder(command, "sample_rate", "comando de voz", issues);
+  pushExecutableIssue(issues, command, "comando de voz");
+
+  if (command.includes("vcclient000_chunk.py")) {
+    appendVcClientReadiness(issues, warnings);
+  }
+
+  return readinessStage("voice", "Cambio de voz", issues, warnings);
+}
+
+function appendFaceFusionReadiness(issues, warnings) {
+  if (env.FACEFUSION_COMMAND_TEMPLATE) {
+    requireCommandPlaceholder(
+      env.FACEFUSION_COMMAND_TEMPLATE,
+      "identity",
+      "FACEFUSION_COMMAND_TEMPLATE",
+      issues,
+    );
+    pushExecutableIssue(
+      issues,
+      env.FACEFUSION_COMMAND_TEMPLATE,
+      "FACEFUSION_COMMAND_TEMPLATE",
+    );
+    return;
+  }
+
+  const facefusionDir = pathValue("FACEFUSION_DIR");
+  const entrypoint = pathValue("FACEFUSION_ENTRYPOINT") ?? "facefusion.py";
+  const resolvedEntrypoint =
+    facefusionDir && !isAbsolutePath(entrypoint)
+      ? join(facefusionDir, entrypoint)
+      : entrypoint;
+
+  if (!facefusionDir || !existsSync(facefusionDir)) {
+    issues.push(
+      `FACEFUSION_DIR no existe: ${facefusionDir ?? "sin configurar"}.`,
+    );
+  }
+  if (!existsSync(resolvedEntrypoint)) {
+    issues.push(`FaceFusion entrypoint no existe: ${resolvedEntrypoint}.`);
+  }
+  pushExecutableIssue(
+    issues,
+    env.FACEFUSION_PYTHON ?? defaultPython(),
+    "FACEFUSION_PYTHON",
+  );
+  if (
+    (env.FACEFUSION_EXECUTION_PROVIDERS ?? "cuda").includes("cuda") &&
+    !nvidiaAvailable &&
+    !skipHardware
+  ) {
+    warnings.push(
+      "FACEFUSION_EXECUTION_PROVIDERS usa cuda sin nvidia-smi detectable.",
+    );
+  }
+}
+
+function appendBackgroundReadiness(issues, warnings) {
+  if (env.BMV2_COMMAND_TEMPLATE) {
+    requireCommandPlaceholder(
+      env.BMV2_COMMAND_TEMPLATE,
+      "clean_plate",
+      "BMV2_COMMAND_TEMPLATE",
+      issues,
+    );
+    pushExecutableIssue(
+      issues,
+      env.BMV2_COMMAND_TEMPLATE,
+      "BMV2_COMMAND_TEMPLATE",
+    );
+    return;
+  }
+
+  const repoDir = pathValue("BMV2_REPO_DIR");
+  const checkpoint = pathValue("BMV2_MODEL_CHECKPOINT");
+
+  if (!repoDir || !existsSync(join(repoDir, "inference_images.py"))) {
+    issues.push(
+      `BMV2_REPO_DIR no contiene inference_images.py: ${repoDir ?? "sin configurar"}.`,
+    );
+  }
+  if (
+    !checkpoint ||
+    !existsSync(checkpoint) ||
+    statSync(checkpoint).size <= 0
+  ) {
+    issues.push(
+      `BMV2_MODEL_CHECKPOINT no existe o está vacío: ${checkpoint ?? "sin configurar"}.`,
+    );
+  }
+  pushExecutableIssue(
+    issues,
+    env.BMV2_PYTHON ?? defaultPython(),
+    "BMV2_PYTHON",
+  );
+  if (
+    (env.BMV2_DEVICE ?? "cuda") === "cuda" &&
+    !nvidiaAvailable &&
+    !skipHardware
+  ) {
+    warnings.push("BMV2_DEVICE=cuda sin nvidia-smi detectable.");
+  }
+}
+
+function appendVcClientReadiness(issues, warnings) {
+  const commandTemplate = env.VCCLIENT000_CHUNK_COMMAND;
+  const endpoint = env.VCCLIENT000_HTTP_ENDPOINT;
+  const httpMode = normalizeVcClientHttpMode(env.VCCLIENT000_HTTP_MODE);
+
+  if (commandTemplate) {
+    requireCommandPlaceholder(
+      commandTemplate,
+      "sample_rate",
+      "VCCLIENT000_CHUNK_COMMAND",
+      issues,
+    );
+    pushExecutableIssue(issues, commandTemplate, "VCCLIENT000_CHUNK_COMMAND");
+    return;
+  }
+
+  if (!endpoint || !validHttpUrl(endpoint)) {
+    issues.push("VCCLIENT000_HTTP_ENDPOINT no configurado o inválido.");
+    return;
+  }
+
+  if (!["auto", "w-okada-rest", "shape-json"].includes(httpMode)) {
+    issues.push(`VCCLIENT000_HTTP_MODE no soportado: ${httpMode}.`);
+  }
+
+  let parsed = null;
+  try {
+    parsed = new URL(endpoint);
+  } catch {
+    parsed = null;
+  }
+  const path = parsed?.pathname.replace(/\/+$/, "") ?? "";
+  if (httpMode === "w-okada-rest" && path && path !== "/test") {
+    warnings.push("vcclient000 w-okada-rest normalmente debe apuntar a /test.");
+  }
+}
+
+function readinessStage(id, label, issues, warnings, options = {}) {
+  const allowPassthrough = options.allowPassthrough ?? true;
+  const status =
+    allowPassthrough && wrapperPassthroughEnabled()
+      ? issues.length > 0
+        ? "passthrough"
+        : "ready"
+      : issues.length > 0
+        ? "blocked"
+        : warnings.length > 0
+          ? "warning"
+          : "ready";
+  return {
+    id,
+    label,
+    status,
+    configured: issues.length === 0,
+    issues: [...new Set(issues)],
+    warnings: [...new Set(warnings)],
+  };
+}
+
+function requireCommandPlaceholder(command, placeholder, label, target) {
+  if (!command.includes(`{${placeholder}}`)) {
+    target.push(`${label} debe incluir {${placeholder}}.`);
+  }
+}
+
+function pushExecutableIssue(target, command, label) {
+  const result = commandExecutableStatus(command);
+  if (!result.ok) target.push(`${label} ${result.message}`);
+}
+
+function validHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol);
+  } catch {
+    return false;
   }
 }
 
