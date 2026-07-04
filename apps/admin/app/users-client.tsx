@@ -1471,10 +1471,11 @@ function IdentitiesSection({
                     identity.status !== "AVAILABLE" ||
                     !hasPublishableArtifact(identity)
                   }
+                  aria-label="Publicar identidad para host"
                   title={artifactIntegrityLabel(identity)}
                   onClick={() => onDeliveryChange(identity, "push")}
                 >
-                  Push
+                  Publicar
                 </button>
               )}
             </div>

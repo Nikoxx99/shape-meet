@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shape Meet - Guia de usuario final</title>
+    <style>
+      :root {
+        --bg: #f7f8fb;
+        --ink: #111827;
+        --muted: #5b6472;
+        --line: #d7deea;
+        --panel: #ffffff;
+        --navy: #172033;
+        --blue: #175cd3;
+        --green: #067647;
+        --amber: #b54708;
+        --red: #b42318;
+        --violet: #6938ef;
+        --soft-blue: #eaf2ff;
+        --soft-green: #e8f7ef;
+        --soft-amber: #fff2d6;
+        --soft-red: #fff0ef;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          15px/1.55 Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      header {
+        background:
+          linear-gradient(rgba(14, 22, 38, 0.78), rgba(14, 22, 38, 0.78)),
+          radial-gradient(circle at 20% 20%, #24406c, transparent 34%),
+          linear-gradient(135deg, #0f172a, #21324d 54%, #1f2937);
+        color: #fff;
+        min-height: 58vh;
+        padding: 42px 28px 34px;
+        display: grid;
+        align-items: end;
+      }
+
+      .hero {
+        max-width: 1120px;
+        margin: 0 auto;
+        width: 100%;
+      }
+
+      .eyebrow {
+        color: #a7f3d0;
+        font-size: 13px;
+        font-weight: 760;
+        margin: 0 0 14px;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.15;
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(34px, 6vw, 76px);
+        max-width: 860px;
+      }
+
+      .subtitle {
+        color: #d6e0ee;
+        font-size: 18px;
+        max-width: 820px;
+        margin: 18px 0 0;
+      }
+
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 28px 22px 70px;
+      }
+
+      nav {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: -56px auto 30px;
+        padding: 12px;
+        position: relative;
+      }
+
+      nav a {
+        color: var(--navy);
+        font-size: 14px;
+        font-weight: 700;
+        padding: 8px 10px;
+        text-decoration: none;
+      }
+
+      section {
+        margin: 36px 0;
+      }
+
+      h2 {
+        border-bottom: 1px solid var(--line);
+        font-size: 27px;
+        padding-bottom: 10px;
+      }
+
+      h3 {
+        font-size: 18px;
+        margin: 20px 0 8px;
+      }
+
+      p {
+        margin: 9px 0 13px;
+      }
+
+      .lead {
+        color: var(--muted);
+        font-size: 17px;
+        max-width: 880px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        margin-top: 16px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 18px;
+      }
+
+      .panel h3 {
+        margin-top: 0;
+      }
+
+      .tag {
+        border-radius: 999px;
+        display: inline-flex;
+        font-size: 12px;
+        font-weight: 780;
+        padding: 5px 9px;
+        text-transform: uppercase;
+      }
+
+      .tag.blue {
+        background: var(--soft-blue);
+        color: var(--blue);
+      }
+
+      .tag.green {
+        background: var(--soft-green);
+        color: var(--green);
+      }
+
+      .tag.amber {
+        background: var(--soft-amber);
+        color: var(--amber);
+      }
+
+      .tag.red {
+        background: var(--soft-red);
+        color: var(--red);
+      }
+
+      .flow {
+        counter-reset: step;
+        display: grid;
+        gap: 12px;
+        margin: 16px 0 0;
+      }
+
+      .flow article {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        min-height: 82px;
+        padding: 15px 16px 15px 58px;
+        position: relative;
+      }
+
+      .flow article::before {
+        background: var(--navy);
+        border-radius: 999px;
+        color: #fff;
+        content: counter(step);
+        counter-increment: step;
+        font-weight: 800;
+        height: 28px;
+        left: 17px;
+        line-height: 28px;
+        position: absolute;
+        text-align: center;
+        top: 18px;
+        width: 28px;
+      }
+
+      table {
+        border-collapse: collapse;
+        margin: 16px 0;
+        width: 100%;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 10px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: #344054;
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      code {
+        background: #101828;
+        border-radius: 6px;
+        color: #f8fafc;
+        font:
+          13px/1.5 "SFMono-Regular",
+          Consolas,
+          monospace;
+        padding: 2px 5px;
+      }
+
+      ul {
+        margin: 8px 0 12px 22px;
+        padding: 0;
+      }
+
+      li {
+        margin: 6px 0;
+      }
+
+      .callout {
+        background: #eef4ff;
+        border: 1px solid #b2ccff;
+        border-radius: 8px;
+        padding: 15px 17px;
+      }
+
+      .warning {
+        background: #fff7e6;
+        border-color: #f7cf86;
+      }
+
+      .danger {
+        background: #fff1f0;
+        border-color: #fecdca;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      footer {
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+        margin-top: 42px;
+        padding-top: 18px;
+      }
+
+      @media (max-width: 720px) {
+        header {
+          min-height: 62vh;
+          padding: 30px 18px 28px;
+        }
+
+        main {
+          padding-inline: 16px;
+        }
+
+        nav {
+          margin-top: -38px;
+        }
+
+        th,
+        td {
+          display: block;
+          padding: 8px 0;
+        }
+
+        th {
+          border-bottom: 0;
+          padding-top: 14px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="hero">
+        <p class="eyebrow">Guia de usuario final</p>
+        <h1>Shape Meet</h1>
+        <p class="subtitle">
+          Flujo esperado para operar una reunion con identidad local: el admin
+          asigna modelos, la app desktop los descarga y valida, el host activa
+          rostro, voz y fondo, y los invitados entran por enlace web.
+        </p>
+      </div>
+    </header>
+
+    <main>
+      <nav aria-label="Contenido">
+        <a href="#resumen">Resumen</a>
+        <a href="#roles">Roles</a>
+        <a href="#modelos">Modelos</a>
+        <a href="#admin">Admin</a>
+        <a href="#host">Host</a>
+        <a href="#invitado">Invitado</a>
+        <a href="#soporte">Soporte</a>
+      </nav>
+
+      <section id="resumen">
+        <h2>Resumen del producto</h2>
+        <p class="lead">
+          Shape Meet es una app de videollamadas propia. El host autorizado usa
+          una app Tauri en su PC, procesa rostro, voz y fondo localmente, crea
+          una reunion y comparte un enlace. Los invitados entran desde navegador
+          movil o desktop sin instalar la app.
+        </p>
+
+        <div class="grid">
+          <div class="panel">
+            <span class="tag green">Admin</span>
+            <h3>Prepara identidades</h3>
+            <p class="muted">
+              Crea usuarios, promueve hosts, sube o registra paquetes de
+              identidad y asigna versiones a cada host.
+            </p>
+          </div>
+          <div class="panel">
+            <span class="tag blue">Desktop</span>
+            <h3>Procesa localmente</h3>
+            <p class="muted">
+              Descarga solo modelos autorizados, valida checksum y publica
+              tracks procesados por LiveKit.
+            </p>
+          </div>
+          <div class="panel">
+            <span class="tag amber">Invitado</span>
+            <h3>Entra por link</h3>
+            <p class="muted">
+              Abre la sala publica, espera admision si aplica y recibe audio y
+              video ya procesados.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="roles">
+        <h2>Roles y permisos</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Rol</th>
+              <th>Puede hacer</th>
+              <th>No deberia hacer</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Administrador</strong></td>
+              <td>
+                Crear usuarios, asignar rango HOST, publicar identidades,
+                revocar paquetes y revisar auditoria.
+              </td>
+              <td>Compartir secretos, tokens de storage o credenciales.</td>
+            </tr>
+            <tr>
+              <td><strong>Host</strong></td>
+              <td>
+                Iniciar sesion desktop, descargar identidades asignadas, probar
+                camara/microfono, crear reuniones y admitir invitados.
+              </td>
+              <td>Subir modelos arbitrarios desde la app final.</td>
+            </tr>
+            <tr>
+              <td><strong>Invitado</strong></td>
+              <td>
+                Entrar por navegador, activar camara/microfono y participar en
+                la sala.
+              </td>
+              <td>Instalar runtime IA o descargar modelos.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="modelos">
+        <h2>Como se manejan los modelos</h2>
+        <p class="lead">
+          La app no debe buscar modelos libremente. El admin asigna una version
+          concreta a un host y Tauri descarga exactamente ese paquete, valida
+          SHA-256/tamano y lo activa localmente.
+        </p>
+
+        <div class="callout">
+          <strong>Confirmacion clave.</strong> Los modelos entrenados para
+          vcclient suelen venir como <code>.pth</code> y <code>.index</code>.
+          Esos archivos son de voz. El cambiador de rostro normalmente no espera
+          esos archivos; espera una foto fuente o un paquete facial especifico
+          del motor elegido. BackgroundMattingV2 usa un checkpoint
+          <code>.pth</code> base y una captura local de fondo limpio.
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Modulo</th>
+              <th>Archivos esperados</th>
+              <th>Quien los recibe</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Voz</td>
+              <td><code>model.pth</code>, <code>model.index</code>, config</td>
+              <td>vcclient000 / w-okada / RVC</td>
+            </tr>
+            <tr>
+              <td>Rostro rapido</td>
+              <td>Foto fuente <code>.jpg</code> o <code>.png</code></td>
+              <td>FaceFusion o motor compatible</td>
+            </tr>
+            <tr>
+              <td>Rostro entrenado</td>
+              <td>Formato propio del motor facial final</td>
+              <td>DFM/otro motor, si se aprueba licencia</td>
+            </tr>
+            <tr>
+              <td>Fondo</td>
+              <td>Checkpoint BMV2, clean plate, assets de fondo</td>
+              <td>Runtime local de fondo</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Repositorio de paquetes</h3>
+        <p>
+          Para piloto se puede usar un repositorio de GitHub Releases con assets
+          versionados. El admin debe guardar URL, version, tamano, SHA-256 y
+          host asignado. Si el repositorio es privado, el backend debe mediar la
+          descarga; la app no debe llevar tokens GitHub embebidos.
+        </p>
+        <p>
+          La actualizacion de la app Tauri y la descarga de modelos son canales
+          distintos. Tauri updater sirve para actualizar la app firmada; los
+          modelos deben tener manifest, cache, validacion y revocacion propios.
+        </p>
+      </section>
+
+      <section id="admin">
+        <h2>Flujo del administrador</h2>
+        <div class="flow">
+          <article>
+            <h3>Crear o revisar usuario</h3>
+            <p>
+              El administrador crea el usuario con correo, rango y estado. Solo
+              usuarios con rango HOST pueden operar la app desktop como host.
+            </p>
+          </article>
+          <article>
+            <h3>Preparar identidad</h3>
+            <p>
+              Se crea una identidad con nombre, version y tipo. Puede ser foto
+              facial, identidad entrenada o paquete abierto, segun el motor.
+            </p>
+          </article>
+          <article>
+            <h3>Subir o registrar paquete</h3>
+            <p>
+              El admin sube el artefacto al storage o registra la URL del
+              release asset. El sistema guarda hash, tamano y version.
+            </p>
+          </article>
+          <article>
+            <h3>Publicar para el host</h3>
+            <p>
+              La identidad pasa a disponible y queda asignada al host. Desde ese
+              momento la desktop puede verla y descargarla.
+            </p>
+          </article>
+          <article>
+            <h3>Revocar si hace falta</h3>
+            <p>
+              Al revocar, la identidad desaparece del host y la desktop debe
+              retirar la cache local en el siguiente refresh.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="host">
+        <h2>Flujo del host en desktop</h2>
+        <div class="flow">
+          <article>
+            <h3>Iniciar sesion</h3>
+            <p>
+              El host abre la app Shape Meet, entra con su usuario autorizado y
+              confirma que la app apunta al entorno correcto.
+            </p>
+          </article>
+          <article>
+            <h3>Elegir identidad</h3>
+            <p>
+              La app lista identidades asignadas. Si una identidad no esta en
+              cache, muestra descarga requerida antes de activarla.
+            </p>
+          </article>
+          <article>
+            <h3>Descargar y validar</h3>
+            <p>
+              Tauri descarga el paquete autorizado, valida SHA-256 y tamano, y
+              guarda el package en la cache local del equipo.
+            </p>
+          </article>
+          <article>
+            <h3>Preparar equipo</h3>
+            <p>
+              El host selecciona camara y microfono. La app revisa GPU, sidecar,
+              runtime IA y motores disponibles.
+            </p>
+          </article>
+          <article>
+            <h3>Activar rostro, voz y fondo</h3>
+            <p>
+              El host activa los toggles que correspondan. Si usa fondo, captura
+              el fondo limpio antes de entrar o mientras prepara la reunion.
+            </p>
+          </article>
+          <article>
+            <h3>Probar identidad</h3>
+            <p>
+              La prueba procesa un frame y un chunk de audio. Si algo falla,
+              rostro/voz/fondo muestran el estado accionable sin bloquear toda
+              la app.
+            </p>
+          </article>
+          <article>
+            <h3>Crear reunion</h3>
+            <p>
+              El host crea o abre una reunion, copia el enlace y lo envia al
+              invitado. Al entrar, la app publica los tracks procesados.
+            </p>
+          </article>
+          <article>
+            <h3>Operar la llamada</h3>
+            <p>
+              El host admite invitados, controla microfono/camara y puede abrir
+              diagnostico si necesita soporte. La superficie principal debe
+              seguir viendose como una videollamada normal.
+            </p>
+          </article>
+        </div>
+
+        <h3>Estados visibles recomendados</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Estado</th>
+              <th>Texto para usuario</th>
+              <th>Resultado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>download_required</code></td>
+              <td>Descargar identidad</td>
+              <td>El host descarga antes de activar rostro o voz.</td>
+            </tr>
+            <tr>
+              <td><code>ready</code></td>
+              <td>Lista para usar</td>
+              <td>Se habilitan toggles y preflight.</td>
+            </tr>
+            <tr>
+              <td><code>runtime_missing</code></td>
+              <td>Runtime IA incompleto</td>
+              <td>Se abre diagnostico con motor faltante.</td>
+            </tr>
+            <tr>
+              <td><code>checksum_failed</code></td>
+              <td>Descarga no valida</td>
+              <td>No se activa el modelo; se permite reintentar.</td>
+            </tr>
+            <tr>
+              <td><code>revoked</code></td>
+              <td>Identidad retirada</td>
+              <td>Se oculta la identidad y se elimina cache local.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <strong>Estado final correcto.</strong> La app puede publicar un track
+          llamado procesado aunque el pipeline este usando fallback. Para decir
+          que la identidad esta activa, el diagnostico debe confirmar LiveKit
+          conectado, track publicado, ultimo frame/audio en estado
+          <code>processed</code>, procesador real sin passthrough y media fresca
+          dentro de la ventana de latencia esperada.
+        </div>
+      </section>
+
+      <section id="invitado">
+        <h2>Flujo del invitado</h2>
+        <div class="flow">
+          <article>
+            <h3>Abrir enlace</h3>
+            <p>
+              El invitado abre el link de reunion en navegador movil o desktop.
+              No instala la app Tauri ni descarga modelos.
+            </p>
+          </article>
+          <article>
+            <h3>Entrar con nombre</h3>
+            <p>
+              El invitado escribe su nombre, concede permisos de camara y
+              microfono si los usara, y espera admision cuando aplique.
+            </p>
+          </article>
+          <article>
+            <h3>Participar</h3>
+            <p>
+              LiveKit entrega el video y audio publicados por el host. Si el
+              host activo IA, el invitado recibe el track procesado, no el
+              preview local sin procesar.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="soporte">
+        <h2>Soporte y diagnostico</h2>
+        <div class="grid">
+          <div class="panel">
+            <span class="tag blue">Equipo</span>
+            <h3>PC AMD</h3>
+            <p class="muted">
+              Sirve para instalar app, login, crear reunion, probar UI, LiveKit
+              y fallback. No valida modelos pesados de rostro/voz/fondo.
+            </p>
+          </div>
+          <div class="panel">
+            <span class="tag green">Equipo</span>
+            <h3>PC RTX</h3>
+            <p class="muted">
+              Valida CUDA, VRAM, FaceFusion/BMV2/vcclient000, latencia real y
+              publicacion de tracks procesados a invitados.
+            </p>
+          </div>
+          <div class="panel">
+            <span class="tag amber">Debug</span>
+            <h3>Bundle de soporte</h3>
+            <p class="muted">
+              Debe incluir logs, runtime, version de package, GPU y errores. No
+              debe incluir frames, audio, fotos fuente ni secretos.
+            </p>
+          </div>
+        </div>
+
+        <div class="callout warning">
+          <strong>Licencia.</strong> Si el motor facial usa InSwapper,
+          InsightFace u otro componente non-commercial, no se debe entregar a
+          clientes ni usar comercialmente sin licencia aprobada. El package debe
+          marcar si el uso comercial esta permitido.
+        </div>
+
+        <div class="callout danger">
+          <strong>Privacidad.</strong> Los modelos de identidad son datos
+          sensibles. El admin asigna, la app descarga solo lo autorizado y la
+          cache local debe poder revocarse.
+        </div>
+      </section>
+
+      <footer>
+        <p>
+          Version de guia: 2026-07-04. Esta guia describe el flujo objetivo de
+          producto y debe revisarse contra la implementacion final antes de
+          entregar a hosts externos.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

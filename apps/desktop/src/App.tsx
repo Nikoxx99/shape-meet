@@ -3631,7 +3631,7 @@ function HostSettingsScreen({
       title="Ajustes del host"
       right={
         <Button variant="outline" icon={<LogIn />} onClick={onSkip}>
-          Omitir y entrar
+          Entrar sin identidad
         </Button>
       }
     >
@@ -3714,7 +3714,7 @@ function HostSettingsScreen({
                 tone={serviceTone(aiServiceStatus?.online)}
               />
               <StatusRow
-                label="Prueba IA"
+                label="Prueba de identidad"
                 testId="host-ai-preflight-status"
                 value={
                   preflightRunning
@@ -3738,7 +3738,7 @@ function HostSettingsScreen({
                   onClick={onTestAi}
                   disabled={!aiEffectsEnabled || preflightRunning}
                 >
-                  {preflightRunning ? "Probando" : "Probar IA"}
+                  {preflightRunning ? "Probando" : "Probar identidad"}
                 </Button>
                 <Button
                   variant="outline"
@@ -4544,7 +4544,7 @@ function AiRuntimeScreen({
               onClick={() => void handlePreflight()}
               disabled={loading || saving || preflightRunning}
             >
-              {preflightRunning ? "Probando" : "Probar IA"}
+              {preflightRunning ? "Probando" : "Probar identidad"}
             </Button>
             <Button
               icon={<Check />}
