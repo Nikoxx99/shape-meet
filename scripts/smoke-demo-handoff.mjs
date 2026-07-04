@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -92,9 +98,71 @@ try {
   assert(readme.includes("Desktop handoff: ok"), "README status missing");
   assert(readme.includes("shape-meet-windows-x64"), "README artifact missing");
 
+  smokeRemoteFlowInference();
+
   console.log("demo handoff smoke ok");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
+}
+
+function smokeRemoteFlowInference() {
+  const remoteEnvPath = join(tempDir, "remote.env");
+  const artifactPath = join(tempDir, "identity.bin");
+  writeFileSync(
+    remoteEnvPath,
+    [
+      "NEXT_PUBLIC_APP_URL=https://admin.example.test",
+      "LIVEKIT_URL=wss://livekit.example.test",
+      "LIVEKIT_TURN_DOMAIN=turn.example.test",
+      "HOST_BOOTSTRAP_EMAIL=host@example.test",
+      "HOST_BOOTSTRAP_PASSWORD=Host123456!",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(artifactPath, "identity-smoke");
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      "scripts/package-demo-handoff.mjs",
+      "--json",
+      "--output-dir",
+      join(tempDir, "remote-inference"),
+      "--skip-prepare",
+      "--skip-debug",
+      "--skip-real-check",
+      "--skip-local-preview",
+      "--skip-identity-push",
+      "--skip-desktop",
+      "--skip-model-bootstrap",
+      "--remote-env-file",
+      remoteEnvPath,
+      "--identity-artifact-file",
+      artifactPath,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+
+  if (result.status !== 0) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    throw new Error(`remote flow inference smoke failed with ${result.status}`);
+  }
+
+  const report = JSON.parse(result.stdout);
+  assert(report.ok === true, "remote inference report was not ok");
+  assert(
+    report.options.remoteApiFlow === true,
+    "remote api flow was not inferred from remote env",
+  );
+  assert(
+    report.options.remoteIdentityFlow === true,
+    "remote identity flow was not inferred from identity artifact",
+  );
 }
 
 function artifact(name, size) {

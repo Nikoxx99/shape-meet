@@ -115,9 +115,13 @@ estacion final usa `pnpm demo:handoff -- --require-real-models --strict` y pasa
 `--audio` cuando ya existan assets reales de prueba. Si quieres que el paquete
 publique el rostro/modelo real del host contra el admin remoto, agrega
 `--identity-artifact-file /ruta/rostro-o-modelo.bin`; el handoff ejecutará
-`demo:identity:push` usando `--remote-env-file`. Si esa máquina no tiene
-Chromium/Playwright disponible, agrega `--skip-local-preview` y corre
-`pnpm demo:local-preview` en la estación donde se probará la app.
+`demo:identity:push` usando `--remote-env-file`. Con `--remote-env-file`, el
+handoff también valida login host, creación de reunión y emisión de token
+LiveKit remoto; con `--identity-artifact-file` valida además el flujo remoto de
+identidad. Usa `--skip-remote-api-flow` o `--skip-remote-identity-flow` solo si
+estás preparando un paquete parcial. Si esa máquina no tiene Chromium/Playwright
+disponible, agrega `--skip-local-preview` y corre `pnpm demo:local-preview` en
+la estación donde se probará la app.
 
 Si `demo:doctor` muestra `IA local: online sin demo`, detén el sidecar actual y
 vuelve a correr `pnpm demo:up -- --replace-ai`. Ese flag solo reemplaza el

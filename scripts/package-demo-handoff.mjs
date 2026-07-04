@@ -28,6 +28,8 @@ const skipLocalPreview = args.includes("--skip-local-preview");
 const skipDesktop = args.includes("--skip-desktop");
 const skipModelBootstrap = args.includes("--skip-model-bootstrap");
 const skipIdentityPush = args.includes("--skip-identity-push");
+const skipRemoteApiFlow = args.includes("--skip-remote-api-flow");
+const skipRemoteIdentityFlow = args.includes("--skip-remote-identity-flow");
 const desktopMode = normalizeDesktopMode(
   argValue("--desktop-mode") ??
     (args.includes("--local-bundle") ? "local" : null) ??
@@ -65,6 +67,8 @@ const report = {
     timeoutMs,
     remoteTimeoutMs,
     localPreviewTimeoutMs,
+    remoteApiFlow: remoteApiFlowEnabled(),
+    remoteIdentityFlow: remoteIdentityFlowEnabled(),
     identityArtifactFile,
   },
   steps: {},
@@ -245,10 +249,8 @@ function runRealReadinessStep() {
   if (remoteEnvFile) commandArgs.push("--remote-env-file", remoteEnvFile);
   if (remoteTimeoutMs) commandArgs.push("--remote-timeout-ms", remoteTimeoutMs);
   if (profile) commandArgs.push("--profile", profile);
-  forwardFlag(commandArgs, "--remote-api-flow");
-  forwardFlag(commandArgs, "--remote-identity-flow");
-  forwardFlag(commandArgs, "--api-flow");
-  forwardFlag(commandArgs, "--identity-flow");
+  if (remoteApiFlowEnabled()) commandArgs.push("--remote-api-flow");
+  if (remoteIdentityFlowEnabled()) commandArgs.push("--remote-identity-flow");
   forwardValue(commandArgs, "--remote-command-timeout-ms");
   forwardFlag(commandArgs, "--require-real-models");
   forwardFlag(commandArgs, "--skip-sentry");
@@ -667,6 +669,24 @@ function normalizeDesktopMode(value) {
   if (["auto", "local", "github", "skip"].includes(normalized))
     return normalized;
   throw new Error(`--desktop-mode invalido: ${value}`);
+}
+
+function remoteApiFlowEnabled() {
+  if (skipRemoteApiFlow) return false;
+  return (
+    Boolean(remoteEnvFile) ||
+    args.includes("--remote-api-flow") ||
+    args.includes("--api-flow")
+  );
+}
+
+function remoteIdentityFlowEnabled() {
+  if (skipRemoteIdentityFlow) return false;
+  return (
+    Boolean(remoteEnvFile && identityArtifactFile) ||
+    args.includes("--remote-identity-flow") ||
+    args.includes("--identity-flow")
+  );
 }
 
 function positiveInteger(value, fallback) {
