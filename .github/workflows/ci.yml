@@ -84,11 +84,26 @@ jobs:
       - name: Smoke desktop runtime config
         run: pnpm smoke:desktop-config
 
+      - name: Smoke local demo config
+        run: pnpm smoke:demo-local-config
+
+      - name: Smoke Sentry local config
+        run: pnpm smoke:sentry-local
+
       - name: Check desktop package workflow
         run: pnpm smoke:desktop-workflow
 
       - name: Smoke desktop handoff
         run: pnpm smoke:desktop-handoff
+
+      - name: Smoke Windows demo handoff
+        run: pnpm smoke:windows-handoff
+
+      - name: Smoke Coolify handoff
+        run: pnpm smoke:coolify-handoff
+
+      - name: Smoke demo handoff
+        run: pnpm smoke:demo-handoff
 
       - name: Smoke remote demo checker
         run: pnpm smoke:remote-demo
