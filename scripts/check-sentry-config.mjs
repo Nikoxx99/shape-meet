@@ -286,7 +286,7 @@ async function sendSentryProbe(dsn) {
       ok: response.ok,
       message: response.ok
         ? "ok"
-        : `HTTP ${response.status}: ${text.slice(0, 240)}`,
+        : sentryHttpErrorMessage(response.status, text),
     };
   } catch (error) {
     return {
@@ -296,6 +296,14 @@ async function sendSentryProbe(dsn) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function sentryHttpErrorMessage(status, text) {
+  const detail = text.slice(0, 240);
+  const hint = /ProjectId/i.test(text)
+    ? "La clave pública y el project id de la DSN no pertenecen al mismo proyecto, o el proyecto no acepta ingesta para esa DSN. Copia de nuevo la DSN desde Project Settings > Client Keys en Sentry."
+    : "";
+  return [`HTTP ${status}: ${detail}`, hint].filter(Boolean).join(" ");
 }
 
 function maskDsn(value) {

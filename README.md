@@ -306,6 +306,10 @@ FaceFusion, BackgroundMattingV2 o vcclient000 todavía no estén realmente
 conectados. El preflight real debe pasar antes de mostrar face swap/fondo/voz en
 una demo comercial.
 
+La compuerta valida Sentry con ingesta real por defecto. Si estás sin red puedes
+usar `--skip-sentry-live`, pero el reporte no marcará el demo real como listo
+hasta que `pnpm check:sentry:live` pase.
+
 `pnpm models:doctor` revisa el runtime de modelos sin cargar pesos pesados:
 archivo `shape-ai-runtime.env`, comandos de procesador, placeholders requeridos,
 paths de FaceFusion/BackgroundMattingV2/vcclient000 y hardware NVIDIA/Apple
@@ -740,6 +744,10 @@ pnpm sentry:configure -- --dsn "https://public_key@o123.ingest.us.sentry.io/456"
 pnpm check:sentry
 pnpm check:sentry:live
 ```
+
+`check:sentry:live` debe pasar antes del demo. Si Sentry responde `ProjectId`,
+copia de nuevo la DSN desde Project Settings > Client Keys: normalmente indica
+que la clave pública y el project id no pertenecen al mismo proyecto.
 
 Ese comando actualiza `.env.local`, `apps/admin/.env.local` y
 `apps/desktop/.env.local`, conservando otras variables existentes. Los archivos

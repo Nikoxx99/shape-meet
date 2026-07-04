@@ -270,6 +270,7 @@ function runRealReadinessStep() {
   forwardValue(commandArgs, "--remote-command-timeout-ms");
   forwardFlag(commandArgs, "--require-real-models");
   forwardFlag(commandArgs, "--skip-sentry");
+  forwardFlag(commandArgs, "--skip-sentry-live");
   forwardFlag(commandArgs, "--skip-model-doctor");
   forwardFlag(commandArgs, "--skip-model-preflight");
   forwardFlag(commandArgs, "--force-model-preflight");

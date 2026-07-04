@@ -10,6 +10,8 @@ const args = process.argv.slice(2);
 const json = args.includes("--json");
 const strict = args.includes("--strict");
 const skipSentry = args.includes("--skip-sentry");
+const skipSentryLive =
+  args.includes("--skip-sentry-live") || args.includes("--offline-sentry");
 const skipModelDoctor = args.includes("--skip-model-doctor");
 const skipModelPreflight = args.includes("--skip-model-preflight");
 const forceModelPreflight = args.includes("--force-model-preflight");
@@ -41,6 +43,7 @@ const report = {
   readyForRealDemo: false,
   strict,
   requireRealModels,
+  skipSentryLive,
   runtimeEnvFile,
   remoteEnvFile,
   profile: profile ?? null,
@@ -91,8 +94,23 @@ async function main() {
 
 function runSentryCheck() {
   const commandArgs = ["check:sentry", "--"];
+  if (!skipSentryLive) commandArgs.push("--live");
   if (strict) commandArgs.push("--strict");
-  return commandStep("Sentry", commandArgs);
+  const step = commandStep("Sentry", commandArgs);
+  step.live = !skipSentryLive;
+  step.statusLabel = skipSentryLive ? "formato; live omitido" : "live";
+  if (!step.ok) {
+    step.nextSteps = [
+      "Corrige la DSN de Sentry y vuelve a ejecutar `pnpm check:sentry:live`.",
+      "Si estás offline, usa `--skip-sentry-live`; el demo real no quedará marcado como listo.",
+    ];
+  }
+  if (skipSentryLive) {
+    step.nextSteps = [
+      "Ejecuta `pnpm check:sentry:live` antes de considerar listo el demo real.",
+    ];
+  }
+  return step;
 }
 
 function runDesktopDoctor() {
@@ -586,6 +604,7 @@ function realDemoReady() {
     remoteDemo,
   } = report.steps;
   if (!sentry?.ok || sentry.skipped) return false;
+  if (sentry.live !== true) return false;
   if (!modelDoctor?.ok || modelDoctor.skipped) return false;
   if (!realModels?.ok || realModels.realModelsConfigured !== true) return false;
   if (!demoAssets?.ok || demoAssets.skipped) return false;
