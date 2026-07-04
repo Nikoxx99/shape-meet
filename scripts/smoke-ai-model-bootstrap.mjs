@@ -24,12 +24,16 @@ try {
 
 function smokeWindowsReport() {
   const checklistPath = join(tempDir, "windows-checklist.md");
+  const setupScriptPath = join(tempDir, "setup-windows.ps1");
   const report = runBootstrap([
     "--json",
     "--dry-run",
     "--write-checklist",
     "--checklist-out",
     checklistPath,
+    "--write-setup-script",
+    "--setup-script-out",
+    setupScriptPath,
     "--skip-hardware",
     "--skip-vcclient",
     "--profile",
@@ -54,10 +58,16 @@ function smokeWindowsReport() {
     "windows BMV2 checkpoint",
   );
   assertEqual(report.checklistWritten, true, "windows checklistWritten");
+  assertEqual(report.setupScriptWritten, true, "windows setupScriptWritten");
   assertFileIncludes(checklistPath, "Shape Meet Model Workstation Checklist");
   assertFileIncludes(checklistPath, "FaceFusion");
+  assertFileIncludes(checklistPath, "Setup script");
+  assertFileIncludes(setupScriptPath, "Shape Meet Windows/NVIDIA");
+  assertFileIncludes(setupScriptPath, "git clone --depth 1");
+  assertFileIncludes(setupScriptPath, "pnpm models:bootstrap");
   assertHasCheck(report, "runtime", "warn");
   assertHasCheck(report, "checklist", "ok");
+  assertHasCheck(report, "setup-script", "ok");
   assertNextStep(report, "--write-runtime");
 }
 

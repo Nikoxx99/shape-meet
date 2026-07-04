@@ -159,7 +159,7 @@ modelos no están instalados. Para activar modelos reales en la estación
 Windows/NVIDIA del demo, usa el perfil estricto:
 
 ```bash
-pnpm models:bootstrap -- --profile windows-nvidia --dry-run --write-checklist
+pnpm models:bootstrap -- --profile windows-nvidia --dry-run --write-checklist --write-setup-script
 pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict --write-checklist
 ```
 
@@ -184,7 +184,9 @@ modelos pesados; usa `--env-file` para revisar un runtime concreto.
 `--init-dirs`, clonar los repos con `--clone`, validar GPU/rutas/checkpoints y
 escribir el runtime final con `--write-runtime`. Con `--write-checklist` deja
 un reporte Markdown en `output/model-workstation/` con checks, rutas y
-siguientes pasos de la estación.
+siguientes pasos de la estación. Con `--write-setup-script` también genera un
+PowerShell/Bash base para clonar repos y crear venvs antes de instalar pesos o
+dependencias licenciadas.
 Después del bootstrap, `pnpm models:preflight` arranca un sidecar temporal con
 ese runtime y ejecuta frame/audio contra los procesadores configurados:
 

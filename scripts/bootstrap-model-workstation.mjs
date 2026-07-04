@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -22,6 +23,7 @@ const initDirs = args.includes("--init-dirs");
 const cloneRepos = args.includes("--clone");
 const writeRuntime = args.includes("--write-runtime") && !dryRun;
 const writeChecklist = args.includes("--write-checklist");
+const writeSetupScript = args.includes("--write-setup-script");
 const skipHardware = args.includes("--skip-hardware");
 const skipVcclient = args.includes("--skip-vcclient");
 const profile = normalizeProfile(
@@ -38,6 +40,10 @@ const checklistPath =
   argValue("--checklist-out") ??
   process.env.SHAPE_MODEL_WORKSTATION_CHECKLIST ??
   defaultChecklistPath(profile);
+const setupScriptPath =
+  argValue("--setup-script-out") ??
+  process.env.SHAPE_MODEL_WORKSTATION_SETUP_SCRIPT ??
+  defaultSetupScriptPath(profile);
 const facefusionRepo =
   argValue("--facefusion-repo") ??
   process.env.FACEFUSION_REPO_URL ??
@@ -56,6 +62,7 @@ let runtimeEnv = {};
 let runtimeEnvContent = "";
 let tempDir = null;
 let checklistWritten = false;
+let setupScriptWritten = false;
 
 try {
   main();
@@ -559,6 +566,8 @@ function buildReport(modelPaths) {
     runtimeWritten: writeRuntime,
     checklistPath,
     checklistWritten,
+    setupScriptPath,
+    setupScriptWritten,
     dryRun,
     modelPaths,
     runtimeEnv: {
@@ -577,6 +586,11 @@ function buildReport(modelPaths) {
 function printReport(modelPaths) {
   let report = buildReport(modelPaths);
 
+  if (writeSetupScript) {
+    writeSetupScriptFile(report);
+    report = buildReport(modelPaths);
+  }
+
   if (writeChecklist) {
     writeChecklistFile(report);
     report = buildReport(modelPaths);
@@ -594,6 +608,11 @@ function printReport(modelPaths) {
   if (writeChecklist) {
     console.log(
       `Checklist: ${checklistWritten ? checklistPath : "no escrito"}`,
+    );
+  }
+  if (writeSetupScript) {
+    console.log(
+      `Setup script: ${setupScriptWritten ? setupScriptPath : "no escrito"}`,
     );
   }
   for (const check of checks) {
@@ -616,6 +635,25 @@ function writeChecklistFile(report) {
   writeFileSync(target, renderChecklist(report));
   checklistWritten = true;
   ok("checklist", `Checklist escrito: ${checklistPath}`);
+}
+
+function writeSetupScriptFile(report) {
+  const target = fsPath(setupScriptPath);
+  if (!target) {
+    warn(
+      "setup-script",
+      `Ruta setup script no verificable en ${platform()}: ${setupScriptPath}`,
+    );
+    return;
+  }
+
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, renderSetupScript(report.modelPaths));
+  if (profile === "apple-silicon" && platform() !== "win32") {
+    chmodSync(target, 0o755);
+  }
+  setupScriptWritten = true;
+  ok("setup-script", `Setup script escrito: ${setupScriptPath}`);
 }
 
 function renderChecklist(report) {
@@ -655,6 +693,7 @@ Dry-run: ${report.dryRun ? "si" : "no"}
 - Python BackgroundMattingV2: ${report.modelPaths.bmv2Python}
 - Checkpoint BackgroundMattingV2: ${report.modelPaths.bmv2Checkpoint}
 - VCClient: ${report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT || "no configurado"}
+- Setup script: ${report.setupScriptWritten ? report.setupScriptPath : "pendiente"}
 
 ## Checks
 
@@ -668,10 +707,144 @@ ${nextStepItems}
 
 \`\`\`bash
 pnpm models:bootstrap -- --profile ${report.profile} --dry-run --write-checklist
+pnpm models:bootstrap -- --profile ${report.profile} --write-setup-script
 pnpm models:bootstrap -- --profile ${report.profile} --write-runtime --strict --write-checklist
 pnpm demo:real:check -- --env-file "${report.runtimeEnvPath}" --include-desktop
 \`\`\`
 `;
+}
+
+function renderSetupScript(modelPaths) {
+  return profile === "windows-nvidia"
+    ? renderWindowsSetupScript(modelPaths)
+    : renderAppleSetupScript(modelPaths);
+}
+
+function renderWindowsSetupScript(modelPaths) {
+  return `# Shape Meet Windows/NVIDIA model workstation setup
+# Ejecuta desde PowerShell en la estacion RTX. No incluye checkpoints/licencias.
+$ErrorActionPreference = "Stop"
+
+$Workspace = ${psQuote(modelPaths.workspaceRoot)}
+$FaceFusionDir = ${psQuote(modelPaths.facefusionDir)}
+$Bmv2Dir = ${psQuote(modelPaths.bmv2RepoDir)}
+$FaceFusionRepo = ${psQuote(facefusionRepo)}
+$Bmv2Repo = ${psQuote(bmv2Repo)}
+$FaceFusionVenv = Join-Path $FaceFusionDir ".venv"
+$Bmv2Venv = Join-Path $Bmv2Dir ".venv"
+$FaceFusionPython = Join-Path $FaceFusionVenv "Scripts\\python.exe"
+$Bmv2Python = Join-Path $Bmv2Venv "Scripts\\python.exe"
+
+New-Item -ItemType Directory -Force -Path $Workspace | Out-Null
+
+if (!(Test-Path $FaceFusionDir)) {
+  git clone --depth 1 $FaceFusionRepo $FaceFusionDir
+}
+if (!(Test-Path $Bmv2Dir)) {
+  git clone --depth 1 $Bmv2Repo $Bmv2Dir
+}
+
+if (!(Test-Path $FaceFusionPython)) {
+  if (Get-Command py -ErrorAction SilentlyContinue) {
+    py -3 -m venv $FaceFusionVenv
+  } else {
+    python -m venv $FaceFusionVenv
+  }
+}
+if (!(Test-Path $Bmv2Python)) {
+  if (Get-Command py -ErrorAction SilentlyContinue) {
+    py -3 -m venv $Bmv2Venv
+  } else {
+    python -m venv $Bmv2Venv
+  }
+}
+
+& $FaceFusionPython -m pip install --upgrade pip
+& $Bmv2Python -m pip install --upgrade pip
+
+$FaceFusionRequirements = Join-Path $FaceFusionDir "requirements.txt"
+if (Test-Path $FaceFusionRequirements) {
+  & $FaceFusionPython -m pip install -r $FaceFusionRequirements
+}
+$Bmv2Requirements = Join-Path $Bmv2Dir "requirements.txt"
+if (Test-Path $Bmv2Requirements) {
+  & $Bmv2Python -m pip install -r $Bmv2Requirements
+}
+
+Write-Host ""
+Write-Host "Manual pendiente:"
+Write-Host "- Instala dependencias especificas/licenciadas de FaceFusion si tu version las requiere."
+Write-Host "- Descarga el checkpoint BMV2 en: ${modelPaths.bmv2Checkpoint}"
+Write-Host "- Arranca w-okada/VCClient y confirma: ${vcclientEndpoint || "endpoint no configurado"}"
+Write-Host ""
+Write-Host "Validacion:"
+Write-Host "pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict --write-checklist"
+Write-Host "pnpm demo:real:check -- --env-file ${runtimeEnvPath} --include-desktop --require-real-models"
+`;
+}
+
+function renderAppleSetupScript(modelPaths) {
+  return `#!/usr/bin/env bash
+# Shape Meet Apple Silicon model workstation setup
+# Ejecuta en la Mac objetivo. No incluye checkpoints/licencias.
+set -euo pipefail
+
+WORKSPACE=${shQuote(modelPaths.workspaceRoot)}
+FACEFUSION_DIR=${shQuote(modelPaths.facefusionDir)}
+BMV2_DIR=${shQuote(modelPaths.bmv2RepoDir)}
+FACEFUSION_REPO=${shQuote(facefusionRepo)}
+BMV2_REPO=${shQuote(bmv2Repo)}
+FACEFUSION_VENV="$FACEFUSION_DIR/.venv"
+BMV2_VENV="$BMV2_DIR/.venv"
+FACEFUSION_PYTHON="$FACEFUSION_VENV/bin/python"
+BMV2_PYTHON="$BMV2_VENV/bin/python"
+
+mkdir -p "$WORKSPACE"
+
+if [ ! -d "$FACEFUSION_DIR/.git" ]; then
+  git clone --depth 1 "$FACEFUSION_REPO" "$FACEFUSION_DIR"
+fi
+if [ ! -d "$BMV2_DIR/.git" ]; then
+  git clone --depth 1 "$BMV2_REPO" "$BMV2_DIR"
+fi
+
+if [ ! -x "$FACEFUSION_PYTHON" ]; then
+  python3 -m venv "$FACEFUSION_VENV"
+fi
+if [ ! -x "$BMV2_PYTHON" ]; then
+  python3 -m venv "$BMV2_VENV"
+fi
+
+"$FACEFUSION_PYTHON" -m pip install --upgrade pip
+"$BMV2_PYTHON" -m pip install --upgrade pip
+
+if [ -f "$FACEFUSION_DIR/requirements.txt" ]; then
+  "$FACEFUSION_PYTHON" -m pip install -r "$FACEFUSION_DIR/requirements.txt"
+fi
+if [ -f "$BMV2_DIR/requirements.txt" ]; then
+  "$BMV2_PYTHON" -m pip install -r "$BMV2_DIR/requirements.txt"
+fi
+
+cat <<'NEXT'
+
+Manual pendiente:
+- Instala dependencias especificas/licenciadas de FaceFusion si tu version las requiere.
+- Descarga el checkpoint BMV2 en: ${modelPaths.bmv2Checkpoint}
+- Configura un wrapper/comando de voz compatible en Apple Silicon si no usas VCClient REST.
+
+Validacion:
+pnpm models:bootstrap -- --profile apple-silicon --write-runtime --strict --write-checklist
+pnpm demo:real:check -- --env-file "${runtimeEnvPath}" --include-desktop --require-real-models
+NEXT
+`;
+}
+
+function psQuote(value) {
+  return `'${String(value ?? "").replace(/'/g, "''")}'`;
+}
+
+function shQuote(value) {
+  return `'${String(value ?? "").replace(/'/g, "'\\''")}'`;
 }
 
 function ok(label, message) {
@@ -762,6 +935,17 @@ function defaultChecklistPath(selectedProfile) {
     "output",
     "model-workstation",
     `shape-model-workstation-${selectedProfile}.md`,
+  );
+}
+
+function defaultSetupScriptPath(selectedProfile) {
+  return join(
+    repoRoot,
+    "output",
+    "model-workstation",
+    selectedProfile === "windows-nvidia"
+      ? "setup-windows-nvidia.ps1"
+      : "setup-apple-silicon.sh",
   );
 }
 

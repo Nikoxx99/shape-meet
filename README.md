@@ -185,7 +185,7 @@ Usa `--profile windows-nvidia` para generar defaults estrictos de demo en
 demo real. En una máquina nueva empieza con:
 
 ```bash
-pnpm models:bootstrap -- --profile windows-nvidia --dry-run --write-checklist
+pnpm models:bootstrap -- --profile windows-nvidia --dry-run --write-checklist --write-setup-script
 ```
 
 Cuando las rutas, entornos Python, checkpoint, GPU y VCClient estén listos,
@@ -199,7 +199,9 @@ Puedes agregar `--init-dirs --clone` para crear el workspace y clonar
 FaceFusion/BackgroundMattingV2. Las dependencias Python, checkpoints y modelos
 licenciados se instalan manualmente según la estación. El checklist se escribe
 por defecto en `output/model-workstation/` e incluye checks, rutas y siguientes
-pasos para preparar o auditar la máquina del demo.
+pasos para preparar o auditar la máquina del demo. Con `--write-setup-script`
+también genera un PowerShell/Bash base para clonar repos y crear venvs en la
+workstation.
 
 `pnpm models:preflight` levanta un sidecar temporal con el runtime generado y
 ejecuta una prueba real de frame/audio antes de abrir la app:
@@ -605,7 +607,7 @@ Ese preset usa `apps/ai-sidecar/wrappers/facefusion_frame.py`,
 usa el perfil de estación:
 
 ```bash
-pnpm models:bootstrap -- --profile windows-nvidia --dry-run --write-checklist
+pnpm models:bootstrap -- --profile windows-nvidia --dry-run --write-checklist --write-setup-script
 pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict --write-checklist
 ```
 
