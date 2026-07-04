@@ -201,7 +201,8 @@ licenciados se instalan manualmente según la estación. El checklist se escribe
 por defecto en `output/model-workstation/` e incluye checks, rutas y siguientes
 pasos para preparar o auditar la máquina del demo. Con `--write-setup-script`
 también genera un PowerShell/Bash base para clonar repos y crear venvs en la
-workstation.
+workstation. Si configuras `VCCLIENT000_HTTP_ENDPOINT`, el bootstrap hace una
+prueba `POST /test` compatible con w-okada/VCClient.
 
 `pnpm models:preflight` levanta un sidecar temporal con el runtime generado y
 ejecuta una prueba real de frame/audio antes de abrir la app:

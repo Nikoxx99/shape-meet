@@ -186,7 +186,8 @@ escribir el runtime final con `--write-runtime`. Con `--write-checklist` deja
 un reporte Markdown en `output/model-workstation/` con checks, rutas y
 siguientes pasos de la estación. Con `--write-setup-script` también genera un
 PowerShell/Bash base para clonar repos y crear venvs antes de instalar pesos o
-dependencias licenciadas.
+dependencias licenciadas. Si `VCCLIENT000_HTTP_ENDPOINT` está configurado, el
+bootstrap valida w-okada/VCClient con una petición `POST /test`.
 Después del bootstrap, `pnpm models:preflight` arranca un sidecar temporal con
 ese runtime y ejecuta frame/audio contra los procesadores configurados:
 

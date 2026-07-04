@@ -56,6 +56,10 @@ const vcclientEndpoint =
   argValue("--vcclient000-http-endpoint") ??
   process.env.VCCLIENT000_HTTP_ENDPOINT ??
   defaultVcClientEndpoint(profile);
+const vcclientHttpMode =
+  argValue("--vcclient000-http-mode") ??
+  process.env.VCCLIENT000_HTTP_MODE ??
+  "auto";
 const checks = [];
 const nextSteps = [];
 let runtimeEnv = {};
@@ -100,7 +104,7 @@ function main() {
   if (profile === "windows-nvidia" && !skipHardware) checkNvidia();
   checkFaceFusion(modelPaths);
   checkBackgroundMatting(modelPaths);
-  if (!skipVcclient) voidCheckVcClient(vcclientEndpoint);
+  if (!skipVcclient) checkVcClient(vcclientEndpoint, vcclientHttpMode);
 
   runDoctor(writeTempRuntimeEnv());
   printReport(modelPaths);
@@ -209,6 +213,9 @@ function runPrepareRuntime(modelPaths, printOnly) {
   }
   if (vcclientEndpoint) {
     commandArgs.push("--vcclient000-http-endpoint", vcclientEndpoint);
+  }
+  if (vcclientHttpMode) {
+    commandArgs.push("--vcclient000-http-mode", vcclientHttpMode);
   }
   if (printOnly) commandArgs.push("--print");
 
@@ -367,19 +374,43 @@ function checkNvidia() {
   );
 }
 
-function voidCheckVcClient(endpoint) {
+function checkVcClient(endpoint, mode) {
   if (!endpoint) {
     warn("vcclient000", "Endpoint VCClient no configurado.");
     return;
   }
 
+  let parsed;
   try {
-    const parsed = new URL(endpoint);
+    parsed = new URL(endpoint);
     ok("vcclient000", `Endpoint configurado: ${parsed.href}`);
   } catch {
     error("vcclient000", `Endpoint inválido: ${endpoint}`);
     return;
   }
+
+  const httpMode = normalizeVcClientHttpMode(mode, parsed);
+  if (!["w-okada-rest", "shape-json"].includes(httpMode)) {
+    error("vcclient000", `VCCLIENT000_HTTP_MODE no soportado: ${mode}`);
+    nextStep(
+      "Usa VCCLIENT000_HTTP_MODE=w-okada-rest para VCClient oficial o shape-json para un adaptador Shape.",
+    );
+    return;
+  }
+  const target = vcClientHealthEndpoint(parsed, httpMode);
+  const payload =
+    httpMode === "w-okada-rest"
+      ? {
+          timestamp: Date.now(),
+          buffer: Buffer.alloc(480 * 2).toString("base64"),
+        }
+      : {
+          audioDataBase64: Buffer.alloc(480 * 4).toString("base64"),
+          sampleRate: 48000,
+          channels: 1,
+          format: "pcm_f32le",
+          identity: "",
+        };
 
   const result = spawnSync(
     process.execPath,
@@ -387,10 +418,31 @@ function voidCheckVcClient(endpoint) {
       "-e",
       `
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 1200);
-      fetch(process.argv[1], { method: "GET", signal: controller.signal })
-        .then((response) => {
+      const timeout = setTimeout(() => controller.abort(), 2500);
+      const endpoint = process.argv[1];
+      const mode = process.argv[2];
+      const payload = JSON.parse(process.argv[3]);
+      fetch(endpoint, {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+        .then(async (response) => {
           clearTimeout(timeout);
+          const text = await response.text();
+          if (!response.ok) {
+            process.stderr.write("HTTP " + response.status + ": " + text.slice(0, 240));
+            process.exit(2);
+          }
+          const data = JSON.parse(text || "{}");
+          const ok = mode === "w-okada-rest"
+            ? Boolean(data.changedVoiceBase64 || data.data?.changedVoiceBase64)
+            : Boolean(data.audioDataBase64 || data.audio?.audioDataBase64);
+          if (!ok) {
+            process.stderr.write("respuesta sin audio procesado");
+            process.exit(3);
+          }
           process.stdout.write(String(response.status));
         })
         .catch((error) => {
@@ -399,17 +451,58 @@ function voidCheckVcClient(endpoint) {
           process.exit(2);
         });
       `,
-      endpoint,
+      target,
+      httpMode,
+      JSON.stringify(payload),
     ],
     { cwd: repoRoot, encoding: "utf8" },
   );
 
   if (result.status === 0) {
-    ok("vcclient000", `VCClient responde HTTP ${result.stdout.trim()}.`);
+    ok(
+      "vcclient000",
+      `VCClient ${httpMode} responde POST ${new URL(target).pathname} HTTP ${result.stdout.trim()}.`,
+    );
   } else {
-    warn("vcclient000", "VCClient REST no respondió en 127.0.0.1:18888.");
-    nextStep("Arranca w-okada/VCClient antes de probar voz real.");
+    warn(
+      "vcclient000",
+      `VCClient REST no respondió correctamente: ${trimProcessOutput(result)}`,
+    );
+    nextStep(
+      "Arranca w-okada/VCClient, carga un modelo de voz y confirma POST /test antes del demo real.",
+    );
   }
+}
+
+function normalizeVcClientHttpMode(mode, parsedEndpoint) {
+  const normalized = String(mode || "auto")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (["shape", "shape-json", "shape-meet"].includes(normalized)) {
+    return "shape-json";
+  }
+  if (
+    ["w-okada", "w-okada-rest", "vcclient", "vcclient-rest"].includes(
+      normalized,
+    )
+  ) {
+    return "w-okada-rest";
+  }
+  if (normalized !== "auto") return normalized;
+
+  const path = (parsedEndpoint.pathname || "").replace(/\/+$/, "");
+  return path === "" || path === "/test" || path.endsWith("/test")
+    ? "w-okada-rest"
+    : "shape-json";
+}
+
+function vcClientHealthEndpoint(parsedEndpoint, mode) {
+  const next = new URL(parsedEndpoint.href);
+  if (mode === "w-okada-rest" && (!next.pathname || next.pathname === "/")) {
+    next.pathname = "/test";
+  }
+  return next.href;
 }
 
 function runDoctor(runtimePath) {
@@ -577,6 +670,7 @@ function buildReport(modelPaths) {
       BMV2_REPO_DIR: runtimeEnv.BMV2_REPO_DIR,
       BMV2_MODEL_CHECKPOINT: runtimeEnv.BMV2_MODEL_CHECKPOINT,
       VCCLIENT000_HTTP_ENDPOINT: runtimeEnv.VCCLIENT000_HTTP_ENDPOINT,
+      VCCLIENT000_HTTP_MODE: runtimeEnv.VCCLIENT000_HTTP_MODE,
     },
     checks,
     nextSteps,
@@ -693,6 +787,7 @@ Dry-run: ${report.dryRun ? "si" : "no"}
 - Python BackgroundMattingV2: ${report.modelPaths.bmv2Python}
 - Checkpoint BackgroundMattingV2: ${report.modelPaths.bmv2Checkpoint}
 - VCClient: ${report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT || "no configurado"}
+- VCClient mode: ${report.runtimeEnv.VCCLIENT000_HTTP_MODE || "auto"}
 - Setup script: ${report.setupScriptWritten ? report.setupScriptPath : "pendiente"}
 
 ## Checks

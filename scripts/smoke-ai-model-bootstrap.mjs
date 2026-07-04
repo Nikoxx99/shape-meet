@@ -1,4 +1,5 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import {
   chmodSync,
   existsSync,
@@ -8,6 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +18,7 @@ const tempDir = mkdtempSync(join(tmpdir(), "shape-model-bootstrap-smoke-"));
 
 try {
   smokeWindowsReport();
+  await smokeVcclientPostReport();
   smokeAppleWorkspaceReport();
   console.log("model workstation bootstrap smoke ok");
 } finally {
@@ -71,6 +74,69 @@ function smokeWindowsReport() {
   assertNextStep(report, "--write-runtime");
 }
 
+async function smokeVcclientPostReport() {
+  let seenPost = false;
+  const server = createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/test") {
+      response.writeHead(405, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "post_required" }));
+      return;
+    }
+
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      seenPost = true;
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const audio = Buffer.from(body.buffer, "base64");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          changedVoiceBase64: audio.toString("base64"),
+        }),
+      );
+    });
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : null;
+  if (!port) throw new Error("vcclient smoke mock did not expose a port");
+
+  try {
+    const report = await runBootstrapAsync([
+      "--json",
+      "--dry-run",
+      "--skip-hardware",
+      "--profile",
+      "windows-nvidia",
+      "--vcclient000-http-endpoint",
+      `http://127.0.0.1:${port}/test`,
+      "--vcclient000-http-mode",
+      "w-okada-rest",
+    ]);
+
+    assertEqual(seenPost, true, "vcclient POST seen");
+    assertEqual(
+      report.runtimeEnv.VCCLIENT000_HTTP_MODE,
+      "w-okada-rest",
+      "vcclient mode",
+    );
+    assertHasCheck(report, "vcclient000", "ok");
+    if (
+      !report.checks?.some(
+        (check) =>
+          check.label === "vcclient000" && check.message.includes("POST /test"),
+      )
+    ) {
+      throw new Error("expected vcclient check to report POST /test");
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
 function smokeAppleWorkspaceReport() {
   const workspace = join(tempDir, "models");
   const facefusionDir = join(workspace, "FaceFusion");
@@ -111,6 +177,43 @@ function smokeAppleWorkspaceReport() {
   assertHasCheck(report, "BackgroundMattingV2", "ok");
   assertNoCheck(report, "FaceFusion", "error");
   assertNoCheck(report, "BackgroundMattingV2", "error");
+}
+
+function runBootstrapAsync(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["scripts/bootstrap-model-workstation.mjs", ...args],
+      {
+        cwd: repoRoot,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code !== 0) {
+        if (stdout) process.stdout.write(stdout);
+        if (stderr) process.stderr.write(stderr);
+        reject(new Error(`models bootstrap smoke failed with ${code}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch (error) {
+        if (stdout) process.stdout.write(stdout);
+        if (stderr) process.stderr.write(stderr);
+        reject(error);
+      }
+    });
+  });
 }
 
 function runBootstrap(args) {
