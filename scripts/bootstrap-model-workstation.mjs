@@ -118,6 +118,34 @@ const vcclientHttpMode =
   argValue("--vcclient000-http-mode") ??
   process.env.VCCLIENT000_HTTP_MODE ??
   "auto";
+// Managed VCClient runtime (engines/vcclient_supervisor.py): the endpoint server
+// supervises VCClient itself. Opt-in via --vcclient000-managed / VCCLIENT000_MANAGED.
+const vcclientManagedEnabled = /^(1|true|yes|on)$/i.test(
+  String(
+    argValue("--vcclient000-managed") ?? process.env.VCCLIENT000_MANAGED ?? "",
+  ).trim(),
+);
+const vcclientDistDir =
+  argValue("--vcclient000-dist-dir") ??
+  process.env.VCCLIENT000_DIST_DIR ??
+  defaultVcClientDistDir(profile, workspaceRoot);
+const vcclientPort =
+  argValue("--vcclient000-port") ?? process.env.VCCLIENT000_PORT ?? "18000";
+const vcclientBootTimeout =
+  argValue("--vcclient000-boot-timeout") ??
+  process.env.VCCLIENT000_BOOT_TIMEOUT_SECS ??
+  "90";
+// Optional: a URL + sha256 of a packaged VCClient dist archive. When both are
+// given the generated setup script downloads/verifies/extracts it; otherwise it
+// only validates the dist is present and reports.
+const vcclientDistUrl =
+  argValue("--vcclient000-dist-url") ??
+  process.env.VCCLIENT000_DIST_URL ??
+  null;
+const vcclientDistSha256 =
+  argValue("--vcclient000-dist-sha256") ??
+  process.env.VCCLIENT000_DIST_SHA256 ??
+  null;
 const modelEndpointHost =
   argValue("--model-endpoint-host") ??
   process.env.SHAPE_MODEL_ENDPOINT_HOST ??
@@ -330,6 +358,18 @@ function runPrepareRuntime(modelPaths, printOnly) {
     }
     if (vcclientHttpMode) {
       commandArgs.push("--vcclient000-http-mode", vcclientHttpMode);
+    }
+    if (vcclientManagedEnabled) {
+      commandArgs.push(
+        "--vcclient000-managed",
+        "1",
+        "--vcclient000-dist-dir",
+        vcclientDistDir,
+        "--vcclient000-port",
+        String(vcclientPort),
+        "--vcclient000-boot-timeout",
+        String(vcclientBootTimeout),
+      );
     }
     if (printOnly) commandArgs.push("--print");
     return spawnPrepareRuntime(commandArgs);
@@ -744,6 +784,13 @@ function buildModelPaths(selectedProfile, root) {
       selectedProfile === "windows-nvidia"
         ? "apps/ai-sidecar/requirements-inproc-cuda.txt"
         : "apps/ai-sidecar/requirements-inproc-mac.txt",
+    // Managed VCClient runtime (supervised by the endpoint server).
+    vcclientManaged: vcclientManagedEnabled,
+    vcclientDistDir,
+    vcclientPort,
+    vcclientBootTimeout,
+    vcclientDistUrl,
+    vcclientDistSha256,
   };
 
   if (selectedProfile === "apple-silicon") {
@@ -860,6 +907,34 @@ function checkInprocRuntime(modelPaths) {
       "pesos",
       `buffalo_l pendiente en ${modelPaths.insightfaceHome}; el setup script hace el warm-up de descarga.`,
     );
+  }
+
+  if (modelPaths.vcclientManaged) {
+    const distDir = fsPath(modelPaths.vcclientDistDir);
+    const binaryName = profile === "windows-nvidia" ? "main.exe" : "main";
+    const binaryPath = distDir ? join(distDir, binaryName) : null;
+    if (binaryPath && existsSync(binaryPath)) {
+      ok(
+        "vcclient",
+        `VCClient dist gestionado listo: ${binaryPath} (VCCLIENT000_MANAGED=1; el endpoint server lo supervisa).`,
+      );
+    } else if (modelPaths.vcclientDistUrl) {
+      warn(
+        "vcclient",
+        `VCClient dist pendiente en ${modelPaths.vcclientDistDir}; el setup script lo descarga/verifica (sha256).`,
+      );
+      nextStep(
+        "Ejecuta el setup script generado para descargar/verificar/descomprimir el dist de VCClient.",
+      );
+    } else {
+      warn(
+        "vcclient",
+        `VCClient dist gestionado no encontrado en ${modelPaths.vcclientDistDir}.`,
+      );
+      nextStep(
+        "Coloca el dist de VCClient v2 (main + model_dir con el slot RVC) en VCCLIENT000_DIST_DIR, o pasa --vcclient000-dist-url + --vcclient000-dist-sha256 para sembrarlo desde el setup script.",
+      );
+    }
   }
 }
 
@@ -982,6 +1057,10 @@ function buildReport(modelPaths) {
       BMV2_MODEL_CHECKPOINT: runtimeEnv.BMV2_MODEL_CHECKPOINT,
       VCCLIENT000_HTTP_ENDPOINT: runtimeEnv.VCCLIENT000_HTTP_ENDPOINT,
       VCCLIENT000_HTTP_MODE: runtimeEnv.VCCLIENT000_HTTP_MODE,
+      VCCLIENT000_MANAGED: runtimeEnv.VCCLIENT000_MANAGED,
+      VCCLIENT000_DIST_DIR: runtimeEnv.VCCLIENT000_DIST_DIR,
+      VCCLIENT000_PORT: runtimeEnv.VCCLIENT000_PORT,
+      VCCLIENT000_BOOT_TIMEOUT_SECS: runtimeEnv.VCCLIENT000_BOOT_TIMEOUT_SECS,
     },
     checks,
     nextSteps,
@@ -1323,13 +1402,53 @@ function vcClientHealthUrl(endpoint) {
   }
 }
 
+function renderAppleVcClientManagedSection(modelPaths) {
+  return `echo "== VCClient runtime gestionado (supervisado por el endpoint server) =="
+VCCLIENT_DIST_DIR=${shQuote(modelPaths.vcclientDistDir)}
+VCCLIENT_BIN="$VCCLIENT_DIST_DIR/main"
+VCCLIENT_DIST_URL=${shQuote(modelPaths.vcclientDistUrl || "")}
+VCCLIENT_DIST_SHA256=${shQuote(modelPaths.vcclientDistSha256 || "")}
+mkdir -p "$VCCLIENT_DIST_DIR"
+if [ -n "$VCCLIENT_DIST_URL" ] && [ ! -x "$VCCLIENT_BIN" ]; then
+  echo "Descargando dist de VCClient desde $VCCLIENT_DIST_URL"
+  TMP_ARCHIVE="$(mktemp -t vcclient-dist)"
+  curl -fL --retry 3 -o "$TMP_ARCHIVE" "$VCCLIENT_DIST_URL"
+  if [ -n "$VCCLIENT_DIST_SHA256" ]; then
+    ACTUAL_SHA=$(shasum -a 256 "$TMP_ARCHIVE" | awk '{print $1}')
+    if [ "$ACTUAL_SHA" != "$VCCLIENT_DIST_SHA256" ]; then
+      echo "error: sha256 del dist de VCClient no coincide (got $ACTUAL_SHA)." >&2
+      rm -f "$TMP_ARCHIVE"; exit 1
+    fi
+    echo "sha256 del dist verificado."
+  else
+    echo "warn: sin --vcclient000-dist-sha256; se omite verificación de integridad."
+  fi
+  case "$VCCLIENT_DIST_URL" in
+    *.zip) unzip -o "$TMP_ARCHIVE" -d "$VCCLIENT_DIST_DIR" ;;
+    *.tar.gz|*.tgz) tar xzf "$TMP_ARCHIVE" -C "$VCCLIENT_DIST_DIR" ;;
+    *.tar) tar xf "$TMP_ARCHIVE" -C "$VCCLIENT_DIST_DIR" ;;
+    *) echo "warn: formato de archivo no reconocido; extrae manualmente $TMP_ARCHIVE en $VCCLIENT_DIST_DIR" ;;
+  esac
+  rm -f "$TMP_ARCHIVE"
+fi
+if [ -f "$VCCLIENT_BIN" ]; then
+  chmod +x "$VCCLIENT_BIN" 2>/dev/null || true
+  xattr -dr com.apple.quarantine "$VCCLIENT_DIST_DIR" 2>/dev/null || true
+  echo "VCClient dist listo: $VCCLIENT_BIN (VCCLIENT000_MANAGED=1; el endpoint server lo arranca/vigila/apaga)."
+else
+  echo "PENDIENTE MANUAL: coloca el dist de VCClient v2 (binario main + model_dir con el slot RVC) en:"
+  echo "  $VCCLIENT_DIST_DIR"
+  echo "  (o pasa --vcclient000-dist-url + --vcclient000-dist-sha256 para descargarlo/verificarlo aquí)."
+fi`;
+}
+
 function renderAppleInprocSetupScript(modelPaths) {
   const doctorCommand = `pnpm models:doctor -- --profile apple-silicon --env-file "${runtimeEnvPath}"`;
   const resolvedVcClientEndpoint = vcclientEndpoint || "http://127.0.0.1:18000";
-  const vcClientProbeSection = vcClientEndpointLooksLikeV1(
-    resolvedVcClientEndpoint,
-  )
-    ? `echo "== Probe VCClient v1 (POST /test) =="
+  const vcClientProbeSection = modelPaths.vcclientManaged
+    ? renderAppleVcClientManagedSection(modelPaths)
+    : vcClientEndpointLooksLikeV1(resolvedVcClientEndpoint)
+      ? `echo "== Probe VCClient v1 (POST /test) =="
 if curl -fsS -m 5 -X POST -H 'content-type: application/json' \\
   -d "{\\"timestamp\\":0,\\"buffer\\":\\"$WOKADA_BUFFER\\"}" \\
   "$WOKADA_ENDPOINT" | grep -q changedVoiceBase64; then
@@ -1337,7 +1456,7 @@ if curl -fsS -m 5 -X POST -H 'content-type: application/json' \\
 else
   echo "warn: VCClient v1 (w-okada) no respondió en $WOKADA_ENDPOINT; arráncalo con un slot RVC cargado antes del demo."
 fi`
-    : `echo "== Probe VCClient v2 (GET /api/hello) =="
+      : `echo "== Probe VCClient v2 (GET /api/hello) =="
 if curl -fsS -m 5 "$WOKADA_HEALTH_ENDPOINT" | grep -qiE 'vcclient|w-okada|cute voice'; then
   echo "VCClient v2 responde en $WOKADA_HEALTH_ENDPOINT"
   echo "nota: la conversion real usa POST $WOKADA_ENDPOINT/api/voice-changer/convert_chunk (multipart waveform Float32 LE; ver engines/voice_wokada.py)."
@@ -1416,12 +1535,49 @@ ${doctorCommand}
 `;
 }
 
+function renderWindowsVcClientManagedSection(modelPaths) {
+  // Windows-specific (untested on this Mac): main.exe, Expand-Archive for zips,
+  // no quarantine step; taskkill /T handles teardown in the supervisor.
+  return `Write-Host "== VCClient runtime gestionado (supervisado por el endpoint server) =="
+$VcClientDistDir = ${psQuote(modelPaths.vcclientDistDir)}
+$VcClientBin = Join-Path $VcClientDistDir "main.exe"
+$VcClientDistUrl = ${psQuote(modelPaths.vcclientDistUrl || "")}
+$VcClientDistSha = ${psQuote(modelPaths.vcclientDistSha256 || "")}
+New-Item -ItemType Directory -Force -Path $VcClientDistDir | Out-Null
+if ($VcClientDistUrl -and !(Test-Path $VcClientBin)) {
+  Write-Host "Descargando dist de VCClient desde $VcClientDistUrl"
+  $TmpArchive = Join-Path $env:TEMP "vcclient-dist.zip"
+  Invoke-WebRequest -Uri $VcClientDistUrl -OutFile $TmpArchive
+  if ($VcClientDistSha) {
+    $ActualSha = (Get-FileHash -Algorithm SHA256 $TmpArchive).Hash.ToLowerInvariant()
+    if ($ActualSha -ne $VcClientDistSha.ToLowerInvariant()) {
+      Remove-Item $TmpArchive -Force
+      throw "sha256 del dist de VCClient no coincide (got $ActualSha)."
+    }
+    Write-Host "sha256 del dist verificado."
+  } else {
+    Write-Host "warn: sin --vcclient000-dist-sha256; se omite verificacion de integridad."
+  }
+  Expand-Archive -Path $TmpArchive -DestinationPath $VcClientDistDir -Force
+  Remove-Item $TmpArchive -Force
+}
+if (Test-Path $VcClientBin) {
+  Write-Host "VCClient dist listo: $VcClientBin (VCCLIENT000_MANAGED=1; el endpoint server lo arranca/vigila/apaga)."
+} else {
+  Write-Host "PENDIENTE MANUAL: coloca el dist de VCClient v2 (main.exe + model_dir con el slot RVC) en:"
+  Write-Host "  $VcClientDistDir"
+  Write-Host "  (o pasa --vcclient000-dist-url + --vcclient000-dist-sha256 para descargarlo/verificarlo aqui)."
+}`;
+}
+
 function renderWindowsInprocSetupScript(modelPaths) {
   const doctorCommand = `pnpm models:doctor -- --profile windows-nvidia --env-file "${runtimeEnvPath}"`;
   const resolvedVcClientEndpoint = vcclientEndpoint || "http://127.0.0.1:18000";
   const vcClientIsV1 = vcClientEndpointLooksLikeV1(resolvedVcClientEndpoint);
-  const vcClientProbeSection = vcClientIsV1
-    ? `Write-Host "== Probe VCClient v1 (POST /test) =="
+  const vcClientProbeSection = modelPaths.vcclientManaged
+    ? renderWindowsVcClientManagedSection(modelPaths)
+    : vcClientIsV1
+      ? `Write-Host "== Probe VCClient v1 (POST /test) =="
 try {
   $Body = '{"timestamp":0,"buffer":"' + $WokadaBuffer + '"}'
   $Response = Invoke-RestMethod -Method Post -Uri $WokadaEndpoint -ContentType 'application/json' -Body $Body -TimeoutSec 5
@@ -1433,7 +1589,7 @@ try {
 } catch {
   Write-Host "warn: VCClient v1 (w-okada) no respondió en $WokadaEndpoint; arráncalo con un slot RVC cargado antes del demo."
 }`
-    : `Write-Host "== Probe VCClient v2 (GET /api/hello) =="
+      : `Write-Host "== Probe VCClient v2 (GET /api/hello) =="
 try {
   $Hello = Invoke-RestMethod -Method Get -Uri $WokadaHealthEndpoint -TimeoutSec 5
   $HelloText = ($Hello | ConvertTo-Json -Compress).ToLowerInvariant()
@@ -1804,6 +1960,13 @@ function tinyJpeg() {
 
 function defaultWorkspaceRoot(selectedProfile) {
   return selectedProfile === "apple-silicon" ? "~/models" : "C:\\models";
+}
+
+function defaultVcClientDistDir(selectedProfile, root) {
+  // Managed runtime: the VCClient dist (binary + model_dir) lives under the
+  // workstation workspace so the setup script can seed it and the runtime env
+  // can point VCCLIENT000_DIST_DIR at it.
+  return joinProfilePath(root, "vcclient/dist");
 }
 
 function defaultVcClientEndpoint(selectedProfile) {

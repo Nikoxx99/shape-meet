@@ -247,6 +247,26 @@ function renderInprocRuntimeEnv(input) {
       "VCCLIENT000_HTTP_MODE",
       input.modelEnv.VCCLIENT000_HTTP_MODE,
     ),
+    ...(isTruthyEnv(input.modelEnv.VCCLIENT000_MANAGED)
+      ? [
+          "# Runtime gestionado: el endpoint server supervisa VCClient v2 (arranca,",
+          "# vigila, relanza con backoff, apaga limpio; ver engines/vcclient_supervisor.py).",
+          `VCCLIENT000_MANAGED=${input.modelEnv.VCCLIENT000_MANAGED}`,
+          ...optionalLine(
+            "VCCLIENT000_DIST_DIR",
+            input.modelEnv.VCCLIENT000_DIST_DIR,
+          ),
+          ...optionalLine("VCCLIENT000_PORT", input.modelEnv.VCCLIENT000_PORT),
+          ...optionalLine(
+            "VCCLIENT000_BOOT_TIMEOUT_SECS",
+            input.modelEnv.VCCLIENT000_BOOT_TIMEOUT_SECS,
+          ),
+        ]
+      : [
+          "# VCCLIENT000_MANAGED=1 + VCCLIENT000_DIST_DIR=<dir con main> para que el",
+          "# endpoint server supervise VCClient en vez de arrancarlo a mano.",
+          "# VCCLIENT000_MANAGED=",
+        ]),
     "",
   ].join("\n");
 }
@@ -367,6 +387,12 @@ function resolveModelEnv() {
     VCCLIENT000_HTTP_ENDPOINT: "--vcclient000-http-endpoint",
     VCCLIENT000_HTTP_MODE: "--vcclient000-http-mode",
     VCCLIENT000_TIMEOUT_SECS: "--vcclient000-timeout",
+    // Managed runtime (engines/vcclient_supervisor.py): the endpoint server
+    // supervises VCClient itself instead of talking to a hand-started server.
+    VCCLIENT000_MANAGED: "--vcclient000-managed",
+    VCCLIENT000_DIST_DIR: "--vcclient000-dist-dir",
+    VCCLIENT000_PORT: "--vcclient000-port",
+    VCCLIENT000_BOOT_TIMEOUT_SECS: "--vcclient000-boot-timeout",
   };
 
   // El default de VCCLIENT000_HTTP_ENDPOINT/MODE en workstationProfileDefaults
@@ -406,7 +432,22 @@ function resolveModelEnv() {
       engineMode === "inproc" ? "auto" : "w-okada-rest";
   }
 
+  // Managed runtime: the endpoint server supervises VCClient (v2) itself, so
+  // normalise the port (default 18000) and derive the loopback endpoint/mode.
+  // The voice engine still ignores the endpoint env in managed mode (it targets
+  // the supervised server), but keeping them coherent aids the doctor/diagnostics.
+  if (engineMode === "inproc" && isTruthyEnv(values.VCCLIENT000_MANAGED)) {
+    const port = values.VCCLIENT000_PORT || "18000";
+    values.VCCLIENT000_PORT = port;
+    values.VCCLIENT000_HTTP_ENDPOINT = `http://127.0.0.1:${port}`;
+    values.VCCLIENT000_HTTP_MODE = "vcclient2";
+  }
+
   return values;
+}
+
+function isTruthyEnv(value) {
+  return /^(1|true|yes|on)$/i.test(String(value ?? "").trim());
 }
 
 function defaultWrapperPassthrough() {

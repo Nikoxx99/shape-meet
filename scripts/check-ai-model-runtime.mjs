@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import {
+  accessSync,
+  constants as fsConstants,
+  existsSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -518,16 +524,79 @@ function checkInprocWeights() {
     }
   }
 
+  if (managedVoiceEnabled()) {
+    // Managed runtime: the endpoint server supervises VCClient itself, so the
+    // presence of a live external endpoint is irrelevant. Validate the dist.
+    checkManagedVoiceRuntime();
+    return;
+  }
+
   const voiceEndpoint = inprocVoiceEndpoint();
   if (!voiceEndpoint) {
     issue(
       "VCCLIENT000_HTTP_ENDPOINT no configurado; el cliente persistente de voz habla con VCClient/w-okada (v2 convert_chunk o v1 /test, VCCLIENT000_HTTP_MODE=auto detecta cuál).",
     );
     nextStep(
-      "Arranca VCClient con un slot RVC cargado y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18000 (v2, default) o http://127.0.0.1:18888/test (w-okada v1 legado).",
+      "Arranca VCClient con un slot RVC cargado y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18000 (v2, default) o http://127.0.0.1:18888/test (w-okada v1 legado). O activa el runtime gestionado: VCCLIENT000_MANAGED=1 + VCCLIENT000_DIST_DIR.",
     );
   } else {
     checkUrl(voiceEndpoint, "VCCLIENT000_HTTP_ENDPOINT");
+  }
+}
+
+function managedVoiceEnabled() {
+  return envFlag("VCCLIENT000_MANAGED");
+}
+
+function checkManagedVoiceRuntime() {
+  const distDir = env.VCCLIENT000_DIST_DIR?.trim();
+  if (!distDir) {
+    issue(
+      "VCCLIENT000_MANAGED=1 pero VCCLIENT000_DIST_DIR no está configurado (dir con el binario main de VCClient).",
+    );
+    nextStep(
+      "Configura VCCLIENT000_DIST_DIR al dir dist de VCClient v2 (contiene main/main.exe, model_dir, settings).",
+    );
+    return;
+  }
+
+  const resolvedDist = resolvePath(distDir);
+  const binaryName = platform() === "win32" ? "main.exe" : "main";
+  const binaryPath = join(resolvedDist, binaryName);
+  if (!existsSync(binaryPath)) {
+    issue(
+      `binario VCClient no encontrado: ${binaryPath} (VCCLIENT000_MANAGED requiere el dist real presente).`,
+    );
+    nextStep(
+      "Instala/descarga el dist de VCClient v2 y apunta VCCLIENT000_DIST_DIR a su carpeta (con main y model_dir).",
+    );
+    return;
+  }
+
+  if (platform() !== "win32") {
+    try {
+      accessSync(binaryPath, fsConstants.X_OK);
+    } catch {
+      issue(
+        `binario VCClient no es ejecutable: ${binaryPath} (chmod +x y quita la cuarentena).`,
+      );
+      nextStep(
+        "Hazlo ejecutable y quita la cuarentena (macOS): chmod +x main; xattr -dr com.apple.quarantine <dist>.",
+      );
+      return;
+    }
+  }
+
+  const port = env.VCCLIENT000_PORT?.trim() || "18000";
+  ok(`VCClient gestionado: binario listo ${binaryPath} (puerto ${port}).`);
+
+  const modelDir = join(resolvedDist, "model_dir");
+  if (existsSync(modelDir)) {
+    ok(`VCClient model_dir presente: ${modelDir}`);
+  } else {
+    warn(
+      `VCClient model_dir no existe en ${resolvedDist}; el primer arranque descargará módulos/modelos (~2 GB). Pre-siembra el dist para evitar la espera.`,
+    );
   }
 }
 
@@ -1565,8 +1634,36 @@ function buildInprocBackgroundReadiness() {
 function buildInprocVoiceReadiness() {
   const issues = [];
   const warnings = [];
-  const endpoint = inprocVoiceEndpoint();
 
+  if (managedVoiceEnabled()) {
+    // Managed runtime: the endpoint server supervises VCClient; validate the
+    // dist (binary present + executable) instead of a live external endpoint.
+    const distDir = env.VCCLIENT000_DIST_DIR?.trim();
+    if (!distDir) {
+      issues.push(
+        "VCCLIENT000_MANAGED=1 pero VCCLIENT000_DIST_DIR no está configurado (dir con el binario main de VCClient).",
+      );
+    } else {
+      const binaryName = platform() === "win32" ? "main.exe" : "main";
+      const binaryPath = join(resolvePath(distDir), binaryName);
+      if (!existsSync(binaryPath)) {
+        issues.push(
+          `binario VCClient no encontrado: ${binaryPath} (VCCLIENT000_MANAGED requiere el dist real).`,
+        );
+      } else if (platform() !== "win32") {
+        try {
+          accessSync(binaryPath, fsConstants.X_OK);
+        } catch {
+          issues.push(`binario VCClient no ejecutable: ${binaryPath}.`);
+        }
+      }
+    }
+    return readinessStage("voice", "Cambio de voz", issues, warnings, {
+      allowPassthrough: false,
+    });
+  }
+
+  const endpoint = inprocVoiceEndpoint();
   if (!endpoint) {
     issues.push(
       "VCCLIENT000_HTTP_ENDPOINT no configurado (cliente persistente VCClient/w-okada; v2 convert_chunk o v1 /test).",
