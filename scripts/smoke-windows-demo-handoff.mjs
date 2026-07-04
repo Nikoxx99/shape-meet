@@ -54,6 +54,19 @@ try {
     "sentry should be configured",
   );
   assert(report.diagnosticScript, "diagnostic script missing from report");
+  assert(report.aiRuntimeConfig, "ai runtime config missing from report");
+  assert(
+    report.installAiRuntimeScript,
+    "install ai runtime script missing from report",
+  );
+  assert(
+    report.modelEndpointScript,
+    "model endpoint script missing from report",
+  );
+  assert(
+    report.config.modelEndpointBaseUrl === "http://127.0.0.1:9100",
+    "model endpoint base URL mismatch",
+  );
 
   const runtime = read("shape-meet.env");
   assert(
@@ -75,6 +88,24 @@ try {
     "runtime leaked LiveKit secret",
   );
 
+  const aiRuntime = read("shape-ai-runtime.env");
+  assert(
+    aiRuntime.includes("SHAPE_MODEL_RUNTIME_PRESET=local-endpoints"),
+    "ai runtime preset missing",
+  );
+  assert(
+    aiRuntime.includes(
+      "SHAPE_VIDEO_FRAME_ENDPOINT=http://127.0.0.1:9100/video-frame",
+    ),
+    "ai runtime combined video endpoint missing",
+  );
+  assert(
+    aiRuntime.includes(
+      "SHAPE_AUDIO_CHUNK_ENDPOINT=http://127.0.0.1:9100/voice",
+    ),
+    "ai runtime audio endpoint missing",
+  );
+
   const script = read("Build-ShapeMeetWindows.ps1");
   assert(script.includes("pnpm build:desktop"), "build command missing");
   assert(script.includes("pnpm desktop:bundle:check"), "bundle check missing");
@@ -85,6 +116,14 @@ try {
   assert(script.includes("$env:LOCALAPPDATA"), "runtime install path missing");
 
   const diagnosticScript = read("Test-ShapeMeetWindows.ps1");
+  assert(
+    diagnosticScript.includes("AiRuntimeConfig"),
+    "ai runtime parameter missing from diagnostic script",
+  );
+  assert(
+    diagnosticScript.includes("pnpm models:doctor"),
+    "models doctor command missing from diagnostic script",
+  );
   assert(
     diagnosticScript.includes("pnpm demo:doctor -- --no-docker --strict"),
     "demo doctor command missing from diagnostic script",
@@ -104,6 +143,26 @@ try {
     "debug bundle command missing from diagnostic script",
   );
 
+  const installAiRuntimeScript = read("Install-ShapeMeetAiRuntime.ps1");
+  assert(
+    installAiRuntimeScript.includes("shape-ai-runtime.env"),
+    "install AI runtime script did not copy runtime env",
+  );
+  assert(
+    installAiRuntimeScript.includes("$env:LOCALAPPDATA"),
+    "install AI runtime script did not target app data",
+  );
+
+  const endpointScript = read("Start-ShapeMeetModelEndpoint.ps1");
+  assert(
+    endpointScript.includes("pnpm @endpointArgs"),
+    "model endpoint script did not start pnpm endpoint",
+  );
+  assert(
+    endpointScript.includes("--demo-effects"),
+    "model endpoint script did not support demo effects",
+  );
+
   const readme = read("README.md");
   assert(
     readme.includes("Shape Meet Windows Demo Handoff"),
@@ -114,6 +173,14 @@ try {
     "diagnostic script missing from readme",
   );
   assert(readme.includes("Windows AMD Ryzen"), "limited Windows note missing");
+  assert(
+    readme.includes("Start-ShapeMeetModelEndpoint.ps1"),
+    "model endpoint script missing from readme",
+  );
+  assert(
+    readme.includes("-DemoEffects"),
+    "demo effects path missing from readme",
+  );
   assert(existsSync(join(tempDir, "manifest.json")), "manifest missing");
 
   console.log("windows demo handoff smoke ok");

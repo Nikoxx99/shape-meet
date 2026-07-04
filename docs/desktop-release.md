@@ -78,11 +78,15 @@ pnpm desktop:windows-handoff -- \
   --sentry-dsn "https://..."
 ```
 
-El paquete queda en `output/windows-demo-handoff/...` e incluye
-`Build-ShapeMeetWindows.ps1` y `shape-meet.env`. En Windows, desde la raiz del
-repo, ejecuta ese PowerShell para instalar el runtime config local, construir el
+El paquete queda en `output/windows-demo-handoff/...` e incluye `shape-meet.env`,
+`shape-ai-runtime.env`, `Build-ShapeMeetWindows.ps1`,
+`Test-ShapeMeetWindows.ps1`, `Install-ShapeMeetAiRuntime.ps1` y
+`Start-ShapeMeetModelEndpoint.ps1`. En Windows, desde la raiz del repo, ejecuta
+el PowerShell de build para instalar el runtime config local, construir el
 sidecar Windows, generar el instalador Tauri y producir
-`desktop:handoff --local-bundle --copy-local`.
+`desktop:handoff --local-bundle --copy-local`. En el PC AMD puedes arrancar el
+endpoint con `Start-ShapeMeetModelEndpoint.ps1 -DemoEffects`; en la RTX final
+usa el mismo script sin `-DemoEffects` despues de instalar los modelos reales.
 
 Desde GitHub Actions:
 

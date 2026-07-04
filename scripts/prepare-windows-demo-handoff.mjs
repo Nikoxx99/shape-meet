@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
+const skipModelRuntime = args.includes("--skip-model-runtime");
 const outputDir = resolve(
   argValue("--out") ??
     join("output", "windows-demo-handoff", safeTimestamp(new Date())),
@@ -69,23 +70,63 @@ const config = {
     env.VITE_SENTRY_DEBUG ??
     env.SENTRY_DEBUG ??
     "true",
+  modelProfile:
+    argValue("--model-profile") ??
+    argValue("--profile") ??
+    env.SHAPE_MODEL_WORKSTATION_PROFILE ??
+    "windows-nvidia",
+  modelRuntimePreset:
+    argValue("--model-runtime-preset") ??
+    argValue("--runtime-preset") ??
+    env.SHAPE_MODEL_RUNTIME_PRESET ??
+    "local-endpoints",
+  modelEndpointHost:
+    argValue("--model-endpoint-host") ??
+    env.SHAPE_MODEL_ENDPOINT_HOST ??
+    "127.0.0.1",
+  modelEndpointPort:
+    argValue("--model-endpoint-port") ??
+    env.SHAPE_MODEL_ENDPOINT_PORT ??
+    "9100",
 };
+config.modelEndpointBaseUrl = `http://${config.modelEndpointHost}:${config.modelEndpointPort}`;
 
 mkdirSync(outputDir, { recursive: true });
 
 const runtimeConfigPath = join(outputDir, "shape-meet.env");
+const aiRuntimeConfigPath = join(outputDir, "shape-ai-runtime.env");
 const scriptPath = join(outputDir, "Build-ShapeMeetWindows.ps1");
 const diagnosticScriptPath = join(outputDir, "Test-ShapeMeetWindows.ps1");
+const installAiRuntimeScriptPath = join(
+  outputDir,
+  "Install-ShapeMeetAiRuntime.ps1",
+);
+const modelEndpointScriptPath = join(
+  outputDir,
+  "Start-ShapeMeetModelEndpoint.ps1",
+);
 const readmePath = join(outputDir, "README.md");
 const manifestPath = join(outputDir, "manifest.json");
 const runtimeResult = writeRuntimeConfig(runtimeConfigPath);
+const aiRuntimeResult = skipModelRuntime
+  ? {
+      skipped: true,
+      status: 0,
+      command: "node scripts/prepare-ai-runtime-models.mjs",
+      stdout: "",
+      stderr: "",
+    }
+  : writeAiRuntimeConfig(aiRuntimeConfigPath);
 const manifest = {
-  ok: runtimeResult.status === 0,
+  ok: runtimeResult.status === 0 && aiRuntimeResult.status === 0,
   generatedAt: new Date().toISOString(),
   outputDir,
   runtimeConfig: runtimeConfigPath,
+  aiRuntimeConfig: skipModelRuntime ? null : aiRuntimeConfigPath,
   buildScript: scriptPath,
   diagnosticScript: diagnosticScriptPath,
+  installAiRuntimeScript: skipModelRuntime ? null : installAiRuntimeScriptPath,
+  modelEndpointScript: skipModelRuntime ? null : modelEndpointScriptPath,
   readme: readmePath,
   manifest: manifestPath,
   config: {
@@ -97,8 +138,12 @@ const manifest = {
     sentryEnvironment: config.sentryEnvironment,
     sentryRelease: config.sentryRelease,
     sentryDebug: config.sentryDebug,
+    modelProfile: config.modelProfile,
+    modelRuntimePreset: config.modelRuntimePreset,
+    modelEndpointBaseUrl: config.modelEndpointBaseUrl,
   },
   runtimeConfigCommand: runtimeResult,
+  aiRuntimeConfigCommand: aiRuntimeResult,
   expectedWindowsArtifacts: [
     "apps/desktop/src-tauri/target/release/bundle/**/*.msi",
     "apps/desktop/src-tauri/target/release/bundle/**/*.exe",
@@ -109,6 +154,10 @@ const manifest = {
 
 writeFileSync(scriptPath, windowsBuildScript());
 writeFileSync(diagnosticScriptPath, windowsDiagnosticScript());
+if (!skipModelRuntime) {
+  writeFileSync(installAiRuntimeScriptPath, windowsInstallAiRuntimeScript());
+  writeFileSync(modelEndpointScriptPath, windowsModelEndpointScript());
+}
 writeFileSync(readmePath, readme(manifest));
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
@@ -118,6 +167,8 @@ if (json) {
   console.log("Shape Meet Windows demo handoff");
   console.log(`Output: ${outputDir}`);
   console.log(`Runtime config: ${runtimeConfigPath}`);
+  if (!skipModelRuntime)
+    console.log(`AI runtime config: ${aiRuntimeConfigPath}`);
   console.log(`Build script: ${scriptPath}`);
   console.log(`Diagnostic script: ${diagnosticScriptPath}`);
   console.log(`Manifest: ${manifestPath}`);
@@ -152,6 +203,34 @@ function writeRuntimeConfig(outPath) {
   if (config.sentryDsn) {
     commandArgs.push("--sentry-dsn", config.sentryDsn);
   }
+
+  const result = spawnSync(process.execPath, commandArgs, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+
+  return {
+    command: `node ${commandArgs.join(" ")}`,
+    status: result.status,
+    stdout: trim(result.stdout),
+    stderr: trim(result.stderr),
+  };
+}
+
+function writeAiRuntimeConfig(outPath) {
+  const commandArgs = [
+    "scripts/prepare-ai-runtime-models.mjs",
+    "--out",
+    outPath,
+    "--profile",
+    config.modelProfile,
+    "--preset",
+    config.modelRuntimePreset,
+    "--model-endpoint-host",
+    config.modelEndpointHost,
+    "--model-endpoint-port",
+    config.modelEndpointPort,
+  ];
 
   const result = spawnSync(process.execPath, commandArgs, {
     cwd: process.cwd(),
@@ -235,12 +314,86 @@ Write-Host "Abre la app, entra a Prueba de equipo y usa Bundle debug / Evento Se
 `;
 }
 
+function windowsInstallAiRuntimeScript() {
+  return `param(
+  [string]$AiRuntimeConfig = (Join-Path $PSScriptRoot "shape-ai-runtime.env")
+)
+
+$ErrorActionPreference = "Stop"
+
+if (-not (Test-Path $AiRuntimeConfig)) {
+  throw "No encontre runtime IA: $AiRuntimeConfig"
+}
+
+$appData = Join-Path $env:LOCALAPPDATA "Shape Meet"
+New-Item -ItemType Directory -Force -Path $appData | Out-Null
+Copy-Item -Force $AiRuntimeConfig (Join-Path $appData "shape-ai-runtime.env")
+
+Write-Host "Runtime IA instalado en $appData\\shape-ai-runtime.env"
+Write-Host "Reinicia Shape Meet si ya estaba abierto."
+`;
+}
+
+function windowsModelEndpointScript() {
+  return `param(
+  [string]$AiRuntimeConfig = (Join-Path $PSScriptRoot "shape-ai-runtime.env"),
+  [switch]$DemoEffects,
+  [switch]$Passthrough
+)
+
+$ErrorActionPreference = "Stop"
+
+function Assert-Command {
+  param([string]$Name)
+  if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
+    throw "$Name no esta instalado o no esta en PATH."
+  }
+}
+
+Assert-Command "node"
+Assert-Command "pnpm"
+Assert-Command "python"
+
+if (-not (Test-Path $AiRuntimeConfig)) {
+  throw "No encontre runtime IA: $AiRuntimeConfig"
+}
+
+$env:SHAPE_AI_RUNTIME_ENV_FILE = (Resolve-Path $AiRuntimeConfig).Path
+$env:SHAPE_MODEL_ENDPOINT_HOST = "${config.modelEndpointHost}"
+$env:SHAPE_MODEL_ENDPOINT_PORT = "${config.modelEndpointPort}"
+
+$endpointArgs = @(
+  "models:endpoint",
+  "--",
+  "--host",
+  "${config.modelEndpointHost}",
+  "--port",
+  "${config.modelEndpointPort}"
+)
+if ($DemoEffects) {
+  $endpointArgs += "--demo-effects"
+}
+if ($Passthrough) {
+  $endpointArgs += "--passthrough"
+}
+
+Write-Host "Runtime IA: $env:SHAPE_AI_RUNTIME_ENV_FILE"
+Write-Host "Endpoint modelos: ${config.modelEndpointBaseUrl}"
+Write-Host "Usa -DemoEffects en un PC sin modelos reales para probar contrato visual/audio."
+pnpm @endpointArgs
+`;
+}
+
 function windowsDiagnosticScript() {
   return `param(
   [string]$RuntimeConfig = (Join-Path $PSScriptRoot "shape-meet.env"),
+  [string]$AiRuntimeConfig = (Join-Path $PSScriptRoot "shape-ai-runtime.env"),
   [switch]$InstallRuntimeConfig,
+  [switch]$InstallAiRuntimeConfig,
   [switch]$SkipSentryLive,
-  [switch]$SkipDemoPrepare
+  [switch]$SkipDemoPrepare,
+  [switch]$SkipModelRuntime,
+  [switch]$RunModelPreflight
 )
 
 $ErrorActionPreference = "Stop"
@@ -308,6 +461,14 @@ function Copy-RuntimeConfig {
   Write-Host "Runtime config instalado en $appData\\shape-meet.env"
 }
 
+function Copy-AiRuntimeConfig {
+  param([string]$Path)
+  $appData = Join-Path $env:LOCALAPPDATA "Shape Meet"
+  New-Item -ItemType Directory -Force -Path $appData | Out-Null
+  Copy-Item -Force $Path (Join-Path $appData "shape-ai-runtime.env")
+  Write-Host "Runtime IA instalado en $appData\\shape-ai-runtime.env"
+}
+
 function Set-DemoEnvAliases {
   if ($env:VITE_SHAPE_API_URL) {
     $env:SHAPE_DEMO_API_URL = $env:VITE_SHAPE_API_URL
@@ -340,6 +501,7 @@ function Mask-Dsn {
 
 Write-Host "Shape Meet Windows demo diagnostics"
 Write-Host "Runtime config: $RuntimeConfig"
+Write-Host "Runtime IA: $AiRuntimeConfig"
 
 Assert-Command "node"
 Assert-Command "pnpm"
@@ -352,12 +514,19 @@ Set-DemoEnvAliases
 if ($InstallRuntimeConfig) {
   Copy-RuntimeConfig $RuntimeConfig
 }
+if (-not $SkipModelRuntime -and (Test-Path $AiRuntimeConfig)) {
+  $env:SHAPE_AI_RUNTIME_ENV_FILE = (Resolve-Path $AiRuntimeConfig).Path
+  if ($InstallAiRuntimeConfig) {
+    Copy-AiRuntimeConfig $AiRuntimeConfig
+  }
+}
 
 Write-Host ""
 Write-Host "Runtime"
 Write-Host "- API/admin: $env:SHAPE_DEMO_API_URL"
 Write-Host "- Reuniones: $env:SHAPE_DEMO_APP_URL"
 Write-Host "- IA local: $env:SHAPE_DEMO_AI_URL"
+Write-Host "- Runtime IA modelos: $env:SHAPE_AI_RUNTIME_ENV_FILE"
 Write-Host "- Sentry: $(Mask-Dsn $env:SENTRY_DSN)"
 
 Invoke-Step "Sentry formato local" { pnpm check:sentry }
@@ -365,6 +534,12 @@ if (-not $SkipSentryLive) {
   Invoke-OptionalStep "Sentry live" { pnpm check:sentry:live }
 }
 Invoke-Step "Doctor desktop" { pnpm desktop:doctor -- --strict }
+if (-not $SkipModelRuntime -and $env:SHAPE_AI_RUNTIME_ENV_FILE) {
+  Invoke-Step "Doctor modelos" { pnpm models:doctor -- --env-file $env:SHAPE_AI_RUNTIME_ENV_FILE --profile ${config.modelProfile} --skip-wrapper-smoke }
+  if ($RunModelPreflight) {
+    Invoke-OptionalStep "Preflight modelos" { pnpm models:preflight -- --env-file $env:SHAPE_AI_RUNTIME_ENV_FILE --timeout-ms 90000 }
+  }
+}
 Invoke-Step "Doctor demo endpoints" { pnpm demo:doctor -- --no-docker --strict }
 
 if (-not $SkipDemoPrepare) {
@@ -390,9 +565,14 @@ sidecar debe construirse en Windows para producir el instalador Windows.
 ## Contenido
 
 - \`shape-meet.env\`: runtime desktop sin secretos de LiveKit/Postgres.
+- \`shape-ai-runtime.env\`: runtime IA local para endpoint persistente.
 - \`Build-ShapeMeetWindows.ps1\`: build local Windows + handoff.
 - \`Test-ShapeMeetWindows.ps1\`: diagnostico de entorno, endpoints, Sentry,
   desktop doctor y bundle debug.
+- \`Install-ShapeMeetAiRuntime.ps1\`: instala el runtime IA en
+  \`%LOCALAPPDATA%\\Shape Meet\`.
+- \`Start-ShapeMeetModelEndpoint.ps1\`: levanta el endpoint local
+  \`${report.config.modelEndpointBaseUrl}\`.
 - \`manifest.json\`: resumen de URLs y comandos.
 
 ## Runtime
@@ -402,6 +582,8 @@ sidecar debe construirse en Windows para producir el instalador Windows.
 - IA local: ${report.config.aiUrl}
 - Host prellenado: ${report.config.hostIdentifier ?? "sin configurar"}
 - Sentry: ${report.config.sentryConfigured ? "configurado" : "sin DSN"}
+- Runtime modelos: ${report.config.modelRuntimePreset} (${report.config.modelProfile})
+- Endpoint modelos: ${report.config.modelEndpointBaseUrl}
 
 Si el admin corre en otra maquina de la LAN, genera este paquete con
 \`--api-url http://IP_LAN:13000 --meeting-url http://IP_LAN:1420\`.
@@ -441,6 +623,28 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 Quita \`-SkipSentryLive\` cuando tengas una DSN que acepte ingesta. Si falla con
 \`ProjectId\`, la DSN no corresponde al proyecto/key correcto de Sentry.
+
+## Runtime IA local
+
+En el Windows AMD Ryzen sin GPU NVIDIA, usa efectos demo para validar el contrato
+sin cargar modelos pesados:
+
+\`\`\`powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\\${relativePath(installAiRuntimeScriptPath)}
+.\\${relativePath(modelEndpointScriptPath)} -DemoEffects
+\`\`\`
+
+En la workstation RTX final, ejecuta el mismo endpoint sin \`-DemoEffects\`
+despues de instalar FaceFusion, BackgroundMattingV2 y vcclient000:
+
+\`\`\`powershell
+.\\${relativePath(modelEndpointScriptPath)}
+\`\`\`
+
+La app Tauri carga \`%LOCALAPPDATA%\\Shape Meet\\shape-ai-runtime.env\` al
+iniciar el sidecar gestionado. Si la app ya estaba abierta, reiniciala despues
+de instalar el runtime IA.
 
 ## Debug esperado
 
