@@ -28,6 +28,8 @@ const remoteTimeoutMs =
 const remoteCommandTimeoutMs = argValue("--remote-command-timeout-ms");
 const remoteApiFlow =
   args.includes("--remote-api-flow") || args.includes("--api-flow");
+const remoteIdentityFlow =
+  args.includes("--remote-identity-flow") || args.includes("--identity-flow");
 const outputPath = argValue("--output");
 
 const report = {
@@ -40,6 +42,7 @@ const report = {
   remoteEnvFile,
   profile: profile ?? null,
   remoteApiFlow,
+  remoteIdentityFlow,
   steps: {},
   nextSteps: [],
 };
@@ -167,6 +170,7 @@ function runRemoteDemoCheck() {
   if (strict) commandArgs.push("--strict");
   if (remoteTimeoutMs) commandArgs.push("--timeout-ms", remoteTimeoutMs);
   if (remoteApiFlow) commandArgs.push("--api-flow");
+  if (remoteIdentityFlow) commandArgs.push("--identity-flow");
   return commandStep("Demo remoto", commandArgs, {
     timeout: remoteDemoCommandTimeout(),
   });
@@ -460,7 +464,8 @@ function positiveInteger(value, fallback) {
 
 function remoteDemoCommandTimeout() {
   const perCheckTimeout = positiveInteger(remoteTimeoutMs, 5000);
-  const fallback = perCheckTimeout * (remoteApiFlow ? 14 : 10) + 15_000;
+  const checks = 10 + (remoteApiFlow ? 4 : 0) + (remoteIdentityFlow ? 8 : 0);
+  const fallback = perCheckTimeout * checks + 15_000;
   return positiveInteger(remoteCommandTimeoutMs, fallback);
 }
 

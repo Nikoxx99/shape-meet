@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createSocket } from "node:dgram";
@@ -13,6 +13,8 @@ const skipNetwork = args.includes("--skip-network");
 const skipTurnutils = args.includes("--skip-turnutils");
 const apiFlow =
   args.includes("--api-flow") || args.includes("--check-api-flow");
+const identityFlow =
+  args.includes("--identity-flow") || args.includes("--check-identity-flow");
 const timeoutMs = Number(argValue("--timeout-ms") ?? "5000");
 const envFile = argValue("--env-file");
 const outputPath = argValue("--output");
@@ -65,6 +67,18 @@ const hostPassword =
   argValue("--host-password") ??
   env.SHAPE_REMOTE_HOST_PASSWORD ??
   env.HOST_BOOTSTRAP_PASSWORD;
+const adminIdentifier =
+  argValue("--admin-identifier") ??
+  argValue("--admin-email") ??
+  env.SHAPE_REMOTE_ADMIN_IDENTIFIER ??
+  env.SHAPE_REMOTE_ADMIN_EMAIL ??
+  env.ADMIN_BOOTSTRAP_EMAIL ??
+  hostIdentifier;
+const adminPassword =
+  argValue("--admin-password") ??
+  env.SHAPE_REMOTE_ADMIN_PASSWORD ??
+  env.ADMIN_BOOTSTRAP_PASSWORD ??
+  hostPassword;
 
 await main();
 
@@ -75,6 +89,7 @@ async function main() {
   if (!skipNetwork && issues.length === 0) {
     await runNetworkChecks();
     if (apiFlow) await checkAdminApiFlow();
+    if (identityFlow) await checkIdentityArtifactFlow();
   }
 
   const status =
@@ -146,6 +161,21 @@ function checkRequiredConfig() {
       issue(
         "config.api-flow-password",
         "Falta HOST_BOOTSTRAP_PASSWORD o --host-password para --api-flow.",
+      );
+    }
+  }
+
+  if (identityFlow) {
+    if (!adminIdentifier) {
+      issue(
+        "config.identity-flow-admin",
+        "Falta HOST_BOOTSTRAP_EMAIL, ADMIN_BOOTSTRAP_EMAIL o --admin-identifier para --identity-flow.",
+      );
+    }
+    if (!adminPassword) {
+      issue(
+        "config.identity-flow-password",
+        "Falta HOST_BOOTSTRAP_PASSWORD, ADMIN_BOOTSTRAP_PASSWORD o --admin-password para --identity-flow.",
       );
     }
   }
@@ -542,6 +572,273 @@ async function checkAdminApiFlow() {
   }
 }
 
+async function checkIdentityArtifactFlow() {
+  const loginStarted = Date.now();
+  let adminToken = null;
+  let adminUser = null;
+  let hostToken = null;
+  let hostUser = null;
+  let identityId = null;
+
+  try {
+    const login = await postAdminJson("/api/auth/host/login", {
+      identifier: adminIdentifier,
+      password: adminPassword,
+    });
+    adminToken = login?.session?.token;
+    adminUser = login?.session?.user ?? null;
+
+    if (!adminToken || adminUser?.rank !== "ADMIN") {
+      issue(
+        "api.identity-admin-login",
+        "Login admin no devolvió usuario ADMIN con session.token.",
+        loginStarted,
+      );
+      return;
+    }
+
+    ok(
+      "api.identity-admin-login",
+      "Login admin remoto ok para publicar identidades.",
+      loginStarted,
+    );
+  } catch (error) {
+    issue("api.identity-admin-login", errorMessage(error), loginStarted);
+    return;
+  }
+
+  const hostLoginStarted = Date.now();
+  try {
+    if (hostIdentifier && hostPassword) {
+      const login = await postAdminJson("/api/auth/host/login", {
+        identifier: hostIdentifier,
+        password: hostPassword,
+      });
+      hostToken = login?.session?.token;
+      hostUser = login?.session?.user ?? null;
+    } else {
+      hostToken = adminToken;
+      hostUser = adminUser;
+    }
+
+    if (!hostToken || !hostUser?.id) {
+      issue(
+        "api.identity-host-login",
+        "Login host no devolvió usuario destino con session.token.",
+        hostLoginStarted,
+      );
+      return;
+    }
+
+    ok(
+      "api.identity-host-login",
+      `Usuario destino para identidad: ${hostUser.email ?? hostUser.username ?? hostUser.id}.`,
+      hostLoginStarted,
+    );
+  } catch (error) {
+    issue("api.identity-host-login", errorMessage(error), hostLoginStarted);
+    return;
+  }
+
+  const createStarted = Date.now();
+  try {
+    const created = await postAdminMultipart(
+      "/api/admin/identities",
+      identityArtifactFormData(hostUser.id),
+      adminToken,
+    );
+    const identity = created?.identity;
+    identityId = identity?.id ?? null;
+
+    if (
+      !identityId ||
+      identity.status !== "AVAILABLE" ||
+      !identity.artifactUri ||
+      !identity.artifactSha256 ||
+      !identity.artifactSizeBytes
+    ) {
+      issue(
+        "api.identity-create",
+        "Create identity no devolvió identidad AVAILABLE con artefacto.",
+        createStarted,
+      );
+      return;
+    }
+
+    ok(
+      "api.identity-create",
+      `Identidad temporal creada con artefacto: ${identityId}.`,
+      createStarted,
+    );
+  } catch (error) {
+    issue("api.identity-create", errorMessage(error), createStarted);
+    return;
+  }
+
+  const pushStarted = Date.now();
+  try {
+    const pushed = await patchAdminJson(
+      `/api/admin/identities/${encodeURIComponent(identityId)}/delivery`,
+      { action: "push" },
+      adminToken,
+    );
+    const identity = pushed?.identity;
+
+    if (identity?.deliveryStatus !== "PUSHED") {
+      issue(
+        "api.identity-push",
+        "Push identity no devolvió deliveryStatus=PUSHED.",
+        pushStarted,
+      );
+      return;
+    }
+
+    ok("api.identity-push", "Identidad publicada para el host.", pushStarted);
+  } catch (error) {
+    issue("api.identity-push", errorMessage(error), pushStarted);
+    return;
+  }
+
+  const listStarted = Date.now();
+  try {
+    const listed = await getAdminJson("/api/host/identities", hostToken);
+    const identities = Array.isArray(listed?.identities)
+      ? listed.identities
+      : [];
+    const found = identities.find((identity) => identity.id === identityId);
+
+    if (!found) {
+      issue(
+        "api.identity-host-list",
+        "El host no ve la identidad publicada.",
+        listStarted,
+      );
+      return;
+    }
+
+    ok(
+      "api.identity-host-list",
+      "Host lista la identidad publicada.",
+      listStarted,
+    );
+  } catch (error) {
+    issue("api.identity-host-list", errorMessage(error), listStarted);
+    return;
+  }
+
+  const artifactStarted = Date.now();
+  try {
+    const resolved = await getAdminJson(
+      `/api/host/identities/${encodeURIComponent(identityId)}/artifact`,
+      hostToken,
+    );
+    const artifact = resolved?.artifact;
+    const downloadUrl = artifact?.downloadUrl;
+
+    if (
+      !downloadUrl ||
+      !artifact?.artifactSha256 ||
+      !artifact.artifactSizeBytes
+    ) {
+      issue(
+        "api.identity-artifact-resolve",
+        "Artifact endpoint no devolvió downloadUrl/sha/tamaño.",
+        artifactStarted,
+      );
+      return;
+    }
+
+    ok(
+      "api.identity-artifact-resolve",
+      "Host resolvió URL firmada del artefacto.",
+      artifactStarted,
+    );
+
+    await verifyIdentityArtifactDownload(downloadUrl, artifact);
+  } catch (error) {
+    issue(
+      "api.identity-artifact-resolve",
+      errorMessage(error),
+      artifactStarted,
+    );
+  } finally {
+    if (identityId && adminToken) {
+      await patchAdminJson(
+        `/api/admin/identities/${encodeURIComponent(identityId)}/status`,
+        { status: "REVOKED" },
+        adminToken,
+      ).catch((error) =>
+        warning(
+          "api.identity-cleanup",
+          `No se pudo revocar identidad temporal ${identityId}: ${errorMessage(error)}`,
+        ),
+      );
+    }
+  }
+}
+
+async function verifyIdentityArtifactDownload(downloadUrl, artifact) {
+  const started = Date.now();
+  const response = await fetchWithTimeout(downloadUrl, timeoutMs, {
+    headers: { accept: "application/octet-stream" },
+  });
+  const bytes = new Uint8Array(await response.arrayBuffer());
+
+  if (!response.ok) {
+    issue(
+      "api.identity-artifact-download",
+      `Descarga de artefacto devolvió HTTP ${response.status}.`,
+      started,
+    );
+    return;
+  }
+
+  if (bytes.byteLength !== artifact.artifactSizeBytes) {
+    issue(
+      "api.identity-artifact-download",
+      `Artefacto descargado pesa ${bytes.byteLength}; esperado ${artifact.artifactSizeBytes}.`,
+      started,
+    );
+    return;
+  }
+
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+
+  if (sha256 !== artifact.artifactSha256) {
+    issue(
+      "api.identity-artifact-download",
+      "SHA256 del artefacto descargado no coincide.",
+      started,
+    );
+    return;
+  }
+
+  ok(
+    "api.identity-artifact-download",
+    "Artefacto publicado descarga y valida SHA256.",
+    started,
+  );
+}
+
+function identityArtifactFormData(userId) {
+  const form = new FormData();
+  const bytes = new TextEncoder().encode(
+    `shape-meet-identity-check:${Date.now()}`,
+  );
+  const file = new File([bytes], "shape-identity-check.bin", {
+    type: "application/octet-stream",
+  });
+
+  form.set("userId", userId);
+  form.set("name", `Remote identity check ${new Date().toISOString()}`);
+  form.set("kind", "PHOTO_IDENTITY");
+  form.set("status", "AVAILABLE");
+  form.set("version", "check");
+  form.set("artifactFile", file);
+
+  return form;
+}
+
 async function postAdminJson(path, body, token = null) {
   const response = await fetchWithTimeout(`${adminUrl}${path}`, timeoutMs, {
     method: "POST",
@@ -552,6 +849,55 @@ async function postAdminJson(path, body, token = null) {
     },
     body: JSON.stringify(body),
   });
+  const text = await response.text();
+  const data = parseJson(text) ?? {};
+
+  if (!response.ok) {
+    const detail = data?.code
+      ? `${data.code}: ${data.error ?? text.slice(0, 180)}`
+      : (data?.error ?? text.slice(0, 180) ?? `HTTP ${response.status}`);
+    throw new Error(`HTTP ${response.status}: ${detail}`);
+  }
+
+  return data;
+}
+
+async function patchAdminJson(path, body, token = null) {
+  const response = await fetchWithTimeout(`${adminUrl}${path}`, timeoutMs, {
+    method: "PATCH",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  return jsonResponseOrThrow(response);
+}
+
+async function getAdminJson(path, token = null) {
+  const response = await fetchWithTimeout(`${adminUrl}${path}`, timeoutMs, {
+    headers: {
+      accept: "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  return jsonResponseOrThrow(response);
+}
+
+async function postAdminMultipart(path, form, token = null) {
+  const response = await fetchWithTimeout(`${adminUrl}${path}`, timeoutMs, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: form,
+  });
+  return jsonResponseOrThrow(response);
+}
+
+async function jsonResponseOrThrow(response) {
   const text = await response.text();
   const data = parseJson(text) ?? {};
 
@@ -785,7 +1131,9 @@ function errorMessage(error) {
 
 function redact(value) {
   let output = String(value);
-  for (const secret of [turnSecret, hostPassword].filter(Boolean)) {
+  for (const secret of [turnSecret, hostPassword, adminPassword].filter(
+    Boolean,
+  )) {
     output = output.replaceAll(secret, "[redacted]");
   }
   return output;

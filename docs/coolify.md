@@ -151,6 +151,7 @@ una máquina fuera del servidor:
 pnpm demo:remote:check -- \
   --env-file infra/shape-meet.production.env \
   --api-flow \
+  --identity-flow \
   --timeout-ms 8000 \
   --strict \
   --output output/remote-demo/shape-remote-demo.json
@@ -162,9 +163,12 @@ Si la máquina tiene
 `turnutils_uclient`, además prueba la autenticación TURN REST con el
 `LIVEKIT_TURN_SHARED_SECRET`. Con `--api-flow` también inicia sesión con
 `HOST_BOOTSTRAP_EMAIL` / `HOST_BOOTSTRAP_PASSWORD`, crea una reunión temporal,
-emite un token LiveKit de host y cierra esa reunión; úsalo después del seed
-inicial para validar el flujo real del demo. El archivo `--output` es seguro para soporte:
-incluye checks, latencias, dominios y puertos, pero no imprime secretos.
+emite un token LiveKit de host y cierra esa reunión. Con `--identity-flow`
+crea una identidad temporal con artefacto mínimo, la publica, la lista como host,
+resuelve la URL firmada y valida descarga + SHA256; úsalo después del seed
+inicial para validar el flujo real del demo. El archivo `--output` es seguro
+para soporte: incluye checks, latencias, dominios y puertos, pero no imprime
+secretos.
 
 La compuerta completa puede reenviar el mismo flujo remoto:
 
@@ -172,6 +176,7 @@ La compuerta completa puede reenviar el mismo flujo remoto:
 pnpm demo:real:check -- \
   --remote-env-file infra/shape-meet.production.env \
   --remote-api-flow \
+  --remote-identity-flow \
   --remote-timeout-ms 8000 \
   --include-desktop \
   --strict

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
@@ -23,7 +24,13 @@ const hostEmail = "admin@shape.test";
 const hostPassword = "RemoteCheck123!";
 const hostToken = "remote-check-host-token";
 const meetings = new Map();
+const identities = new Map();
+const identityArtifactBytes = Buffer.from("shape-meet-identity-artifact-smoke");
+const identityArtifactSha256 = createHash("sha256")
+  .update(identityArtifactBytes)
+  .digest("hex");
 let livekitUrlForToken = null;
+let adminBaseUrl = null;
 
 try {
   const admin = await listenHttp(async (request, response) => {
@@ -89,6 +96,156 @@ try {
         return;
       }
 
+      if (
+        request.method === "POST" &&
+        request.url === "/api/admin/identities"
+      ) {
+        if (!hasBearer(request, hostToken)) {
+          response.writeHead(401, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Sesión inválida." }));
+          return;
+        }
+
+        await drain(request);
+        const identity = {
+          id: "identity_remote_check",
+          userId: "host_remote_check",
+          name: "Remote identity check",
+          kind: "PHOTO_IDENTITY",
+          status: "AVAILABLE",
+          version: "check",
+          artifactUri:
+            "shape-artifact://local/remote-check/shape-identity-check.bin",
+          artifactSha256: identityArtifactSha256,
+          artifactSizeBytes: identityArtifactBytes.byteLength,
+          deliveryStatus: "READY",
+          ownerName: "Host Remote Check",
+          ownerEmail: hostEmail,
+        };
+        identities.set(identity.id, identity);
+        response.writeHead(201, { "content-type": "application/json" });
+        response.end(JSON.stringify({ identity }));
+        return;
+      }
+
+      const identityDeliveryMatch = request.url?.match(
+        /^\/api\/admin\/identities\/([^/]+)\/delivery$/,
+      );
+      if (request.method === "PATCH" && identityDeliveryMatch) {
+        if (!hasBearer(request, hostToken)) {
+          response.writeHead(401, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Sesión inválida." }));
+          return;
+        }
+
+        const identity = identities.get(
+          decodeURIComponent(identityDeliveryMatch[1]),
+        );
+        if (!identity) {
+          response.writeHead(404, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Rostro no encontrado." }));
+          return;
+        }
+
+        identity.deliveryStatus = "PUSHED";
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ identity }));
+        return;
+      }
+
+      const identityStatusMatch = request.url?.match(
+        /^\/api\/admin\/identities\/([^/]+)\/status$/,
+      );
+      if (request.method === "PATCH" && identityStatusMatch) {
+        if (!hasBearer(request, hostToken)) {
+          response.writeHead(401, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Sesión inválida." }));
+          return;
+        }
+
+        const identity = identities.get(
+          decodeURIComponent(identityStatusMatch[1]),
+        );
+        if (identity) identity.status = "REVOKED";
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ identity }));
+        return;
+      }
+
+      if (request.method === "GET" && request.url === "/api/host/identities") {
+        if (!hasBearer(request, hostToken)) {
+          response.writeHead(401, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Sesión inválida." }));
+          return;
+        }
+
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            identities: Array.from(identities.values()).filter(
+              (identity) =>
+                identity.status === "AVAILABLE" &&
+                identity.deliveryStatus === "PUSHED",
+            ),
+          }),
+        );
+        return;
+      }
+
+      const identityArtifactMatch = request.url?.match(
+        /^\/api\/host\/identities\/([^/]+)\/artifact$/,
+      );
+      if (request.method === "GET" && identityArtifactMatch) {
+        if (!hasBearer(request, hostToken)) {
+          response.writeHead(401, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Sesión inválida." }));
+          return;
+        }
+
+        const identity = identities.get(
+          decodeURIComponent(identityArtifactMatch[1]),
+        );
+        if (!identity) {
+          response.writeHead(404, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Artefacto no encontrado." }));
+          return;
+        }
+
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            artifact: {
+              ...identity,
+              downloadUrl: `${adminBaseUrl}/api/host/identities/${encodeURIComponent(identity.id)}/artifact/download?token=remote-check`,
+            },
+          }),
+        );
+        return;
+      }
+
+      const identityArtifactDownloadMatch = request.url?.match(
+        /^\/api\/host\/identities\/([^/]+)\/artifact\/download/,
+      );
+      if (request.method === "GET" && identityArtifactDownloadMatch) {
+        const identity = identities.get(
+          decodeURIComponent(identityArtifactDownloadMatch[1]),
+        );
+        if (!identity) {
+          response.writeHead(404, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Artefacto no encontrado." }));
+          return;
+        }
+
+        response.writeHead(200, {
+          "content-type": "application/octet-stream",
+          "content-length": String(identityArtifactBytes.byteLength),
+          "x-shape-artifact-sha256": identityArtifactSha256,
+          "x-shape-artifact-size": String(identityArtifactBytes.byteLength),
+        });
+        response.end(identityArtifactBytes);
+        return;
+      }
+
       const joinMatch = request.url?.match(
         /^\/api\/meetings\/([^/]+)\/join-token$/,
       );
@@ -146,6 +303,7 @@ try {
       response.end(JSON.stringify({ error: String(error) }));
     }
   });
+  adminBaseUrl = `http://127.0.0.1:${admin.port}`;
   const livekit = await listenHttp((_request, response) => {
     response.writeHead(200);
     response.end("livekit");
@@ -161,8 +319,8 @@ try {
   writeFileSync(
     envPath,
     [
-      `NEXT_PUBLIC_APP_URL=http://127.0.0.1:${admin.port}`,
-      `VITE_SHAPE_API_URL=http://127.0.0.1:${admin.port}`,
+      `NEXT_PUBLIC_APP_URL=${adminBaseUrl}`,
+      `VITE_SHAPE_API_URL=${adminBaseUrl}`,
       `LIVEKIT_URL=ws://127.0.0.1:${livekit.port}`,
       "LIVEKIT_TURN_DOMAIN=127.0.0.1",
       "LIVEKIT_TURN_SHARED_SECRET=remote-check-secret",
@@ -202,6 +360,13 @@ try {
   assertCheck(report, "api.meeting-create", "ok");
   assertCheck(report, "api.livekit-token", "ok");
   assertCheck(report, "api.meeting-end", "ok");
+  assertCheck(report, "api.identity-admin-login", "ok");
+  assertCheck(report, "api.identity-host-login", "ok");
+  assertCheck(report, "api.identity-create", "ok");
+  assertCheck(report, "api.identity-push", "ok");
+  assertCheck(report, "api.identity-host-list", "ok");
+  assertCheck(report, "api.identity-artifact-resolve", "ok");
+  assertCheck(report, "api.identity-artifact-download", "ok");
 
   adminLivekitHealth = {
     status: "unconfigured",
@@ -232,6 +397,7 @@ function runRemoteCheck(envPath, outputPath = null) {
     "--strict",
     "--skip-turnutils",
     "--api-flow",
+    "--identity-flow",
     "--timeout-ms",
     "2000",
     ...outputArgs,
@@ -312,6 +478,14 @@ function closeServer(server) {
       return;
     }
     resolve();
+  });
+}
+
+function drain(request) {
+  return new Promise((resolve, reject) => {
+    request.on("data", () => undefined);
+    request.on("error", reject);
+    request.on("end", resolve);
   });
 }
 

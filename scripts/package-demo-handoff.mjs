@@ -174,7 +174,9 @@ function runRealReadinessStep() {
   if (remoteTimeoutMs) commandArgs.push("--remote-timeout-ms", remoteTimeoutMs);
   if (profile) commandArgs.push("--profile", profile);
   forwardFlag(commandArgs, "--remote-api-flow");
+  forwardFlag(commandArgs, "--remote-identity-flow");
   forwardFlag(commandArgs, "--api-flow");
+  forwardFlag(commandArgs, "--identity-flow");
   forwardValue(commandArgs, "--remote-command-timeout-ms");
   forwardFlag(commandArgs, "--require-real-models");
   forwardFlag(commandArgs, "--skip-sentry");
