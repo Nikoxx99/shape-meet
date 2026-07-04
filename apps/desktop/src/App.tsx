@@ -469,6 +469,14 @@ function serviceTone(online?: boolean): "ok" | "warning" | "idle" {
   return online ? "ok" : "warning";
 }
 
+function runtimeProcessLabel(runtime: NativeAiSidecarRuntime | null) {
+  if (!runtime) return "Detectando";
+  if (!runtime.running)
+    return runtime.managed ? "Gestionado detenido" : "Detenido";
+  const mode = runtime.managed ? "Gestionado" : "Externo";
+  return runtime.pid ? `${mode} · pid ${runtime.pid}` : mode;
+}
+
 function statusTone(status?: string | null): "ok" | "warning" | "idle" {
   if (!status) return "idle";
   const normalized = status.toLowerCase();
@@ -682,8 +690,7 @@ function modelRuntimeInputFromContent(
       envContentValue(content, "SHAPE_MODEL_ENDPOINT_PORT") ??
       envContentUrlPort(content, "SHAPE_FACE_ENDPOINT") ??
       "9100",
-    videoFrameEndpoint:
-      videoFrameEndpoint,
+    videoFrameEndpoint: videoFrameEndpoint,
     faceEndpoint,
     backgroundEndpoint,
     audioChunkEndpoint,
@@ -4484,6 +4491,46 @@ function AiRuntimeScreen({
               />
             )}
           </Panel>
+          <Panel title="Operación">
+            <StatusRow
+              label="Sidecar"
+              value={runtimeProcessLabel(aiSidecarRuntime)}
+              tone={serviceTone(aiSidecarRuntime?.running)}
+            />
+            <DetailRow
+              label="Log sidecar"
+              value={aiSidecarRuntime?.logPath || "Sin log"}
+            />
+            <DetailRow
+              label="Comando sidecar"
+              value={aiSidecarRuntime?.command || "No disponible"}
+            />
+            {aiSidecarRuntime?.lastExit ? (
+              <DetailRow
+                label="Último sidecar"
+                value={aiSidecarRuntime.lastExit}
+              />
+            ) : null}
+            <StatusRow
+              label="Endpoints"
+              value={runtimeProcessLabel(modelEndpointRuntime)}
+              tone={serviceTone(modelEndpointRuntime?.running)}
+            />
+            <DetailRow
+              label="Log endpoints"
+              value={modelEndpointRuntime?.logPath || "Sin log"}
+            />
+            <DetailRow
+              label="Comando endpoints"
+              value={modelEndpointRuntime?.command || "No disponible"}
+            />
+            {modelEndpointRuntime?.lastExit ? (
+              <DetailRow
+                label="Último endpoint"
+                value={modelEndpointRuntime.lastExit}
+              />
+            ) : null}
+          </Panel>
           <Panel title="Doctor IA">
             <StatusRow
               label="Estado"
@@ -6926,7 +6973,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="detail-row">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong title={value}>{value}</strong>
     </div>
   );
 }

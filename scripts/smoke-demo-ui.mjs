@@ -183,6 +183,9 @@ async function enterHostCall(page, meetingCode) {
   await expectVisibleText(page, "Runtime IA local");
   await expectVisibleText(page, "Variables");
   await expectVisibleText(page, "Sidecar");
+  await expectVisibleText(page, "Operación");
+  await expectVisibleText(page, "Log sidecar");
+  await expectVisibleText(page, "Log endpoints");
   await expectVisibleText(page, "Cargar demo");
   await expectVisibleText(page, "Probar IA");
   await clickByRole(page, "button", "Probar IA");
