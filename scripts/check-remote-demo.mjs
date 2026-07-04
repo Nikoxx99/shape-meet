@@ -11,7 +11,9 @@ const args = process.argv.slice(2);
 const strict = args.includes("--strict");
 const json = args.includes("--json");
 const skipNetwork = args.includes("--skip-network");
+const skipTurnAuth = args.includes("--skip-turn-auth");
 const skipTurnutils = args.includes("--skip-turnutils");
+const skipJsTurnAuth = args.includes("--skip-js-turn-auth");
 const skipLiveKitHandshake = args.includes("--skip-livekit-handshake");
 const apiFlow =
   args.includes("--api-flow") || args.includes("--check-api-flow");
@@ -241,7 +243,8 @@ async function runNetworkChecks() {
     );
   }
 
-  await checkTurnRestAuth();
+  await checkTurnRestAuthCli();
+  await checkTurnRestAuthJs();
 }
 
 async function checkAdminHealth() {
@@ -386,9 +389,17 @@ async function checkStunUdp() {
   }
 }
 
-async function checkTurnRestAuth() {
+async function checkTurnRestAuthCli() {
+  if (skipTurnAuth) {
+    skipped("network.turn-auth", "auth TURN REST omitido por flag.");
+    return;
+  }
+
   if (skipTurnutils) {
-    skipped("network.turn-auth", "turnutils_uclient omitido por flag.");
+    skipped(
+      "network.turn-auth",
+      "turnutils_uclient omitido por flag; validacion JS continua.",
+    );
     return;
   }
 
@@ -404,9 +415,9 @@ async function checkTurnRestAuth() {
     encoding: "utf8",
   });
   if (available.error?.code === "ENOENT") {
-    warning(
+    skipped(
       "network.turn-auth",
-      "turnutils_uclient no está instalado; instala coturn para validar auth TURN REST end-to-end.",
+      "turnutils_uclient no esta instalado; validacion JS continua.",
     );
     return;
   }
@@ -452,6 +463,49 @@ async function checkTurnRestAuth() {
     `turnutils_uclient falló: ${redact([result.stderr, result.stdout].filter(Boolean).join("\n")).slice(0, 400)}`,
     started,
   );
+}
+
+async function checkTurnRestAuthJs() {
+  if (skipTurnAuth || skipJsTurnAuth) {
+    skipped("network.turn-auth-js", "auth TURN REST JS omitido por flag.");
+    return;
+  }
+
+  if (!turnSecret || isPlaceholder(turnSecret)) {
+    warning(
+      "network.turn-auth-js",
+      "Sin LIVEKIT_TURN_SHARED_SECRET real; se omite Allocate TURN REST JS.",
+    );
+    return;
+  }
+
+  const started = Date.now();
+  const username = `${Math.floor(Date.now() / 1000) + turnTtlSeconds}:shape-remote-check-js`;
+  const password = createHmac("sha1", turnSecret)
+    .update(username)
+    .digest("base64");
+
+  try {
+    const allocation = await turnAllocateRequest({
+      host: turnHost,
+      port: turnUdpPort,
+      username,
+      password,
+      timeout: timeoutMs,
+    });
+
+    ok(
+      "network.turn-auth-js",
+      `TURN REST auth validada por Allocate UDP en realm ${allocation.realm}.`,
+      started,
+    );
+  } catch (error) {
+    issue(
+      "network.turn-auth-js",
+      `Allocate TURN REST falló: ${errorMessage(error)}`,
+      started,
+    );
+  }
 }
 
 async function checkAdminApiFlow() {
@@ -1114,6 +1168,233 @@ function stunBindingRequest(host, port, timeout) {
     });
     socket.send(request, port, host);
   });
+}
+
+async function turnAllocateRequest({
+  host,
+  port,
+  username,
+  password,
+  timeout,
+}) {
+  const socket = createSocket("udp4");
+
+  try {
+    const challengeRequest = buildStunMessage(0x0003, [
+      stunAttribute(0x0019, Buffer.from([17, 0, 0, 0])),
+    ]);
+    const challengeResponse = parseStunMessage(
+      await sendUdpMessage(
+        socket,
+        challengeRequest.packet,
+        host,
+        port,
+        timeout,
+      ),
+      challengeRequest.transactionId,
+    );
+
+    if (challengeResponse.type === 0x0103) {
+      throw new Error(
+        "coturn acepto Allocate sin autenticacion; revisa --use-auth-secret",
+      );
+    }
+
+    if (challengeResponse.type !== 0x0113) {
+      throw new Error(
+        `respuesta inesperada al challenge: ${stunTypeName(challengeResponse.type)}`,
+      );
+    }
+
+    const errorCode = stunErrorCode(challengeResponse.attrs.get(0x0009));
+    if (errorCode !== 401 && errorCode !== 438) {
+      throw new Error(
+        `challenge TURN devolvio error ${errorCode ?? "desconocido"}`,
+      );
+    }
+
+    const realm = stunText(challengeResponse.attrs.get(0x0014));
+    const nonce = stunText(challengeResponse.attrs.get(0x0015));
+
+    if (!realm || !nonce) {
+      throw new Error("challenge TURN no incluyo REALM/NONCE");
+    }
+
+    const key = createHash("md5")
+      .update(`${username}:${realm}:${password}`)
+      .digest();
+    const allocateRequest = buildStunMessage(
+      0x0003,
+      [
+        stunAttribute(0x0006, Buffer.from(username, "utf8")),
+        stunAttribute(0x0014, Buffer.from(realm, "utf8")),
+        stunAttribute(0x0015, Buffer.from(nonce, "utf8")),
+        stunAttribute(0x0019, Buffer.from([17, 0, 0, 0])),
+      ],
+      { integrityKey: key },
+    );
+    const allocateResponse = parseStunMessage(
+      await sendUdpMessage(socket, allocateRequest.packet, host, port, timeout),
+      allocateRequest.transactionId,
+    );
+
+    if (allocateResponse.type === 0x0103) {
+      return { realm };
+    }
+
+    if (allocateResponse.type === 0x0113) {
+      const code = stunErrorCode(allocateResponse.attrs.get(0x0009));
+      const reason = stunReason(allocateResponse.attrs.get(0x0009));
+      throw new Error(
+        `coturn rechazo credenciales REST (${code ?? "sin codigo"}${reason ? ` ${reason}` : ""})`,
+      );
+    }
+
+    throw new Error(
+      `respuesta inesperada al Allocate autenticado: ${stunTypeName(allocateResponse.type)}`,
+    );
+  } finally {
+    socket.close();
+  }
+}
+
+function buildStunMessage(type, attrs, options = {}) {
+  const transactionId = randomBytes(12);
+  const attributes = [...attrs];
+  let length = attributes.reduce(
+    (total, attr) => total + 4 + paddedLength(attr.value.length),
+    0,
+  );
+
+  if (options.integrityKey) length += 24;
+
+  const packet = Buffer.alloc(20 + length);
+  packet.writeUInt16BE(type, 0);
+  packet.writeUInt16BE(length, 2);
+  packet.writeUInt32BE(0x2112a442, 4);
+  transactionId.copy(packet, 8);
+
+  let offset = 20;
+  for (const attr of attributes) {
+    offset = writeStunAttribute(packet, offset, attr);
+  }
+
+  if (options.integrityKey) {
+    packet.writeUInt16BE(0x0008, offset);
+    packet.writeUInt16BE(20, offset + 2);
+    const digest = createHmac("sha1", options.integrityKey)
+      .update(packet.subarray(0, offset))
+      .digest();
+    digest.copy(packet, offset + 4);
+  }
+
+  return { packet, transactionId };
+}
+
+function stunAttribute(type, value) {
+  return { type, value };
+}
+
+function writeStunAttribute(packet, offset, attr) {
+  packet.writeUInt16BE(attr.type, offset);
+  packet.writeUInt16BE(attr.value.length, offset + 2);
+  attr.value.copy(packet, offset + 4);
+  return offset + 4 + paddedLength(attr.value.length);
+}
+
+function sendUdpMessage(socket, packet, host, port, timeout) {
+  return new Promise((resolve, reject) => {
+    const transactionId = packet.subarray(8, 20);
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("timeout"));
+    }, timeout);
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.off("message", onMessage);
+      socket.off("error", onError);
+    };
+    const onMessage = (message) => {
+      if (
+        message.length < 20 ||
+        message.readUInt32BE(4) !== 0x2112a442 ||
+        !message.subarray(8, 20).equals(transactionId)
+      ) {
+        return;
+      }
+      cleanup();
+      resolve(message);
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+
+    socket.on("message", onMessage);
+    socket.once("error", onError);
+    socket.send(packet, port, host, (error) => {
+      if (error) onError(error);
+    });
+  });
+}
+
+function parseStunMessage(message, transactionId) {
+  if (message.length < 20) {
+    throw new Error("respuesta STUN demasiado corta");
+  }
+  if (message.readUInt32BE(4) !== 0x2112a442) {
+    throw new Error("magic cookie STUN invalida");
+  }
+  if (!message.subarray(8, 20).equals(transactionId)) {
+    throw new Error("transaction id STUN no coincide");
+  }
+
+  const declaredLength = message.readUInt16BE(2);
+  const attrs = new Map();
+  let offset = 20;
+  const end = Math.min(message.length, 20 + declaredLength);
+
+  while (offset + 4 <= end) {
+    const type = message.readUInt16BE(offset);
+    const length = message.readUInt16BE(offset + 2);
+    const valueStart = offset + 4;
+    const valueEnd = valueStart + length;
+    if (valueEnd > end) break;
+
+    if (!attrs.has(type)) attrs.set(type, []);
+    attrs.get(type).push(message.subarray(valueStart, valueEnd));
+    offset = valueStart + paddedLength(length);
+  }
+
+  return {
+    type: message.readUInt16BE(0),
+    attrs,
+  };
+}
+
+function paddedLength(length) {
+  return Math.ceil(length / 4) * 4;
+}
+
+function stunText(values) {
+  const value = Array.isArray(values) ? values[0] : null;
+  return value ? value.toString("utf8") : null;
+}
+
+function stunErrorCode(values) {
+  const value = Array.isArray(values) ? values[0] : null;
+  if (!value || value.length < 4) return null;
+  return (value[2] & 0x07) * 100 + value[3];
+}
+
+function stunReason(values) {
+  const value = Array.isArray(values) ? values[0] : null;
+  if (!value || value.length <= 4) return "";
+  return value.subarray(4).toString("utf8");
+}
+
+function stunTypeName(type) {
+  return `0x${Number(type).toString(16).padStart(4, "0")}`;
 }
 
 function liveKitHttpUrl(value) {

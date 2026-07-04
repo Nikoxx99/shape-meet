@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
@@ -384,6 +384,7 @@ try {
   assertCheck(report, "network.turn-tls-tcp", "ok");
   assertCheck(report, "network.turn-stun-udp", "ok");
   assertCheck(report, "network.turn-auth", "skipped");
+  assertCheck(report, "network.turn-auth-js", "ok");
   assertCheck(report, "api.host-login", "ok");
   assertCheck(report, "api.meeting-create", "ok");
   assertCheck(report, "api.livekit-token", "ok");
@@ -483,11 +484,38 @@ function listenStunUdp(port) {
 
   socket.on("message", (message, remote) => {
     if (message.length < 20) return;
-    const response = Buffer.alloc(20);
-    response.writeUInt16BE(0x0101, 0);
-    response.writeUInt16BE(0, 2);
-    response.writeUInt32BE(0x2112a442, 4);
-    message.copy(response, 8, 8, 20);
+    if (message.readUInt32BE(4) !== 0x2112a442) return;
+
+    const type = message.readUInt16BE(0);
+    const transactionId = message.subarray(8, 20);
+    let response = null;
+
+    if (type === 0x0001) {
+      response = stunResponse(0x0101, transactionId);
+    } else if (type === 0x0003) {
+      const attrs = parseStunAttrs(message);
+      if (!attrs.has(0x0006) || !attrs.has(0x0008)) {
+        response = stunResponse(0x0113, transactionId, [
+          stunAttribute(0x0009, stunErrorAttribute(401, "Unauthorized")),
+          stunAttribute(0x0014, Buffer.from("shape-meet", "utf8")),
+          stunAttribute(0x0015, Buffer.from("remote-check-nonce", "utf8")),
+        ]);
+      } else if (turnMessageIntegrityMatches(message, attrs)) {
+        const lifetime = Buffer.alloc(4);
+        lifetime.writeUInt32BE(600);
+        response = stunResponse(0x0103, transactionId, [
+          stunAttribute(0x000d, lifetime),
+        ]);
+      } else {
+        response = stunResponse(0x0113, transactionId, [
+          stunAttribute(0x0009, stunErrorAttribute(401, "Bad credentials")),
+          stunAttribute(0x0014, Buffer.from("shape-meet", "utf8")),
+          stunAttribute(0x0015, Buffer.from("remote-check-nonce", "utf8")),
+        ]);
+      }
+    }
+
+    if (!response) return;
     socket.send(response, remote.port, remote.address);
   });
 
@@ -498,6 +526,87 @@ function listenStunUdp(port) {
       resolve({ server: socket, port: address.port });
     });
   });
+}
+
+function stunResponse(type, transactionId, attrs = []) {
+  const length = attrs.reduce(
+    (total, attr) => total + 4 + paddedLength(attr.value.length),
+    0,
+  );
+  const response = Buffer.alloc(20 + length);
+  response.writeUInt16BE(type, 0);
+  response.writeUInt16BE(length, 2);
+  response.writeUInt32BE(0x2112a442, 4);
+  transactionId.copy(response, 8);
+
+  let offset = 20;
+  for (const attr of attrs) {
+    response.writeUInt16BE(attr.type, offset);
+    response.writeUInt16BE(attr.value.length, offset + 2);
+    attr.value.copy(response, offset + 4);
+    offset += 4 + paddedLength(attr.value.length);
+  }
+
+  return response;
+}
+
+function stunAttribute(type, value) {
+  return { type, value };
+}
+
+function stunErrorAttribute(code, reason) {
+  const reasonBytes = Buffer.from(reason, "utf8");
+  const value = Buffer.alloc(4 + reasonBytes.length);
+  value[2] = Math.floor(code / 100) & 0x07;
+  value[3] = code % 100;
+  reasonBytes.copy(value, 4);
+  return value;
+}
+
+function parseStunAttrs(message) {
+  const attrs = new Map();
+  const declaredLength = message.readUInt16BE(2);
+  const end = Math.min(message.length, 20 + declaredLength);
+  let offset = 20;
+
+  while (offset + 4 <= end) {
+    const type = message.readUInt16BE(offset);
+    const length = message.readUInt16BE(offset + 2);
+    const valueStart = offset + 4;
+    const valueEnd = valueStart + length;
+    if (valueEnd > end) break;
+    attrs.set(type, {
+      offset,
+      value: message.subarray(valueStart, valueEnd),
+    });
+    offset = valueStart + paddedLength(length);
+  }
+
+  return attrs;
+}
+
+function turnMessageIntegrityMatches(message, attrs) {
+  const username = attrs.get(0x0006)?.value?.toString("utf8");
+  const realm = attrs.get(0x0014)?.value?.toString("utf8");
+  const integrity = attrs.get(0x0008);
+
+  if (!username || realm !== "shape-meet" || !integrity) return false;
+
+  const turnPassword = createHmac("sha1", "remote-check-secret")
+    .update(username)
+    .digest("base64");
+  const key = createHash("md5")
+    .update(`${username}:${realm}:${turnPassword}`)
+    .digest();
+  const expected = createHmac("sha1", key)
+    .update(message.subarray(0, integrity.offset))
+    .digest();
+
+  return expected.equals(integrity.value);
+}
+
+function paddedLength(length) {
+  return Math.ceil(length / 4) * 4;
 }
 
 function closeServer(server) {

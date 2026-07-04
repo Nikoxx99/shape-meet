@@ -183,14 +183,16 @@ pnpm demo:remote:check -- \
 ```
 
 Este check valida `/api/health`, signaling LiveKit, DNS de TURN, puertos TCP de
-RTC/TURN, configuración LiveKit del admin y una petición STUN UDP contra coturn.
-Si la máquina tiene
-`turnutils_uclient`, además prueba la autenticación TURN REST con el
-`LIVEKIT_TURN_SHARED_SECRET`. Con `--api-flow` también inicia sesión con
+RTC/TURN, configuración LiveKit del admin, una petición STUN UDP contra coturn y
+un `Allocate` TURN autenticado desde Node con el `LIVEKIT_TURN_SHARED_SECRET`.
+Si la máquina tiene `turnutils_uclient`, también ejecuta esa prueba CLI como
+validación adicional; si no está instalado, el check JS sigue cubriendo la
+autenticación REST. Con `--api-flow` también inicia sesión con
 `HOST_BOOTSTRAP_EMAIL` / `HOST_BOOTSTRAP_PASSWORD`, crea una reunión temporal,
 emite un token LiveKit de host, hace handshake WebSocket contra `/rtc` con ese
 token y cierra esa reunión. Si necesitas aislar un diagnóstico de API sin tocar
-signaling, usa `--skip-livekit-handshake`. Con `--identity-flow` crea una
+signaling, usa `--skip-livekit-handshake`. Para aislar problemas de red sin
+probar auth TURN, usa `--skip-turn-auth`. Con `--identity-flow` crea una
 identidad temporal con artefacto mínimo, la publica, la lista como host, resuelve
 la URL firmada y valida descarga + SHA256; úsalo después del seed inicial para
 validar el flujo real del demo. El archivo `--output` es seguro para soporte:
