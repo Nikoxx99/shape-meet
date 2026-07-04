@@ -14,6 +14,15 @@ const appUrl = (
   readEnvFileValue("apps/desktop/.env.local", "VITE_SHAPE_APP_URL") ??
   "http://localhost:1420"
 ).replace(/\/$/, "");
+const apiUrl = (
+  process.env.SHAPE_DEMO_API_URL ??
+  process.env.SHAPE_SMOKE_API_URL ??
+  process.env.VITE_SHAPE_API_URL ??
+  readEnvFileValue("apps/desktop/.env.local", "VITE_SHAPE_API_URL") ??
+  "http://localhost:13000"
+).replace(/\/$/, "");
+const expectedLiveKitUrl =
+  process.env.SHAPE_DEMO_LIVEKIT_URL?.replace(/\/$/, "") ?? null;
 const hostIdentifier =
   process.env.SHAPE_DEMO_HOST_IDENTIFIER ??
   readEnvFileValue("apps/desktop/.env.local", "VITE_SHAPE_HOST_IDENTIFIER") ??
@@ -40,6 +49,7 @@ async function main() {
     /Public link:\s+(\S+)/,
     "public link",
   );
+  await assertDemoLiveKitTarget(meetingCode);
 
   console.log("");
   console.log(`UI smoke meeting: ${meetingCode}`);
@@ -93,6 +103,47 @@ async function main() {
 
   console.log("");
   console.log("UI demo smoke ok");
+}
+
+async function assertDemoLiveKitTarget(meetingCode) {
+  if (!expectedLiveKitUrl) return;
+
+  const login = await apiRequest("/api/auth/host/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      identifier: hostIdentifier,
+      password: hostPassword,
+    }),
+  });
+  if (!login.response.ok || !login.data.session?.token) {
+    fail(
+      `No se pudo validar LiveKit del demo: login host HTTP ${login.response.status}`,
+    );
+  }
+
+  const token = await apiRequest(
+    `/api/meetings/${encodeURIComponent(meetingCode)}/join-token`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${login.data.session.token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        displayName: "admin",
+        camera: true,
+        microphone: true,
+      }),
+    },
+  );
+  const actualLiveKitUrl = token.data.livekit?.url?.replace(/\/$/, "") ?? null;
+
+  if (actualLiveKitUrl !== expectedLiveKitUrl) {
+    fail(
+      `Admin emite LIVEKIT_URL=${actualLiveKitUrl ?? "sin configurar"}; el demo espera ${expectedLiveKitUrl}. Ejecuta pnpm demo:up para recrear el admin local.`,
+    );
+  }
 }
 
 async function enterGuestWaitingRoom(page, publicLink, meetingCode) {
@@ -184,8 +235,9 @@ async function guestJoinsCall(page, meetingCode) {
 }
 
 async function assertGuestReceivesHostAiVideo(page) {
-  await expectProcessedPrimaryVideo(
+  await expectProcessedVideoElement(
     page,
+    "remote-host-video-element",
     30_000,
     "El invitado no recibió el video procesado del host",
   );
@@ -194,12 +246,12 @@ async function assertGuestReceivesHostAiVideo(page) {
 async function assertGuestReceivesHostAudio(page, timeout = 30_000) {
   const deadline = Date.now() + timeout;
   let lastSample = null;
-  const audio = page.getByTestId("remote-audio-element").first();
+  const audio = page.getByTestId("remote-host-audio-element").first();
 
   await audio.waitFor({ state: "attached", timeout });
 
   while (Date.now() < deadline) {
-    lastSample = await sampleRemoteAudio(page);
+    lastSample = await sampleRemoteAudio(page, "remote-host-audio-element");
     if (lastSample.liveTrackCount > 0) return;
     await page.waitForTimeout(500);
   }
@@ -287,15 +339,27 @@ async function expectProcessedPrimaryVideo(
   timeout = 30_000,
   failurePrefix = "El video primario no mostró frames procesados por IA",
 ) {
+  return expectProcessedVideoElement(
+    page,
+    "primary-video-element",
+    timeout,
+    failurePrefix,
+  );
+}
+
+async function expectProcessedVideoElement(
+  page,
+  testId,
+  timeout = 30_000,
+  failurePrefix = "El video no mostró frames procesados por IA",
+) {
   const deadline = Date.now() + timeout;
   let lastSample = null;
 
-  await page
-    .getByTestId("primary-video-element")
-    .waitFor({ state: "visible", timeout });
+  await page.getByTestId(testId).waitFor({ state: "visible", timeout });
 
   while (Date.now() < deadline) {
-    lastSample = await samplePrimaryVideo(page);
+    lastSample = await sampleVideo(page, testId);
     if (
       lastSample.readyState >= 2 &&
       lastSample.width > 0 &&
@@ -313,7 +377,11 @@ async function expectProcessedPrimaryVideo(
 }
 
 async function samplePrimaryVideo(page) {
-  return page.getByTestId("primary-video-element").evaluate((video) => {
+  return sampleVideo(page, "primary-video-element");
+}
+
+async function sampleVideo(page, testId) {
+  return page.getByTestId(testId).evaluate((video) => {
     const width = 160;
     const height = 90;
     const canvas = document.createElement("canvas");
@@ -352,9 +420,9 @@ async function samplePrimaryVideo(page) {
   });
 }
 
-async function sampleRemoteAudio(page) {
+async function sampleRemoteAudio(page, testId = "remote-audio-element") {
   return page
-    .getByTestId("remote-audio-element")
+    .getByTestId(testId)
     .first()
     .evaluate((audio) => {
       const stream =
@@ -376,6 +444,20 @@ async function sampleRemoteAudio(page) {
         })),
       };
     });
+}
+
+async function apiRequest(path, init = {}) {
+  const response = await fetch(`${apiUrl}${path}`, init);
+  const text = await response.text();
+  let data = {};
+
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text.slice(0, 600) };
+  }
+
+  return { response, data };
 }
 
 async function assertReachableApp() {

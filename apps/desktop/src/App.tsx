@@ -6101,7 +6101,7 @@ function VideoTile({ tile, primary }: { tile: CallTile; primary?: boolean }) {
       {tile.videoTrack && tile.cameraOn ? (
         <video
           className="tile-video"
-          data-testid={primary ? "primary-video-element" : undefined}
+          data-testid={videoElementTestId(tile, Boolean(primary))}
           muted
           playsInline
           ref={videoRef}
@@ -6165,6 +6165,7 @@ function RemoteAudioTracks({
           <RemoteAudioTrackElement
             key={tile.identity}
             speakerId={speakerId}
+            testId={audioElementTestId(tile)}
             track={tile.audioTrack!}
           />
         ))}
@@ -6175,9 +6176,11 @@ function RemoteAudioTracks({
 function RemoteAudioTrackElement({
   track,
   speakerId,
+  testId,
 }: {
   track: LiveKitAudioTrack;
   speakerId: string;
+  testId: string;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -6196,7 +6199,18 @@ function RemoteAudioTrackElement({
     };
   }, [speakerId, track]);
 
-  return <audio autoPlay data-testid="remote-audio-element" ref={audioRef} />;
+  return <audio autoPlay data-testid={testId} ref={audioRef} />;
+}
+
+function videoElementTestId(tile: CallTile, primary: boolean) {
+  if (!tile.isLocal && tile.role === "host") return "remote-host-video-element";
+  if (!tile.isLocal) return "remote-video-element";
+  return primary ? "primary-video-element" : "local-video-element";
+}
+
+function audioElementTestId(tile: CallTile) {
+  if (!tile.isLocal && tile.role === "host") return "remote-host-audio-element";
+  return "remote-audio-element";
 }
 
 function StepDots({ active }: { active: number }) {
