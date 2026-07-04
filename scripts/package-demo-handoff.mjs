@@ -44,6 +44,36 @@ const profile =
   argValue("--profile") ??
   process.env.SHAPE_MODEL_WORKSTATION_PROFILE ??
   "windows-nvidia";
+const runtimePreset = normalizeRuntimePreset(
+  argValue("--runtime-preset") ??
+    argValue("--model-runtime-preset") ??
+    process.env.SHAPE_MODEL_RUNTIME_PRESET ??
+    "local-endpoints",
+);
+const modelEndpointHost =
+  argValue("--model-endpoint-host") ??
+  process.env.SHAPE_MODEL_ENDPOINT_HOST ??
+  "127.0.0.1";
+const modelEndpointPort =
+  argValue("--model-endpoint-port") ??
+  process.env.SHAPE_MODEL_ENDPOINT_PORT ??
+  "9100";
+const videoFrameEndpoint =
+  argValue("--video-frame-endpoint") ??
+  process.env.SHAPE_VIDEO_FRAME_ENDPOINT ??
+  null;
+const faceEndpoint =
+  argValue("--face-endpoint") ?? process.env.SHAPE_FACE_ENDPOINT ?? null;
+const backgroundEndpoint =
+  argValue("--background-endpoint") ??
+  process.env.SHAPE_BACKGROUND_ENDPOINT ??
+  null;
+const audioChunkEndpoint =
+  argValue("--audio-chunk-endpoint") ??
+  process.env.SHAPE_AUDIO_CHUNK_ENDPOINT ??
+  null;
+const voiceEndpoint =
+  argValue("--voice-endpoint") ?? process.env.SHAPE_VOICE_ENDPOINT ?? null;
 const runtimeEnvFile =
   argValue("--env-file") ?? process.env.SHAPE_AI_RUNTIME_ENV_FILE ?? null;
 const remoteEnvFile = argValue("--remote-env-file") ?? null;
@@ -72,6 +102,19 @@ const report = {
     strict,
     desktopMode,
     profile,
+    runtimePreset,
+    modelEndpoint:
+      runtimePreset === "local-endpoints"
+        ? {
+            host: modelEndpointHost,
+            port: modelEndpointPort,
+            videoFrameEndpoint,
+            faceEndpoint,
+            backgroundEndpoint,
+            audioChunkEndpoint,
+            voiceEndpoint,
+          }
+        : null,
     runtimeEnvFile,
     remoteEnvFile,
     coolifyEnvFile,
@@ -438,7 +481,24 @@ function runModelBootstrapStep() {
     setupScriptPath,
     "--profile",
     profile,
+    "--runtime-preset",
+    runtimePreset,
   ];
+
+  if (runtimePreset === "local-endpoints") {
+    commandArgs.push(
+      "--model-endpoint-host",
+      modelEndpointHost,
+      "--model-endpoint-port",
+      modelEndpointPort,
+    );
+  }
+
+  pushOptional(commandArgs, "--video-frame-endpoint", videoFrameEndpoint);
+  pushOptional(commandArgs, "--face-endpoint", faceEndpoint);
+  pushOptional(commandArgs, "--background-endpoint", backgroundEndpoint);
+  pushOptional(commandArgs, "--audio-chunk-endpoint", audioChunkEndpoint);
+  pushOptional(commandArgs, "--voice-endpoint", voiceEndpoint);
 
   forwardValue(commandArgs, "--workspace");
   forwardValue(commandArgs, "--facefusion-repo");
@@ -702,7 +762,7 @@ pnpm demo:handoff -- --verify-ui
 pnpm demo:handoff -- --admin-domain admin.tudominio.com --meeting-domain meet.tudominio.com --livekit-domain livekit.tudominio.com --turn-domain turn.tudominio.com --public-ip 203.0.113.10
 pnpm demo:handoff -- --coolify-env-file infra/shape-meet.production.env --remote-env-file infra/shape-meet.production.env --identity-artifact-file /ruta/rostro-o-modelo.bin
 pnpm demo:real:check -- --include-desktop --require-real-models --strict
-pnpm models:bootstrap -- --profile ${currentReport.options.profile} --write-runtime --strict --write-checklist
+pnpm models:bootstrap -- --profile ${currentReport.options.profile} --runtime-preset ${currentReport.options.runtimePreset} --write-runtime --strict --write-checklist
 \`\`\`
 `;
 }
@@ -801,6 +861,10 @@ function forwardValue(target, name) {
   if (value) target.push(name, value);
 }
 
+function pushOptional(target, name, value) {
+  if (value) target.push(name, value);
+}
+
 function normalizeDesktopMode(value) {
   const normalized = String(value ?? "auto")
     .trim()
@@ -808,6 +872,19 @@ function normalizeDesktopMode(value) {
   if (["auto", "local", "github", "skip"].includes(normalized))
     return normalized;
   throw new Error(`--desktop-mode invalido: ${value}`);
+}
+
+function normalizeRuntimePreset(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (["local-wrappers", "repo-wrappers", "wrappers"].includes(normalized)) {
+    return "local-wrappers";
+  }
+  if (["local-endpoints", "endpoints"].includes(normalized)) {
+    return "local-endpoints";
+  }
+  throw new Error(`--runtime-preset invalido: ${value}`);
 }
 
 function remoteApiFlowEnabled() {

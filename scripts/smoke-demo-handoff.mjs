@@ -125,6 +125,7 @@ try {
   smokeVerifyUiSkip();
   smokeCoolifyEnvFile();
   smokeCoolifySecretRedaction();
+  smokeModelEndpointBootstrap();
 
   console.log("demo handoff smoke ok");
 } finally {
@@ -285,6 +286,87 @@ function smokeCoolifySecretRedaction() {
   assert(
     report.steps.coolify.command.includes("<redacted:secret>"),
     "coolify command did not redact secrets",
+  );
+}
+
+function smokeModelEndpointBootstrap() {
+  const outputDir = join(tempDir, "model-endpoint-bootstrap");
+  const result = spawnSync(
+    process.execPath,
+    [
+      "scripts/package-demo-handoff.mjs",
+      "--json",
+      "--output-dir",
+      outputDir,
+      "--skip-prepare",
+      "--skip-debug",
+      "--skip-real-check",
+      "--skip-local-preview",
+      "--skip-verify-ui",
+      "--skip-identity-push",
+      "--skip-desktop",
+      "--skip-coolify",
+      "--skip-hardware",
+      "--skip-vcclient",
+      "--runtime-preset",
+      "local-endpoints",
+      "--model-endpoint-host",
+      "127.0.0.1",
+      "--model-endpoint-port",
+      "9292",
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+
+  if (result.status !== 0) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    throw new Error(
+      `model endpoint bootstrap smoke failed with ${result.status}`,
+    );
+  }
+
+  const report = JSON.parse(result.stdout);
+  assert(report.ok === true, "model endpoint bootstrap report was not ok");
+  assert(
+    report.options.runtimePreset === "local-endpoints",
+    "runtime preset option missing",
+  );
+  assert(
+    report.options.modelEndpoint?.port === "9292",
+    "model endpoint port option missing",
+  );
+  assert(
+    report.steps.modelBootstrap.ok === true,
+    "model bootstrap step did not pass",
+  );
+  assert(
+    report.steps.modelBootstrap.command.includes(
+      "--runtime-preset local-endpoints",
+    ),
+    "model bootstrap command did not include endpoint preset",
+  );
+
+  const checklistPath = report.artifacts.modelChecklist;
+  assert(checklistPath && existsSync(checklistPath), "model checklist missing");
+  const checklist = readFileSync(checklistPath, "utf8");
+  assert(
+    checklist.includes("Runtime preset: local-endpoints"),
+    "checklist did not include endpoint preset",
+  );
+  assert(
+    checklist.includes("http://127.0.0.1:9292/video-frame"),
+    "checklist did not include combined video endpoint",
+  );
+
+  const readme = readFileSync(join(outputDir, "README.md"), "utf8");
+  assert(
+    readme.includes("--runtime-preset local-endpoints"),
+    "handoff README did not document endpoint bootstrap",
   );
 }
 
