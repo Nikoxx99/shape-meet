@@ -11,6 +11,10 @@ const outputDir = resolve(
   repoRoot,
   argValue("--output-dir") ?? join("output", "debug"),
 );
+const sentryLive =
+  args.includes("--sentry-live") ||
+  args.includes("--live") ||
+  args.includes("--send-test-event");
 const remoteEnvFile =
   argValue("--remote-env-file") ?? process.env.SHAPE_REMOTE_DEMO_ENV_FILE;
 const envSources = [
@@ -210,11 +214,14 @@ function inspectGit() {
 }
 
 function inspectSentry() {
-  const result = runPnpm(["check:sentry", "--", "--json"]);
+  const commandArgs = ["check:sentry", "--", "--json"];
+  if (sentryLive) commandArgs.push("--live");
+  const result = runPnpm(commandArgs, { timeout: sentryLive ? 60000 : 30000 });
   const parsed = parseJson(result.stdout);
 
   return {
     ok: result.status === 0 && parsed?.ok === true,
+    live: sentryLive,
     command: result.command,
     status: result.status,
     report: parsed,
@@ -239,7 +246,15 @@ function inspectModelDoctor() {
 
 function inspectDemoStatus() {
   const commandArgs = ["demo:status", "--", "--json"];
+  if (sentryLive) commandArgs.push("--sentry-live");
   if (remoteEnvFile) commandArgs.push("--remote-env-file", remoteEnvFile);
+  forwardStatusFlag(commandArgs, "--skip-services");
+  forwardStatusFlag(commandArgs, "--skip-sentry");
+  forwardStatusFlag(commandArgs, "--skip-real-check");
+  forwardStatusFlag(commandArgs, "--skip-remote");
+  forwardStatusFlag(commandArgs, "--verify-preview");
+  forwardStatusFlag(commandArgs, "--verify-full");
+  forwardStatusFlag(commandArgs, "--verify-handoff");
   forwardStatusFlag(commandArgs, "--remote-api-flow");
   forwardStatusFlag(commandArgs, "--api-flow");
   forwardStatusFlag(commandArgs, "--remote-identity-flow");
@@ -323,8 +338,53 @@ function parseJson(value) {
   try {
     return JSON.parse(value);
   } catch {
+    for (let index = 0; index < value.length; index += 1) {
+      if (!["{", "["].includes(value[index])) continue;
+      const end = findJsonEnd(value, index);
+      if (!end) continue;
+      try {
+        return JSON.parse(value.slice(index, end + 1));
+      } catch {
+        // Keep scanning; pnpm may add bracketed lifecycle text around JSON.
+      }
+    }
     return null;
   }
+}
+
+function findJsonEnd(value, start) {
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === "{") {
+      stack.push("}");
+    } else if (char === "[") {
+      stack.push("]");
+    } else if (char === "}" || char === "]") {
+      if (stack.at(-1) !== char) return null;
+      stack.pop();
+      if (stack.length === 0) return index;
+    }
+  }
+
+  return null;
 }
 
 function parseDockerJson(value) {
@@ -456,6 +516,14 @@ function printSummary(payload) {
   console.log(
     `- Sentry: ${payload.observability.sentry.ok ? "ok" : "revisar"}`,
   );
+  if (payload.observability.sentry.live) {
+    const result = payload.observability.sentry.report?.liveResults?.[0];
+    console.log(
+      `- Sentry live: ${
+        result?.ok ? "ok" : "revisar"
+      }${result?.transport ? ` (${result.transport})` : ""}`,
+    );
+  }
   console.log(
     `- Modelos: ${payload.modelRuntime.ok ? "ok" : "revisar warnings"}`,
   );

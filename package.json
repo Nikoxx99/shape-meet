@@ -45,6 +45,7 @@
     "demo:ui": "node scripts/smoke-demo-ui.mjs",
     "demo:ui:install": "playwright install chromium",
     "demo:local-preview": "node scripts/smoke-local-ai-preview.mjs",
+    "smoke:debug-bundle": "node scripts/smoke-demo-debug-bundle.mjs",
     "demo:identity:push": "node scripts/push-host-identity.mjs",
     "demo:remote:check": "node scripts/check-remote-demo.mjs",
     "demo:real:check": "node scripts/check-real-demo-readiness.mjs",
