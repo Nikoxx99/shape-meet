@@ -5,6 +5,7 @@ import html
 import json
 import math
 import os
+import shlex
 import shutil
 import struct
 import subprocess
@@ -34,20 +35,27 @@ class ShapeModelEndpointHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if request_path(self.path) != "/health":
+        path = request_path(self.path)
+        if path == "/diagnostics":
+            self._json({"diagnostics": diagnostics_payload()})
+            return
+
+        if path != "/health":
             self._json({"error": "not_found"}, status=404)
             return
 
+        diagnostics = diagnostics_payload()
         self._json(
             {
-                "status": "ready",
-                "mode": "passthrough" if passthrough_enabled() else "wrappers",
+                "status": "ready" if diagnostics["ready"] else "limited",
+                "mode": endpoint_mode(),
                 "demoEffects": demo_effects_enabled(),
                 "stages": ["video-frame", "face", "background", "voice"],
                 "startedAt": STATE["startedAt"],
                 "requests": STATE["requests"],
                 "lastLatencyMs": STATE["lastLatencyMs"],
                 "lastWarning": STATE["lastWarning"],
+                "stageStatus": diagnostics["stageStatus"],
             }
         )
 
@@ -670,6 +678,245 @@ def data_url_mime_type(data_url):
     if not isinstance(data_url, str) or not data_url.startswith("data:"):
         return "image/jpeg"
     return data_url[5:].split(";", 1)[0].split(",", 1)[0] or "image/jpeg"
+
+
+def diagnostics_payload():
+    stages = endpoint_stage_diagnostics()
+    return {
+        "ready": all(stage["ready"] for stage in stages),
+        "mode": endpoint_mode(),
+        "startedAt": STATE["startedAt"],
+        "requests": STATE["requests"],
+        "lastLatencyMs": STATE["lastLatencyMs"],
+        "lastWarning": STATE["lastWarning"],
+        "stageStatus": {
+            stage["id"]: stage["status"]
+            for stage in stages
+        },
+        "runtime": {
+            "python": sys.executable,
+            "wrapperPython": wrapper_python(),
+            "wrapperPythonAvailable": command_available_status(wrapper_python()),
+            "repoRoot": str(repo_root()),
+            "wrapperRoot": str(repo_root() / "apps" / "ai-sidecar" / "wrappers"),
+            "timeoutSeconds": model_timeout(),
+            "maxBodyBytes": MAX_BODY_BYTES,
+        },
+        "configuration": {
+            "passthrough": passthrough_enabled(),
+            "demoEffects": demo_effects_enabled(),
+            "accessLog": access_log_enabled(),
+            "vramMb": safe_int(os.environ.get("SHAPE_MODEL_ENDPOINT_VRAM_MB")) or 0,
+        },
+        "stages": stages,
+    }
+
+
+def endpoint_stage_diagnostics():
+    face = wrapper_stage_diagnostics(
+        "face",
+        "Face swap",
+        "facefusion_frame.py",
+        facefusion_requirements(),
+    )
+    background = wrapper_stage_diagnostics(
+        "background",
+        "Background matting",
+        "backgroundmattingv2_frame.py",
+        background_requirements(),
+    )
+    voice = wrapper_stage_diagnostics(
+        "voice",
+        "Cambio de voz",
+        "vcclient000_chunk.py",
+        voice_requirements(),
+    )
+    video_ready = face["ready"] and background["ready"]
+    video_issues = [
+        *[f"face: {issue}" for issue in face["issues"]],
+        *[f"background: {issue}" for issue in background["issues"]],
+    ]
+    video_warnings = [
+        *[f"face: {warning}" for warning in face["warnings"]],
+        *[f"background: {warning}" for warning in background["warnings"]],
+    ]
+
+    return [
+        {
+            "id": "video-frame",
+            "label": "Video frame",
+            "kind": "video",
+            "ready": video_ready,
+            "status": "ready" if video_ready else "limited",
+            "mode": endpoint_mode(),
+            "wrappers": ["facefusion_frame.py", "backgroundmattingv2_frame.py"],
+            "issues": video_issues,
+            "warnings": video_warnings,
+        },
+        face,
+        background,
+        voice,
+    ]
+
+
+def wrapper_stage_diagnostics(stage_id, label, file_name, requirements):
+    wrapper = wrapper_path(file_name)
+    issues = []
+    warnings = []
+
+    if not wrapper.exists():
+        issues.append(f"wrapper no existe: {wrapper}")
+
+    python_status = command_available_status(wrapper_python())
+    if python_status == "missing":
+        issues.append(f"python wrapper no disponible: {wrapper_python()}")
+
+    if passthrough_enabled():
+        warnings.append("passthrough activo; no valida modelo real.")
+    elif demo_effects_enabled():
+        warnings.append("demo-effects activo; no valida modelo real.")
+    else:
+        issues.extend(requirements["issues"])
+        warnings.extend(requirements["warnings"])
+
+    ready = len(issues) == 0
+    return {
+        "id": stage_id,
+        "label": label,
+        "kind": "audio" if stage_id == "voice" else "video",
+        "ready": ready,
+        "status": "ready" if ready else "error",
+        "mode": endpoint_mode(),
+        "wrapper": str(wrapper),
+        "wrapperExists": wrapper.exists(),
+        "wrapperPython": wrapper_python(),
+        "wrapperPythonAvailable": python_status,
+        "issues": issues,
+        "warnings": warnings,
+        "requirements": requirements["summary"],
+    }
+
+
+def facefusion_requirements():
+    summary = {
+        "commandTemplate": bool(env_non_empty("FACEFUSION_COMMAND_TEMPLATE")),
+        "facefusionDir": env_non_empty("FACEFUSION_DIR"),
+        "entrypoint": env_non_empty("FACEFUSION_ENTRYPOINT") or "facefusion.py",
+        "python": env_non_empty("FACEFUSION_PYTHON") or "python",
+        "executionProviders": env_non_empty("FACEFUSION_EXECUTION_PROVIDERS") or "cuda",
+    }
+    issues = []
+    warnings = []
+
+    if summary["commandTemplate"]:
+        return {"summary": summary, "issues": issues, "warnings": warnings}
+
+    entrypoint = facefusion_entrypoint_path(summary)
+    if not entrypoint:
+        issues.append("FACEFUSION_DIR no configurado y FACEFUSION_COMMAND_TEMPLATE vacío.")
+    elif not entrypoint.exists():
+        issues.append(f"FaceFusion entrypoint no existe: {entrypoint}")
+
+    if command_available_status(str(summary["python"])) == "missing":
+        issues.append(f"FACEFUSION_PYTHON no disponible: {summary['python']}")
+
+    if "cuda" in str(summary["executionProviders"]).lower() and not shutil.which("nvidia-smi"):
+        warnings.append("FACEFUSION_EXECUTION_PROVIDERS usa cuda sin nvidia-smi detectable.")
+
+    return {"summary": summary, "issues": issues, "warnings": warnings}
+
+
+def background_requirements():
+    summary = {
+        "commandTemplate": bool(env_non_empty("BMV2_COMMAND_TEMPLATE")),
+        "repoDir": env_non_empty("BMV2_REPO_DIR"),
+        "python": env_non_empty("BMV2_PYTHON") or "python",
+        "checkpoint": env_non_empty("BMV2_MODEL_CHECKPOINT"),
+        "device": env_non_empty("BMV2_DEVICE") or "cuda",
+    }
+    issues = []
+    warnings = []
+
+    if summary["commandTemplate"]:
+        return {"summary": summary, "issues": issues, "warnings": warnings}
+
+    repo_dir = Path(summary["repoDir"]) if summary["repoDir"] else None
+    if not repo_dir or not (repo_dir / "inference_images.py").exists():
+        issues.append("BMV2_REPO_DIR no contiene inference_images.py.")
+
+    checkpoint = Path(summary["checkpoint"]) if summary["checkpoint"] else None
+    if not checkpoint or not checkpoint.exists():
+        issues.append("BMV2_MODEL_CHECKPOINT no existe o está vacío.")
+
+    if command_available_status(str(summary["python"])) == "missing":
+        issues.append(f"BMV2_PYTHON no disponible: {summary['python']}")
+
+    if str(summary["device"]).lower() == "cuda" and not shutil.which("nvidia-smi"):
+        warnings.append("BMV2_DEVICE=cuda sin nvidia-smi detectable.")
+
+    return {"summary": summary, "issues": issues, "warnings": warnings}
+
+
+def voice_requirements():
+    summary = {
+        "chunkCommand": env_non_empty("VCCLIENT000_CHUNK_COMMAND"),
+        "httpEndpoint": env_non_empty("VCCLIENT000_HTTP_ENDPOINT"),
+        "httpMode": env_non_empty("VCCLIENT000_HTTP_MODE") or "auto",
+    }
+    issues = []
+    warnings = []
+
+    if not summary["chunkCommand"] and not summary["httpEndpoint"]:
+        issues.append("Configura VCCLIENT000_CHUNK_COMMAND o VCCLIENT000_HTTP_ENDPOINT.")
+
+    if summary["chunkCommand"]:
+        command_status = command_available_status(summary["chunkCommand"])
+        if command_status == "missing":
+            warnings.append("VCCLIENT000_CHUNK_COMMAND configurado, pero el ejecutable inicial no se detectó.")
+
+    return {"summary": summary, "issues": issues, "warnings": warnings}
+
+
+def facefusion_entrypoint_path(summary):
+    facefusion_dir = summary["facefusionDir"]
+    entrypoint = Path(str(summary["entrypoint"]))
+    if facefusion_dir and not entrypoint.is_absolute():
+        entrypoint = Path(facefusion_dir) / entrypoint
+    return entrypoint if facefusion_dir or entrypoint.is_absolute() else None
+
+
+def command_available_status(command):
+    if not command:
+        return "not-configured"
+
+    try:
+        executable = shlex.split(str(command), posix=os.name != "nt")[0]
+    except (ValueError, IndexError):
+        executable = str(command).split()[0] if str(command).split() else ""
+
+    if not executable:
+        return "not-configured"
+
+    if Path(executable).exists() or shutil.which(executable):
+        return "available"
+
+    return "missing"
+
+
+def endpoint_mode():
+    if passthrough_enabled():
+        return "passthrough"
+    if demo_effects_enabled():
+        return "demo-effects"
+    return "wrappers"
+
+
+def env_non_empty(name):
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
 
 
 def file_to_base64(path):

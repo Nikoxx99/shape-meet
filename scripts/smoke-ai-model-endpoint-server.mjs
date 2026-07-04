@@ -45,6 +45,7 @@ try {
 
   const endpointOutput = captureProcessOutput(endpointServer);
   await waitForEndpoint(endpointOutput);
+  await assertEndpointDiagnostics();
   await assertEndpointDemoEffects();
   renderRuntimeEnv();
   assertDefaultCombinedRuntimeEnv();
@@ -317,6 +318,61 @@ async function assertEndpointDemoEffects() {
     voice.warnings?.includes("voice_endpoint_demo_effect"),
     "endpoint demo voice warning missing",
   );
+}
+
+async function assertEndpointDiagnostics() {
+  const health = await endpointJson("/health");
+  assert(
+    health.status === "ready",
+    "endpoint health should be ready in demo-effects mode",
+  );
+  assert(
+    health.mode === "demo-effects",
+    "endpoint health did not report demo-effects mode",
+  );
+  assert(
+    health.stageStatus?.["video-frame"] === "ready",
+    "endpoint health did not include ready video-frame stage",
+  );
+
+  const data = await endpointJson("/diagnostics");
+  const diagnostics = data.diagnostics;
+  assert(diagnostics?.ready === true, "endpoint diagnostics was not ready");
+  assert(
+    diagnostics.mode === "demo-effects",
+    "endpoint diagnostics did not report demo-effects mode",
+  );
+  assert(
+    diagnostics.configuration?.demoEffects === true,
+    "endpoint diagnostics did not include demoEffects config",
+  );
+  assert(
+    diagnostics.runtime?.wrapperPythonAvailable === "available",
+    "endpoint diagnostics wrapper python was not available",
+  );
+  for (const stage of ["video-frame", "face", "background", "voice"]) {
+    assert(
+      diagnostics.stageStatus?.[stage] === "ready",
+      `endpoint diagnostics stage ${stage} was not ready`,
+    );
+  }
+  assert(
+    diagnostics.stages?.some(
+      (stage) =>
+        stage.id === "face" &&
+        stage.ready === true &&
+        stage.warnings?.includes("demo-effects activo; no valida modelo real."),
+    ),
+    "endpoint diagnostics did not explain demo-effects face readiness",
+  );
+}
+
+async function endpointJson(path) {
+  const response = await fetch(`http://127.0.0.1:${endpointPort}${path}`);
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+  assert(response.ok, `${path} returned HTTP ${response.status}: ${text}`);
+  return data;
 }
 
 async function postEndpointJson(path, body) {
