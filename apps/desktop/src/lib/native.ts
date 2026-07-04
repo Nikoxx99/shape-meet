@@ -273,6 +273,7 @@ export async function startAiSidecar(): Promise<NativeAiSidecarRuntime> {
 
 export async function startModelEndpoint(input?: {
   passthrough?: boolean | null;
+  demoEffects?: boolean | null;
 }): Promise<NativeAiSidecarRuntime> {
   try {
     return await invoke<NativeAiSidecarRuntime>("start_model_endpoint", {

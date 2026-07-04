@@ -712,6 +712,10 @@ function runtimeContentUsesLocalEndpoints(content: string) {
   );
 }
 
+function runtimeContentUsesEndpointDemoEffects(content: string) {
+  return envContentFlag(content, "SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS");
+}
+
 async function ensureModelEndpointRuntimeForEnv(
   envFile: NativeAiRuntimeEnvFile | null,
   passthrough = true,
@@ -723,7 +727,11 @@ async function ensureModelEndpointRuntimeForEnv(
   const currentRuntime = await getModelEndpointRuntime();
   if (currentRuntime.running) return currentRuntime;
 
-  return startModelEndpoint({ passthrough });
+  const demoEffects = runtimeContentUsesEndpointDemoEffects(envFile.content);
+  return startModelEndpoint({
+    passthrough: demoEffects ? false : passthrough,
+    demoEffects,
+  });
 }
 
 function normalizeModelRuntimeInput(
@@ -836,6 +844,10 @@ function envContentValue(content: string, key: string) {
   }
 
   return null;
+}
+
+function envContentFlag(content: string, key: string) {
+  return /^(1|true|yes|on)$/i.test(envContentValue(content, key) ?? "");
 }
 
 function envContentUrlPort(content: string, key: string) {
@@ -1562,8 +1574,11 @@ export default function App() {
     setDebugMessage(runtime.message);
   }
 
-  async function handleStartModelEndpoint(passthrough?: boolean) {
-    const runtime = await startModelEndpoint({ passthrough });
+  async function handleStartModelEndpoint(
+    passthrough?: boolean,
+    demoEffects?: boolean,
+  ) {
+    const runtime = await startModelEndpoint({ passthrough, demoEffects });
     setModelEndpointRuntime(runtime);
     await refreshAiRuntime();
     setDebugMessage(runtime.message);
@@ -3615,7 +3630,10 @@ function AiRuntimeScreen({
   onNativeDebugEvent: () => Promise<void> | void;
   onRefresh: () => Promise<void> | void;
   onStartSidecar: () => Promise<void> | void;
-  onStartModelEndpoint: (passthrough?: boolean) => Promise<void> | void;
+  onStartModelEndpoint: (
+    passthrough?: boolean,
+    demoEffects?: boolean,
+  ) => Promise<void> | void;
   onStopSidecar: () => Promise<void> | void;
   onStopModelEndpoint: () => Promise<void> | void;
 }) {
@@ -3761,8 +3779,12 @@ function AiRuntimeScreen({
         return;
       }
       if (runtimePreset === "local-endpoints") {
+        const demoEffects = modelRuntimeInput.wrapperPassthrough;
         await startModelEndpoint({
-          passthrough: modelRuntimeInput.wrapperPassthrough,
+          passthrough: demoEffects
+            ? false
+            : modelRuntimeInput.wrapperPassthrough,
+          demoEffects,
         });
       }
       await onStopSidecar();
@@ -3811,7 +3833,13 @@ function AiRuntimeScreen({
 
   async function handleStartEndpoint() {
     setRuntimeMessage(null);
-    await onStartModelEndpoint(modelRuntimeInput.wrapperPassthrough);
+    const demoEffects =
+      modelRuntimeInput.runtimePreset === "local-endpoints" &&
+      modelRuntimeInput.wrapperPassthrough;
+    await onStartModelEndpoint(
+      demoEffects ? false : modelRuntimeInput.wrapperPassthrough,
+      demoEffects,
+    );
     await loadRuntimeState();
   }
 

@@ -328,6 +328,7 @@ fn get_model_endpoint_runtime(state: State<'_, ModelEndpointState>) -> AiSidecar
 #[serde(rename_all = "camelCase")]
 struct StartModelEndpointInput {
     passthrough: Option<bool>,
+    demo_effects: Option<bool>,
 }
 
 #[tauri::command]
@@ -1114,8 +1115,24 @@ impl ModelEndpointSupervisor {
 
         let (program, args, description) = model_endpoint_command()?;
         let mut runtime_env = load_ai_runtime_env()?;
-        if input.passthrough.unwrap_or(false) {
-            upsert_env_value(&mut runtime_env, "SHAPE_MODEL_ENDPOINT_PASSTHROUGH", "true");
+        if input.demo_effects.unwrap_or(false) {
+            upsert_env_value(
+                &mut runtime_env,
+                "SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS",
+                "true",
+            );
+            upsert_env_value(
+                &mut runtime_env,
+                "SHAPE_MODEL_ENDPOINT_PASSTHROUGH",
+                "false",
+            );
+            upsert_env_value(&mut runtime_env, "SHAPE_WRAPPER_PASSTHROUGH", "false");
+        } else if let Some(passthrough) = input.passthrough {
+            upsert_env_value(
+                &mut runtime_env,
+                "SHAPE_MODEL_ENDPOINT_PASSTHROUGH",
+                if passthrough { "true" } else { "false" },
+            );
         }
         if !runtime_env.is_empty() {
             append_model_endpoint_log(&format!(
@@ -2415,6 +2432,11 @@ fn model_ai_runtime_env_content(
             "SHAPE_MODEL_ENDPOINT_PORT={}",
             render_env_value(&endpoint_port)
         ));
+        if wrapper_passthrough {
+            lines.push("SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS=true".to_string());
+        } else {
+            lines.push("# SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS=true".to_string());
+        }
         if let Some(video_frame_endpoint) =
             trimmed_model_input_value(input.and_then(|value| value.video_frame_endpoint.as_deref()))
         {
@@ -3897,7 +3919,42 @@ mod tests {
         assert!(!parsed
             .values
             .iter()
+            .any(|(key, value)| key == "SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS" && value == "true"));
+        assert!(!parsed
+            .values
+            .iter()
             .any(|(key, _)| key == "SHAPE_FACE_COMMAND"));
+        assert!(!parsed
+            .values
+            .iter()
+            .any(|(key, _)| key == "SHAPE_WRAPPER_PASSTHROUGH"));
+    }
+
+    #[test]
+    fn model_ai_runtime_env_enables_demo_effects_for_endpoint_passthrough() {
+        let input = PrepareModelAiRuntimeEnvInput {
+            runtime_preset: Some("local-endpoints".to_string()),
+            wrapper_passthrough: Some(true),
+            model_endpoint_host: Some("127.0.0.1".to_string()),
+            model_endpoint_port: Some("9300".to_string()),
+            ..Default::default()
+        };
+        let content =
+            model_ai_runtime_env_content("python3 /tmp/shape_processor_command.py", Some(&input))
+                .expect("endpoint demo runtime content should render");
+        let parsed = parse_ai_runtime_env(&content);
+
+        assert!(parsed.errors.is_empty());
+        assert!(parsed.warnings.is_empty());
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS" && value == "true"));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_FACE_ENDPOINT"
+                && value == "http://127.0.0.1:9300/face"));
         assert!(!parsed
             .values
             .iter()
