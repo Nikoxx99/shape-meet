@@ -366,6 +366,7 @@ function runDebugStep() {
     "--",
     "--output-dir",
     debugDir,
+    ...(remoteEnvFile ? ["--remote-env-file", remoteEnvFile] : []),
   ]);
   const outputPath =
     parseDebugBundlePath(step.stdout) ?? newestJsonFile(debugDir) ?? null;

@@ -11,6 +11,8 @@ const outputDir = resolve(
   repoRoot,
   argValue("--output-dir") ?? join("output", "debug"),
 );
+const remoteEnvFile =
+  argValue("--remote-env-file") ?? process.env.SHAPE_REMOTE_DEMO_ENV_FILE;
 const envSources = [
   "infra/env.local.example",
   ".env.local",
@@ -68,6 +70,7 @@ async function main() {
   const git = inspectGit();
   const sentry = inspectSentry();
   const modelDoctor = inspectModelDoctor();
+  const demoStatus = inspectDemoStatus();
 
   const payload = redact({
     generatedAt,
@@ -108,6 +111,7 @@ async function main() {
           hasRunningProcessor(aiHealth.data, "video") &&
           hasRunningProcessor(aiHealth.data, "audio"),
       },
+      status: demoStatus,
     },
     docker,
     observability: {
@@ -233,13 +237,38 @@ function inspectModelDoctor() {
   };
 }
 
+function inspectDemoStatus() {
+  const commandArgs = ["demo:status", "--", "--json"];
+  if (remoteEnvFile) commandArgs.push("--remote-env-file", remoteEnvFile);
+  forwardStatusFlag(commandArgs, "--remote-api-flow");
+  forwardStatusFlag(commandArgs, "--api-flow");
+  forwardStatusFlag(commandArgs, "--remote-identity-flow");
+  forwardStatusFlag(commandArgs, "--identity-flow");
+  forwardStatusFlag(commandArgs, "--skip-network");
+  forwardStatusFlag(commandArgs, "--skip-turn-auth");
+  forwardStatusFlag(commandArgs, "--skip-livekit-handshake");
+  forwardStatusValue(commandArgs, "--remote-timeout-ms");
+
+  const result = runPnpm(commandArgs, { timeout: 120000 });
+  const parsed = parseJson(result.stdout);
+
+  return {
+    ok: result.status === 0 && parsed?.ok === true,
+    command: result.command,
+    status: result.status,
+    report: parsed,
+    stdoutPreview: parsed ? undefined : result.stdout.slice(0, 2000),
+    stderr: result.stderr.trim(),
+  };
+}
+
 function runGit(args) {
   return runCommand("git", args);
 }
 
-function runPnpm(args) {
+function runPnpm(args, options = {}) {
   return runCommand(process.platform === "win32" ? "pnpm.cmd" : "pnpm", args, {
-    timeout: 30000,
+    timeout: options.timeout ?? 30000,
   });
 }
 
@@ -413,17 +442,32 @@ function redactUrl(value) {
 
 function printSummary(payload) {
   const ready = payload.demo.ready;
+  const status = payload.demo.status.report;
   console.log("Resumen:");
   console.log(`- Admin/API: ${ready.admin ? "ok" : "revisar"}`);
   console.log(`- Desktop web: ${ready.desktop ? "ok" : "revisar"}`);
   console.log(`- IA local: ${ready.ai ? "ok" : "revisar"}`);
   console.log(`- IA demo: ${ready.aiDemo ? "ok" : "revisar"}`);
+  if (status?.readiness) {
+    console.log(`- Demo status: ${status.readiness.demoPercent ?? 0}%`);
+    console.log(`- Remoto/Coolify: ${status.readiness.remoteDeployment}`);
+    console.log(`- Modelos reales: ${status.readiness.realModelDemo}`);
+  }
   console.log(
     `- Sentry: ${payload.observability.sentry.ok ? "ok" : "revisar"}`,
   );
   console.log(
     `- Modelos: ${payload.modelRuntime.ok ? "ok" : "revisar warnings"}`,
   );
+}
+
+function forwardStatusFlag(target, name) {
+  if (args.includes(name)) target.push(name);
+}
+
+function forwardStatusValue(target, name) {
+  const value = argValue(name);
+  if (value) target.push(name, value);
 }
 
 function argValue(name) {

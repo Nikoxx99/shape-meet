@@ -121,6 +121,18 @@ try {
     "ai runtime parameter missing from diagnostic script",
   );
   assert(
+    diagnosticScript.includes("RemoteEnvFile"),
+    "remote env parameter missing from diagnostic script",
+  );
+  assert(
+    diagnosticScript.includes("pnpm @statusArgs"),
+    "demo status command missing from diagnostic script",
+  );
+  assert(
+    diagnosticScript.includes("--verify-handoff"),
+    "demo status should verify handoff",
+  );
+  assert(
     diagnosticScript.includes("pnpm models:doctor"),
     "models doctor command missing from diagnostic script",
   );
@@ -137,10 +149,12 @@ try {
     "demo env alias missing from diagnostic script",
   );
   assert(
-    diagnosticScript.includes(
-      "pnpm demo:debug -- --output-dir output/windows-debug",
-    ),
+    diagnosticScript.includes("pnpm @debugArgs"),
     "debug bundle command missing from diagnostic script",
+  );
+  assert(
+    diagnosticScript.includes("output/windows-debug"),
+    "debug bundle output dir missing from diagnostic script",
   );
 
   const installAiRuntimeScript = read("Install-ShapeMeetAiRuntime.ps1");

@@ -448,12 +448,17 @@ function windowsDiagnosticScript() {
   return `param(
   [string]$RuntimeConfig = (Join-Path $PSScriptRoot "shape-meet.env"),
   [string]$AiRuntimeConfig = (Join-Path $PSScriptRoot "shape-ai-runtime.env"),
+  [string]$RemoteEnvFile = "",
   [switch]$InstallRuntimeConfig,
   [switch]$InstallAiRuntimeConfig,
   [switch]$SkipSentryLive,
   [switch]$SkipDemoPrepare,
   [switch]$SkipModelRuntime,
-  [switch]$RunModelPreflight
+  [switch]$RunModelPreflight,
+  [switch]$SkipDemoStatus,
+  [switch]$SkipRemoteNetwork,
+  [switch]$RemoteApiFlow,
+  [switch]$RemoteIdentityFlow
 )
 
 $ErrorActionPreference = "Stop"
@@ -589,6 +594,27 @@ Write-Host "- IA local: $env:SHAPE_DEMO_AI_URL"
 Write-Host "- Runtime IA modelos: $env:SHAPE_AI_RUNTIME_ENV_FILE"
 Write-Host "- Sentry: $(Mask-Dsn $env:SENTRY_DSN)"
 
+if (-not $SkipDemoStatus) {
+  $statusArgs = @(
+    "demo:status",
+    "--",
+    "--verify-handoff"
+  )
+  if ($RemoteEnvFile) {
+    $statusArgs += "--remote-env-file"
+    $statusArgs += $RemoteEnvFile
+  }
+  if ($SkipRemoteNetwork) {
+    $statusArgs += "--skip-network"
+  }
+  if ($RemoteApiFlow) {
+    $statusArgs += "--remote-api-flow"
+  }
+  if ($RemoteIdentityFlow) {
+    $statusArgs += "--remote-identity-flow"
+  }
+  Invoke-Step "Estado demo" { pnpm @statusArgs }
+}
 Invoke-Step "Sentry formato local" { pnpm check:sentry }
 if (-not $SkipSentryLive) {
   Invoke-OptionalStep "Sentry live" { pnpm check:sentry:live }
@@ -606,7 +632,26 @@ if (-not $SkipDemoPrepare) {
   Invoke-Step "Datos demo" { pnpm demo:prepare }
 }
 
-Invoke-Step "Bundle debug" { pnpm demo:debug -- --output-dir output/windows-debug }
+$debugArgs = @(
+  "demo:debug",
+  "--",
+  "--output-dir",
+  "output/windows-debug"
+)
+if ($RemoteEnvFile) {
+  $debugArgs += "--remote-env-file"
+  $debugArgs += $RemoteEnvFile
+}
+if ($SkipRemoteNetwork) {
+  $debugArgs += "--skip-network"
+}
+if ($RemoteApiFlow) {
+  $debugArgs += "--remote-api-flow"
+}
+if ($RemoteIdentityFlow) {
+  $debugArgs += "--remote-identity-flow"
+}
+Invoke-Step "Bundle debug" { pnpm @debugArgs }
 
 Write-Host ""
 Write-Host "Diagnostico Windows listo."
@@ -628,7 +673,7 @@ sidecar debe construirse en Windows para producir el instalador Windows.
 - \`shape-ai-runtime.env\`: runtime IA local para endpoint persistente.
 - \`Build-ShapeMeetWindows.ps1\`: build local Windows + handoff.
 - \`Test-ShapeMeetWindows.ps1\`: diagnostico de entorno, endpoints, Sentry,
-  desktop doctor y bundle debug.
+  demo status, desktop doctor y bundle debug.
 - \`Install-ShapeMeetAiRuntime.ps1\`: instala el runtime IA en
   \`%LOCALAPPDATA%\\Shape Meet\`.
 - \`Start-ShapeMeetModelEndpoint.ps1\`: levanta el endpoint local
@@ -679,6 +724,12 @@ debug:
 \`\`\`powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\\${relativePath(diagnosticScriptPath)} -InstallRuntimeConfig -SkipSentryLive
+\`\`\`
+
+Para validar también Coolify/TURN desde el PC Windows, pasa el env remoto:
+
+\`\`\`powershell
+.\\${relativePath(diagnosticScriptPath)} -RemoteEnvFile .\\infra\\shape-meet.production.env -RemoteApiFlow -RemoteIdentityFlow
 \`\`\`
 
 Quita \`-SkipSentryLive\` cuando tengas una DSN que acepte ingesta. Si falla con

@@ -109,10 +109,11 @@ pnpm demo:doctor -- --strict
 ```
 
 Para exportar un reporte local de soporte con servicios, Docker, Sentry,
-hardware y runtime de modelos, sin incluir secretos:
+hardware, runtime de modelos y `demo:status`, sin incluir secretos:
 
 ```bash
 pnpm demo:debug
+pnpm demo:debug -- --remote-env-file infra/shape-meet.production.env --skip-network
 ```
 
 Para preparar un paquete unico de handoff del demo con manifest, README, preview
