@@ -33,6 +33,12 @@ const profile = normalizeProfile(
     process.env.SHAPE_MODEL_WORKSTATION_PROFILE ??
     defaultProfile(),
 );
+const runtimePreset = normalizeRuntimePreset(
+  argValue("--runtime-preset") ??
+    argValue("--preset") ??
+    process.env.SHAPE_MODEL_RUNTIME_PRESET ??
+    "local-wrappers",
+);
 const workspaceRoot = argValue("--workspace") ?? defaultWorkspaceRoot(profile);
 const runtimeEnvPath =
   argValue("--out") ??
@@ -62,6 +68,33 @@ const vcclientHttpMode =
   argValue("--vcclient000-http-mode") ??
   process.env.VCCLIENT000_HTTP_MODE ??
   "auto";
+const modelEndpointHost =
+  argValue("--model-endpoint-host") ??
+  process.env.SHAPE_MODEL_ENDPOINT_HOST ??
+  "127.0.0.1";
+const modelEndpointPort =
+  argValue("--model-endpoint-port") ??
+  process.env.SHAPE_MODEL_ENDPOINT_PORT ??
+  "9100";
+const modelEndpointBaseUrl = `http://${modelEndpointHost}:${modelEndpointPort}`;
+const videoFrameEndpoint =
+  argValue("--video-frame-endpoint") ??
+  process.env.SHAPE_VIDEO_FRAME_ENDPOINT ??
+  (runtimePreset === "local-endpoints"
+    ? `${modelEndpointBaseUrl}/video-frame`
+    : null);
+const faceEndpoint =
+  argValue("--face-endpoint") ?? process.env.SHAPE_FACE_ENDPOINT ?? null;
+const backgroundEndpoint =
+  argValue("--background-endpoint") ??
+  process.env.SHAPE_BACKGROUND_ENDPOINT ??
+  null;
+const audioChunkEndpoint =
+  argValue("--audio-chunk-endpoint") ??
+  process.env.SHAPE_AUDIO_CHUNK_ENDPOINT ??
+  null;
+const voiceEndpoint =
+  argValue("--voice-endpoint") ?? process.env.SHAPE_VOICE_ENDPOINT ?? null;
 const checks = [];
 const nextSteps = [];
 let runtimeEnv = {};
@@ -202,7 +235,7 @@ function runPrepareRuntime(modelPaths, printOnly) {
     "--profile",
     profile,
     "--preset",
-    "local-wrappers",
+    runtimePreset,
     "--out",
     runtimeEnvPath,
     "--facefusion-dir",
@@ -229,6 +262,25 @@ function runPrepareRuntime(modelPaths, printOnly) {
   if (vcclientHttpMode) {
     commandArgs.push("--vcclient000-http-mode", vcclientHttpMode);
   }
+  if (runtimePreset === "local-endpoints") {
+    commandArgs.push(
+      "--model-endpoint-host",
+      modelEndpointHost,
+      "--model-endpoint-port",
+      modelEndpointPort,
+    );
+  }
+  if (videoFrameEndpoint) {
+    commandArgs.push("--video-frame-endpoint", videoFrameEndpoint);
+  }
+  if (faceEndpoint) commandArgs.push("--face-endpoint", faceEndpoint);
+  if (backgroundEndpoint) {
+    commandArgs.push("--background-endpoint", backgroundEndpoint);
+  }
+  if (audioChunkEndpoint) {
+    commandArgs.push("--audio-chunk-endpoint", audioChunkEndpoint);
+  }
+  if (voiceEndpoint) commandArgs.push("--voice-endpoint", voiceEndpoint);
   if (printOnly) commandArgs.push("--print");
 
   const result = spawnSync(process.execPath, commandArgs, {
@@ -668,6 +720,7 @@ function buildReport(modelPaths) {
     ok: !hasErrors() && (!strict || !hasWarnings()),
     profile,
     workspaceRoot,
+    runtimePreset,
     runtimeEnvPath,
     runtimeWritten: writeRuntime,
     checklistPath,
@@ -682,6 +735,14 @@ function buildReport(modelPaths) {
     runtimeEnv: {
       SHAPE_MODEL_WORKSTATION_PROFILE:
         runtimeEnv.SHAPE_MODEL_WORKSTATION_PROFILE,
+      SHAPE_MODEL_RUNTIME_PRESET: runtimeEnv.SHAPE_MODEL_RUNTIME_PRESET,
+      SHAPE_MODEL_ENDPOINT_HOST: runtimeEnv.SHAPE_MODEL_ENDPOINT_HOST,
+      SHAPE_MODEL_ENDPOINT_PORT: runtimeEnv.SHAPE_MODEL_ENDPOINT_PORT,
+      SHAPE_VIDEO_FRAME_ENDPOINT: runtimeEnv.SHAPE_VIDEO_FRAME_ENDPOINT,
+      SHAPE_FACE_ENDPOINT: runtimeEnv.SHAPE_FACE_ENDPOINT,
+      SHAPE_BACKGROUND_ENDPOINT: runtimeEnv.SHAPE_BACKGROUND_ENDPOINT,
+      SHAPE_AUDIO_CHUNK_ENDPOINT: runtimeEnv.SHAPE_AUDIO_CHUNK_ENDPOINT,
+      SHAPE_VOICE_ENDPOINT: runtimeEnv.SHAPE_VOICE_ENDPOINT,
       FACEFUSION_DIR: runtimeEnv.FACEFUSION_DIR,
       BMV2_REPO_DIR: runtimeEnv.BMV2_REPO_DIR,
       BMV2_MODEL_CHECKPOINT: runtimeEnv.BMV2_MODEL_CHECKPOINT,
@@ -789,6 +850,7 @@ function printReport(modelPaths) {
   console.log("Shape Meet model workstation bootstrap");
   console.log(`Perfil: ${profile}`);
   console.log(`Workspace: ${workspaceRoot}`);
+  console.log(`Runtime preset: ${runtimePreset}`);
   console.log(`Runtime env: ${writeRuntime ? runtimeEnvPath : "no escrito"}`);
   if (writeChecklist) {
     console.log(
@@ -862,6 +924,7 @@ function renderChecklist(report) {
 
 Perfil: ${report.profile}
 Workspace: ${report.workspaceRoot}
+Runtime preset: ${report.runtimePreset}
 Runtime env: ${report.runtimeWritten ? report.runtimeEnvPath : "pendiente"}
 Dry-run: ${report.dryRun ? "si" : "no"}
 
@@ -880,6 +943,10 @@ Dry-run: ${report.dryRun ? "si" : "no"}
 - Checkpoint BackgroundMattingV2: ${report.modelPaths.bmv2Checkpoint}
 - VCClient: ${report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT || "no configurado"}
 - VCClient mode: ${report.runtimeEnv.VCCLIENT000_HTTP_MODE || "auto"}
+- Endpoint video combinado: ${report.runtimeEnv.SHAPE_VIDEO_FRAME_ENDPOINT || "no configurado"}
+- Endpoint rostro: ${report.runtimeEnv.SHAPE_FACE_ENDPOINT || "no configurado"}
+- Endpoint fondo: ${report.runtimeEnv.SHAPE_BACKGROUND_ENDPOINT || "no configurado"}
+- Endpoint voz: ${report.runtimeEnv.SHAPE_VOICE_ENDPOINT || "no configurado"}
 - Setup script: ${report.setupScriptWritten ? report.setupScriptPath : "pendiente"}
 - Assets técnicos escritos: ${report.demoAssetsWritten ? "si" : "no"}
 
@@ -908,6 +975,7 @@ ${readinessSection}
 pnpm models:bootstrap -- --profile ${report.profile} --dry-run --write-checklist
 pnpm models:bootstrap -- --profile ${report.profile} --write-setup-script
 pnpm models:bootstrap -- --profile ${report.profile} --write-demo-assets --write-runtime --strict --write-checklist
+pnpm models:bootstrap -- --profile ${report.profile} --runtime-preset local-endpoints --write-runtime --strict --write-checklist
 pnpm models:preflight -- --env-file "${report.runtimeEnvPath}" --frame "${report.demoAssets.frame}" --identity "${report.demoAssets.identity}" --clean-plate "${report.demoAssets.cleanPlate}" --audio "${report.demoAssets.audio}" --strict
 pnpm demo:real:check -- --env-file "${report.runtimeEnvPath}" --include-desktop --require-real-models --frame "${report.demoAssets.frame}" --identity "${report.demoAssets.identity}" --clean-plate "${report.demoAssets.cleanPlate}" --audio "${report.demoAssets.audio}" --strict
 \`\`\`
@@ -1161,6 +1229,22 @@ function normalizeProfile(value) {
     return "apple-silicon";
   }
   fail(`Perfil no soportado: ${value}`);
+}
+
+function normalizeRuntimePreset(value) {
+  const normalized = String(value || "local-wrappers")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (["local-wrappers", "repo-wrappers", "wrappers"].includes(normalized)) {
+    return "local-wrappers";
+  }
+  if (["local-endpoints", "endpoints"].includes(normalized)) {
+    return "local-endpoints";
+  }
+  fail(
+    `Preset runtime no soportado: ${value}. Usa local-wrappers o local-endpoints.`,
+  );
 }
 
 function defaultProfile() {

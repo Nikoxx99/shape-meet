@@ -281,6 +281,17 @@ genera un PowerShell/Bash base para clonar repos y crear venvs en la
 workstation. Si configuras `VCCLIENT000_HTTP_ENDPOINT`, el bootstrap hace una
 prueba `POST /test` compatible con w-okada/VCClient.
 
+Si la estación usará el servidor persistente de modelos, genera el runtime con
+endpoint combinado de video:
+
+```bash
+pnpm models:bootstrap -- --profile windows-nvidia --runtime-preset local-endpoints --write-runtime --strict --write-checklist
+```
+
+Ese modo escribe `SHAPE_VIDEO_FRAME_ENDPOINT=http://127.0.0.1:9100/video-frame`
+junto con `/face`, `/background` y `/voice`, para que el procesador pueda usar
+un pipeline persistente de rostro + fondo.
+
 `pnpm models:preflight` levanta un sidecar temporal con el runtime generado y
 ejecuta una prueba real de frame/audio antes de abrir la app:
 

@@ -18,6 +18,7 @@ const tempDir = mkdtempSync(join(tmpdir(), "shape-model-bootstrap-smoke-"));
 
 try {
   smokeWindowsReport();
+  smokeEndpointRuntimeReport();
   await smokeVcclientPostReport();
   smokeAppleWorkspaceReport();
   smokeAppleDefaultSetupScript();
@@ -98,6 +99,64 @@ function smokeWindowsReport() {
   assertHasCheck(report, "checklist", "ok");
   assertHasCheck(report, "setup-script", "ok");
   assertNextStep(report, "--write-runtime");
+}
+
+function smokeEndpointRuntimeReport() {
+  const checklistPath = join(tempDir, "endpoint-checklist.md");
+  const report = runBootstrap([
+    "--json",
+    "--dry-run",
+    "--write-checklist",
+    "--checklist-out",
+    checklistPath,
+    "--skip-hardware",
+    "--skip-vcclient",
+    "--profile",
+    "windows-nvidia",
+    "--runtime-preset",
+    "local-endpoints",
+    "--model-endpoint-host",
+    "127.0.0.1",
+    "--model-endpoint-port",
+    "9191",
+  ]);
+
+  assertEqual(report.runtimePreset, "local-endpoints", "endpoint runtimePreset");
+  assertEqual(
+    report.runtimeEnv.SHAPE_MODEL_RUNTIME_PRESET,
+    "local-endpoints",
+    "endpoint runtime env preset",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_MODEL_ENDPOINT_HOST,
+    "127.0.0.1",
+    "endpoint host",
+  );
+  assertEqual(report.runtimeEnv.SHAPE_MODEL_ENDPOINT_PORT, "9191", "endpoint port");
+  assertEqual(
+    report.runtimeEnv.SHAPE_VIDEO_FRAME_ENDPOINT,
+    "http://127.0.0.1:9191/video-frame",
+    "combined video endpoint",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_FACE_ENDPOINT,
+    "http://127.0.0.1:9191/face",
+    "face endpoint",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_BACKGROUND_ENDPOINT,
+    "http://127.0.0.1:9191/background",
+    "background endpoint",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_VOICE_ENDPOINT,
+    "http://127.0.0.1:9191/voice",
+    "voice endpoint",
+  );
+  assertFileIncludes(checklistPath, "Runtime preset: local-endpoints");
+  assertFileIncludes(checklistPath, "Endpoint video combinado");
+  assertFileIncludes(checklistPath, "http://127.0.0.1:9191/video-frame");
+  assertFileIncludes(checklistPath, "--runtime-preset local-endpoints");
 }
 
 async function smokeVcclientPostReport() {

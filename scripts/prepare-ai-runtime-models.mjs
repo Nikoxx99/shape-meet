@@ -49,6 +49,9 @@ const preset = (
 ).toLowerCase();
 const passthrough = args.includes("--passthrough");
 const config = {
+  runtimePreset: preset || "local-wrappers",
+  modelEndpointHost,
+  modelEndpointPort,
   processorCommand: resolveProcessorCommand(),
   faceEngine:
     argValue("--face-engine") ?? process.env.SHAPE_FACE_ENGINE ?? "facefusion",
@@ -132,6 +135,7 @@ function renderRuntimeEnv(input) {
     `SHAPE_BACKGROUND_ENGINE=${input.backgroundEngine}`,
     `SHAPE_VOICE_ENGINE=${input.voiceEngine}`,
     `SHAPE_MODEL_WORKSTATION_PROFILE=${input.workstationProfile}`,
+    `SHAPE_MODEL_RUNTIME_PRESET=${input.runtimePreset}`,
     `SHAPE_PROCESSOR_TIMEOUT_SECS=${input.processorTimeout}`,
     `SHAPE_MODEL_COMMAND_TIMEOUT_SECS=${input.modelTimeout}`,
     `SHAPE_VIDEO_PROCESSOR_COMMAND=${input.processorCommand} --kind video --host ${processorHost} --port ${videoPort}`,
@@ -143,6 +147,7 @@ function renderRuntimeEnv(input) {
     ...optionalLine("SHAPE_FACE_ENDPOINT", input.faceEndpoint),
     ...optionalLine("SHAPE_BACKGROUND_COMMAND", input.backgroundCommand),
     ...optionalLine("SHAPE_BACKGROUND_ENDPOINT", input.backgroundEndpoint),
+    ...endpointRuntimeLines(input),
     `SHAPE_AUDIO_PROCESSOR_COMMAND=${input.processorCommand} --kind audio --host ${processorHost} --port ${audioPort}`,
     `SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://${processorHost}:${audioPort}/process-audio`,
     `SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://${processorHost}:${audioPort}/health`,
@@ -153,6 +158,17 @@ function renderRuntimeEnv(input) {
     ...Object.entries(input.modelEnv).map(([key, value]) => `${key}=${value}`),
     "",
   ].join("\n");
+}
+
+function endpointRuntimeLines(input) {
+  if (!["local-endpoints", "endpoints"].includes(input.runtimePreset)) {
+    return [];
+  }
+
+  return [
+    `SHAPE_MODEL_ENDPOINT_HOST=${input.modelEndpointHost}`,
+    `SHAPE_MODEL_ENDPOINT_PORT=${input.modelEndpointPort}`,
+  ];
 }
 
 function optionalLine(key, value) {
