@@ -1045,12 +1045,13 @@ Write-Host ('pnpm demo:real:check -- --env-file "{0}" --include-desktop --requir
 
 function renderAppleSetupScript(modelPaths) {
   const demoAssets = buildDemoAssets(modelPaths);
+  const workspacePath = expandHome(modelPaths.workspaceRoot);
   return `#!/usr/bin/env bash
 # Shape Meet Apple Silicon model workstation setup
 # Ejecuta en la Mac objetivo. No incluye checkpoints/licencias.
 set -euo pipefail
 
-WORKSPACE=${shQuote(modelPaths.workspaceRoot)}
+WORKSPACE=${shQuote(workspacePath)}
 FACEFUSION_DIR=${shQuote(modelPaths.facefusionDir)}
 BMV2_DIR=${shQuote(modelPaths.bmv2RepoDir)}
 FACEFUSION_REPO=${shQuote(facefusionRepo)}

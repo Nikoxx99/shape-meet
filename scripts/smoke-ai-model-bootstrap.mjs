@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 const repoRoot = process.cwd();
@@ -20,6 +20,7 @@ try {
   smokeWindowsReport();
   await smokeVcclientPostReport();
   smokeAppleWorkspaceReport();
+  smokeAppleDefaultSetupScript();
   smokeDemoAssetsWrite();
   console.log("model workstation bootstrap smoke ok");
 } finally {
@@ -204,6 +205,28 @@ function smokeAppleWorkspaceReport() {
   assertNoCheck(report, "BackgroundMattingV2", "error");
 }
 
+function smokeAppleDefaultSetupScript() {
+  const setupScriptPath = join(tempDir, "setup-apple-default.sh");
+  const report = runBootstrap([
+    "--json",
+    "--dry-run",
+    "--skip-vcclient",
+    "--profile",
+    "apple-silicon",
+    "--write-setup-script",
+    "--setup-script-out",
+    setupScriptPath,
+  ]);
+
+  assertEqual(report.setupScriptWritten, true, "apple setupScriptWritten");
+  assertFileIncludes(setupScriptPath, `WORKSPACE='${homedir()}/models'`);
+  assertFileIncludes(
+    setupScriptPath,
+    `FACEFUSION_DIR='${homedir()}/models/FaceFusion'`,
+  );
+  assertFileExcludes(setupScriptPath, "WORKSPACE='~/models'");
+}
+
 function smokeDemoAssetsWrite() {
   const workspace = join(tempDir, "asset-workspace");
   const report = runBootstrap([
@@ -334,6 +357,16 @@ function assertFileIncludes(filePath, value) {
   const content = readFileSync(filePath, "utf8");
   if (!content.includes(value)) {
     throw new Error(`expected ${filePath} to include ${value}`);
+  }
+}
+
+function assertFileExcludes(filePath, value) {
+  if (!existsSync(filePath)) {
+    throw new Error(`expected file to exist: ${filePath}`);
+  }
+  const content = readFileSync(filePath, "utf8");
+  if (content.includes(value)) {
+    throw new Error(`expected ${filePath} not to include ${value}`);
   }
 }
 
