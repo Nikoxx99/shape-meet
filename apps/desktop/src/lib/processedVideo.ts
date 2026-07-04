@@ -26,10 +26,14 @@ export interface ProcessedVideoRuntimeStatus {
   fps: number | null;
   latencyMs: number | null;
   framesProcessed: number;
+  processor: string | null;
   lastError: string | null;
 }
 
-export async function createProcessedVideoPipeline(inputTrack: MediaStreamTrack, options: ProcessedVideoOptions): Promise<ProcessedVideoPipeline> {
+export async function createProcessedVideoPipeline(
+  inputTrack: MediaStreamTrack,
+  options: ProcessedVideoOptions,
+): Promise<ProcessedVideoPipeline> {
   const width = options.width ?? 1280;
   const height = options.height ?? 720;
   const fps = options.fps ?? 30;
@@ -78,11 +82,14 @@ export async function createProcessedVideoPipeline(inputTrack: MediaStreamTrack,
   let status: ProcessedVideoRuntimeStatus = {
     mode: options.aiSessionId ? "sidecar" : "local-fallback",
     state: options.aiSessionId ? "starting" : "fallback",
-    message: options.aiSessionId ? "Conectando sidecar de frames." : "Publicando cámara sin sidecar.",
+    message: options.aiSessionId
+      ? "Conectando sidecar de frames."
+      : "Publicando cámara sin sidecar.",
     fps: null,
     latencyMs: null,
     framesProcessed: 0,
-    lastError: null
+    processor: null,
+    lastError: null,
   };
 
   function updateStatus(next: Partial<ProcessedVideoRuntimeStatus>) {
@@ -94,7 +101,12 @@ export async function createProcessedVideoPipeline(inputTrack: MediaStreamTrack,
     if (stopped) return;
 
     drawCameraFrame(inputContext!, video, inputCanvas);
-    drawOutputFrame(context!, inputCanvas, lastProcessedImage, Date.now() - lastProcessedAt < 1200);
+    drawOutputFrame(
+      context!,
+      inputCanvas,
+      lastProcessedImage,
+      Date.now() - lastProcessedAt < 1200,
+    );
     scheduleSidecarFrame();
     frameHandle = window.requestAnimationFrame(drawFrame);
   }
@@ -113,7 +125,7 @@ export async function createProcessedVideoPipeline(inputTrack: MediaStreamTrack,
       inputTrack.stop();
       video.pause();
       video.srcObject = null;
-    }
+    },
   };
 
   function scheduleSidecarFrame() {
@@ -137,9 +149,9 @@ export async function createProcessedVideoPipeline(inputTrack: MediaStreamTrack,
           effects: {
             face: options.faceEnabled,
             background: options.backgroundEnabled,
-            voice: options.voiceEnabled
-          }
-        })
+            voice: options.voiceEnabled,
+          },
+        }),
       )
       .then(async (result) => {
         if (stopped || result.sequence !== currentSequence) return;
@@ -157,7 +169,8 @@ export async function createProcessedVideoPipeline(inputTrack: MediaStreamTrack,
           fps: result.metrics.fps,
           latencyMs: result.metrics.latencyMs,
           framesProcessed: result.metrics.framesProcessed,
-          lastError: null
+          processor: result.processor,
+          lastError: null,
         });
       })
       .catch((error) => {
@@ -165,8 +178,15 @@ export async function createProcessedVideoPipeline(inputTrack: MediaStreamTrack,
         updateStatus({
           mode: "local-fallback",
           state: "fallback",
-          message: sidecarFailures > 2 ? "Sidecar sin respuesta; publicando cámara limpia." : "Esperando sidecar.",
-          lastError: error instanceof Error ? error.message : "No se pudo procesar frame."
+          message:
+            sidecarFailures > 2
+              ? "Sidecar sin respuesta; publicando cámara limpia."
+              : "Esperando sidecar.",
+          processor: null,
+          lastError:
+            error instanceof Error
+              ? error.message
+              : "No se pudo procesar frame.",
         });
       })
       .finally(() => {
@@ -178,7 +198,7 @@ export async function createProcessedVideoPipeline(inputTrack: MediaStreamTrack,
 function drawCameraFrame(
   context: CanvasRenderingContext2D,
   video: HTMLVideoElement,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
 ) {
   const { width, height } = canvas;
 
@@ -207,7 +227,7 @@ function drawOutputFrame(
   context: CanvasRenderingContext2D,
   inputCanvas: HTMLCanvasElement,
   processedImage: HTMLImageElement | null,
-  processedFresh: boolean
+  processedFresh: boolean,
 ) {
   const { width, height } = inputCanvas;
 
@@ -234,16 +254,19 @@ function canvasToDataUrl(canvas: HTMLCanvasElement): Promise<string> {
 
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error("No se pudo leer el frame codificado."));
+        reader.onerror = () =>
+          reject(new Error("No se pudo leer el frame codificado."));
         reader.readAsDataURL(blob);
       },
       "image/jpeg",
-      0.82
+      0.82,
     );
   });
 }
 
-function loadFrameImage(result: AiFrameProcessResult): Promise<HTMLImageElement | null> {
+function loadFrameImage(
+  result: AiFrameProcessResult,
+): Promise<HTMLImageElement | null> {
   if (!result.frame?.dataUrl) return Promise.resolve(null);
 
   return new Promise((resolve) => {
@@ -255,7 +278,9 @@ function loadFrameImage(result: AiFrameProcessResult): Promise<HTMLImageElement 
 }
 
 function sidecarMessage(result: AiFrameProcessResult) {
-  if (result.processor === "development-passthrough") return "Sidecar conectado en modo passthrough.";
-  if (result.status === "passthrough") return "Frame validado sin modelo activo.";
+  if (result.processor === "development-passthrough")
+    return "Sidecar conectado en modo passthrough.";
+  if (result.status === "passthrough")
+    return "Frame validado sin modelo activo.";
   return `${result.processor} procesando frames.`;
 }

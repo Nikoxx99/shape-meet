@@ -329,11 +329,21 @@ def session_from_start_payload(payload, session_id=None):
         "frameBridgeActive": False,
         "lastFrameAt": None,
         "lastFrameLatencyMs": None,
+        "lastFrameFps": None,
+        "lastFrameProcessor": None,
+        "lastFrameStatus": None,
+        "lastFrameWarnings": [],
+        "lastFrameVramMb": None,
+        "lastFrameResolution": None,
         "lastFrameSequence": None,
         "audioBridgeActive": False,
         "audioChunksProcessed": 0,
         "lastAudioAt": None,
         "lastAudioLatencyMs": None,
+        "lastAudioProcessor": None,
+        "lastAudioStatus": None,
+        "lastAudioWarnings": [],
+        "lastAudioInputBytes": None,
         "lastAudioSequence": None,
         "lastAdapterError": None,
     }
@@ -352,8 +362,6 @@ def process_frame_for_session(session, payload):
     session["framesProcessed"] += 1
     session["lastFrameAt"] = now_iso()
     session["lastFrameSequence"] = sequence
-    latency_ms = max(1, int((time.perf_counter() - started) * 1000) + estimated_model_latency(session))
-    session["lastFrameLatencyMs"] = latency_ms
     session["updatedAt"] = now_iso()
     session["warnings"] = session_warnings(session)
 
@@ -363,10 +371,11 @@ def process_frame_for_session(session, payload):
     external_frame = proxy_video_frame(session, payload, width, height)
 
     if external_frame:
+        apply_frame_result_to_session(session, external_frame, started)
         return external_frame
 
     frame_data = payload.get("frameDataUrl")
-    return {
+    result = {
         "sequence": sequence,
         "status": "passthrough",
         "processor": "development-passthrough" if mode == "development-passthrough" else "adapter-contract",
@@ -379,6 +388,8 @@ def process_frame_for_session(session, payload):
         "metrics": session_metrics(session),
         "warnings": frame_warnings(session, mode),
     }
+    apply_frame_result_to_session(session, result, started)
+    return result
 
 
 def process_audio_for_session(session, payload):
@@ -389,16 +400,15 @@ def process_audio_for_session(session, payload):
     session["audioChunksProcessed"] += 1
     session["lastAudioAt"] = now_iso()
     session["lastAudioSequence"] = sequence
-    latency_ms = max(1, int((time.perf_counter() - started) * 1000) + 4)
-    session["lastAudioLatencyMs"] = latency_ms
     session["updatedAt"] = now_iso()
     session["warnings"] = session_warnings(session)
 
     external_audio = proxy_audio_chunk(session, payload)
     if external_audio:
+        apply_audio_result_to_session(session, external_audio, started)
         return external_audio
 
-    return {
+    result = {
         "sequence": sequence,
         "status": "passthrough",
         "processor": "development-passthrough" if ai_mode() == "development-passthrough" else "adapter-contract",
@@ -411,6 +421,42 @@ def process_audio_for_session(session, payload):
         "metrics": audio_metrics(session, len(audio_data)),
         "warnings": audio_warnings(session),
     }
+    apply_audio_result_to_session(session, result, started)
+    return result
+
+
+def apply_frame_result_to_session(session, result, started):
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    latency_ms = safe_int(metrics.get("latencyMs")) or max(1, int((time.perf_counter() - started) * 1000) + estimated_model_latency(session))
+    fps = safe_int(metrics.get("fps"))
+    vram_mb = safe_int(metrics.get("vramMb"))
+    resolution = metrics.get("resolution")
+
+    session["lastFrameLatencyMs"] = latency_ms
+    session["lastFrameFps"] = fps
+    session["lastFrameProcessor"] = result.get("processor")
+    session["lastFrameStatus"] = result.get("status")
+    session["lastFrameWarnings"] = unique_warnings(result.get("warnings", []))
+    session["lastFrameVramMb"] = vram_mb
+    session["lastFrameResolution"] = resolution if isinstance(resolution, str) and resolution else None
+
+    if result.get("status") != "error":
+        session["lastAdapterError"] = None
+
+
+def apply_audio_result_to_session(session, result, started):
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    audio = result.get("audio") if isinstance(result.get("audio"), dict) else {}
+    encoded_audio = audio.get("audioDataBase64")
+
+    session["lastAudioLatencyMs"] = safe_int(metrics.get("latencyMs")) or max(1, int((time.perf_counter() - started) * 1000) + 4)
+    session["lastAudioProcessor"] = result.get("processor")
+    session["lastAudioStatus"] = result.get("status")
+    session["lastAudioWarnings"] = unique_warnings(result.get("warnings", []))
+    session["lastAudioInputBytes"] = safe_int(metrics.get("inputBytes")) or (len(encoded_audio) if isinstance(encoded_audio, str) else None)
+
+    if result.get("status") != "error":
+        session["lastAdapterError"] = None
 
 
 def run_preflight(payload):
@@ -557,6 +603,7 @@ def session_payload(session):
         "enabled": enabled,
         "background": session_background_payload(session),
         "metrics": session_metrics(session),
+        "lastProcessed": session_last_processed_payload(session),
         "pipelines": pipelines,
         "warnings": session.get("warnings", []),
         "adapterError": session.get("lastAdapterError"),
@@ -580,7 +627,7 @@ def session_metrics(session):
     target = session.get("target", {})
     target_fps = int(target.get("fps", DEFAULT_FPS) or DEFAULT_FPS)
     latency = session.get("lastFrameLatencyMs") or estimated_model_latency(session)
-    fps = max(1, min(target_fps, target_fps - max(0, active_count - 1)))
+    fps = session.get("lastFrameFps") or max(1, min(target_fps, target_fps - max(0, active_count - 1)))
     width = int(target.get("width", DEFAULT_WIDTH) or DEFAULT_WIDTH)
     height = int(target.get("height", DEFAULT_HEIGHT) or DEFAULT_HEIGHT)
 
@@ -589,8 +636,33 @@ def session_metrics(session):
         "latencyMs": latency,
         "framesProcessed": session["framesProcessed"],
         "audioChunksProcessed": session.get("audioChunksProcessed", 0),
-        "vramMb": estimated_vram(enabled),
-        "resolution": f"{width}x{height}",
+        "vramMb": session.get("lastFrameVramMb") if session.get("lastFrameVramMb") is not None else estimated_vram(enabled),
+        "resolution": session.get("lastFrameResolution") or f"{width}x{height}",
+    }
+
+
+def session_last_processed_payload(session):
+    return {
+        "video": {
+            "sequence": session.get("lastFrameSequence"),
+            "processor": session.get("lastFrameProcessor"),
+            "status": session.get("lastFrameStatus"),
+            "latencyMs": session.get("lastFrameLatencyMs"),
+            "fps": session.get("lastFrameFps"),
+            "vramMb": session.get("lastFrameVramMb"),
+            "resolution": session.get("lastFrameResolution"),
+            "warnings": session.get("lastFrameWarnings", []),
+            "processedAt": session.get("lastFrameAt"),
+        },
+        "audio": {
+            "sequence": session.get("lastAudioSequence"),
+            "processor": session.get("lastAudioProcessor"),
+            "status": session.get("lastAudioStatus"),
+            "latencyMs": session.get("lastAudioLatencyMs"),
+            "inputBytes": session.get("lastAudioInputBytes"),
+            "warnings": session.get("lastAudioWarnings", []),
+            "processedAt": session.get("lastAudioAt"),
+        },
     }
 
 

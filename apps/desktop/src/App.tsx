@@ -5014,7 +5014,7 @@ function ActiveCallScreen({
                     label="Bridge"
                     value={
                       processedRuntimeStatus.latencyMs
-                        ? `${processedRuntimeStatus.latencyMs} ms · ${processedRuntimeStatus.mode}`
+                        ? `${processedRuntimeStatus.latencyMs} ms · ${processedRuntimeStatus.processor ?? processedRuntimeStatus.mode}`
                         : processedRuntimeStatus.message
                     }
                     tone={

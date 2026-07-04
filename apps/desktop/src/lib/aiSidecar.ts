@@ -69,6 +69,28 @@ export interface AiSession {
     vramMb: number;
     resolution: string;
   };
+  lastProcessed?: {
+    video?: {
+      sequence: number | null;
+      processor: string | null;
+      status: string | null;
+      latencyMs: number | null;
+      fps: number | null;
+      vramMb: number | null;
+      resolution: string | null;
+      warnings: string[];
+      processedAt: string | null;
+    };
+    audio?: {
+      sequence: number | null;
+      processor: string | null;
+      status: string | null;
+      latencyMs: number | null;
+      inputBytes: number | null;
+      warnings: string[];
+      processedAt: string | null;
+    };
+  };
   pipelines: NativeAiPipelineStatus[];
   warnings?: string[];
   adapterError?: string | null;
