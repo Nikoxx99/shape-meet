@@ -3,6 +3,7 @@ import argparse
 import base64
 import json
 import struct
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -20,6 +21,22 @@ from shape_wrapper_common import (
     run_checked,
     template_args,
 )
+
+# The S16 conversion lives in engines/voice_wokada.py as the single source of
+# truth (also used by the in-process voice engine). Prefer it, but keep a local
+# fallback so this wrapper still runs when packaged without the engines package.
+_AI_SIDECAR_DIR = Path(__file__).resolve().parents[1]
+if str(_AI_SIDECAR_DIR) not in sys.path:
+    sys.path.insert(0, str(_AI_SIDECAR_DIR))
+
+try:
+    from engines.voice_wokada import (  # noqa: F401
+        audio_bytes_to_s16_mono as _shared_audio_bytes_to_s16_mono,
+        s16_mono_to_audio_bytes as _shared_s16_mono_to_audio_bytes,
+    )
+except Exception:  # pragma: no cover - packaged/standalone fallback
+    _shared_audio_bytes_to_s16_mono = None
+    _shared_s16_mono_to_audio_bytes = None
 
 
 def main():
@@ -174,6 +191,24 @@ def post_json(endpoint, payload, timeout, label):
 
 
 def audio_bytes_to_s16_mono(raw, audio_format, channels):
+    if _shared_audio_bytes_to_s16_mono is not None:
+        try:
+            return _shared_audio_bytes_to_s16_mono(raw, audio_format, channels)
+        except ValueError as error:
+            fail(str(error))
+    return _local_audio_bytes_to_s16_mono(raw, audio_format, channels)
+
+
+def s16_mono_to_audio_bytes(raw, audio_format, channels):
+    if _shared_s16_mono_to_audio_bytes is not None:
+        try:
+            return _shared_s16_mono_to_audio_bytes(raw, audio_format, channels)
+        except ValueError as error:
+            fail(str(error))
+    return _local_s16_mono_to_audio_bytes(raw, audio_format, channels)
+
+
+def _local_audio_bytes_to_s16_mono(raw, audio_format, channels):
     normalized = audio_format.lower()
     if normalized in {"pcm_f32le", "f32le", "float32"}:
         sample_count = len(raw) // 4
@@ -198,7 +233,7 @@ def audio_bytes_to_s16_mono(raw, audio_format, channels):
     fail(f"Formato de audio no soportado para vcclient000 w-okada REST: {audio_format}")
 
 
-def s16_mono_to_audio_bytes(raw, audio_format, channels):
+def _local_s16_mono_to_audio_bytes(raw, audio_format, channels):
     sample_count = len(raw) // 2
     mono = [value[0] for value in struct.iter_unpack("<h", raw[: sample_count * 2])]
     expanded = expand_mono(mono, channels)

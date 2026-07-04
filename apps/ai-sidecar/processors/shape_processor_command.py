@@ -1011,7 +1011,9 @@ def demo_audio_sample(sample, previous, mod):
 
 
 def model_timeout():
-    return max(0.1, min(30.0, safe_float(os.environ.get("SHAPE_MODEL_COMMAND_TIMEOUT_SECS"), 2.0)))
+    # Phase 1 default raised from 2.0s (which cut real inferences short) to 4.0s;
+    # still env-adjustable via SHAPE_MODEL_COMMAND_TIMEOUT_SECS (0.1..30s).
+    return max(0.1, min(30.0, safe_float(os.environ.get("SHAPE_MODEL_COMMAND_TIMEOUT_SECS"), 4.0)))
 
 
 def write_clean_plate(background, workdir):
