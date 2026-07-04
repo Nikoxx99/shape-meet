@@ -57,6 +57,10 @@ Variables mínimas:
 POSTGRES_USER=shape_meet
 POSTGRES_PASSWORD=...
 POSTGRES_DB=shape_meet
+# Opcional para dev: publicar Postgres fuera del servidor.
+# Mantén 127.0.0.1 o elimina estas vars si no quieres acceso remoto directo.
+POSTGRES_PUBLIC_BIND=127.0.0.1
+POSTGRES_PUBLIC_PORT=55432
 REDIS_PASSWORD=...
 AUTH_SESSION_SECRET=...
 CORS_ORIGIN=https://admin.tudominio.com,https://meet.tudominio.com,tauri://localhost,https://tauri.localhost,http://tauri.localhost
@@ -203,6 +207,26 @@ identidad temporal con artefacto mínimo, la publica, la lista como host, resuel
 la URL firmada y valida descarga + SHA256; úsalo después del seed inicial para
 validar el flujo real del demo. El archivo `--output` es seguro para soporte:
 incluye checks, latencias, dominios y puertos, pero no imprime secretos.
+
+## Postgres remoto de desarrollo
+
+El compose permite publicar el Postgres interno solo cuando se necesite usar la
+misma base dev desde local. Para habilitarlo en una instancia de pruebas, define
+en Coolify:
+
+```env
+POSTGRES_PUBLIC_BIND=0.0.0.0
+POSTGRES_PUBLIC_PORT=15432
+```
+
+Después de redeploy, la URL local queda:
+
+```text
+postgresql://POSTGRES_USER:POSTGRES_PASSWORD@IP_PUBLICA:15432/POSTGRES_DB?schema=public
+```
+
+No uses esta exposición para producción real sin restringir firewall/VPN y rotar
+credenciales después de pruebas.
 
 Para cargar el rostro/modelo real del host antes del demo:
 

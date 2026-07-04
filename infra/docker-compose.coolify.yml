@@ -10,6 +10,8 @@ services:
       PGTZ: America/Bogota
     volumes:
       - shape_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PUBLIC_BIND:-127.0.0.1}:${POSTGRES_PUBLIC_PORT:-55432}:5432/tcp"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shape_meet} -d ${POSTGRES_DB:-shape_meet}"]
       interval: 10s
