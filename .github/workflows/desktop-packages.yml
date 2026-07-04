@@ -2,6 +2,48 @@ name: Desktop Packages
 
 on:
   workflow_dispatch:
+    inputs:
+      admin_url:
+        description: "Admin/API URL, for example https://admin.example.com"
+        required: false
+        type: string
+      meeting_url:
+        description: "Meeting URL, for example https://meet.example.com"
+        required: false
+        type: string
+      ai_url:
+        description: "Local AI sidecar URL for the workstation"
+        required: false
+        default: "http://127.0.0.1:7851"
+        type: string
+      host_identifier:
+        description: "Default host email for the desktop login screen"
+        required: false
+        type: string
+      sentry_dsn:
+        description: "Optional public Sentry DSN for desktop debug builds"
+        required: false
+        type: string
+      sentry_environment:
+        description: "Sentry environment for desktop events"
+        required: false
+        default: "internal-debug"
+        type: string
+      sentry_release:
+        description: "Sentry release name for desktop events"
+        required: false
+        default: "shape-meet-desktop@0.1.0"
+        type: string
+      sentry_traces_sample_rate:
+        description: "Sentry traces sample rate from 0 to 1"
+        required: false
+        default: "1.0"
+        type: string
+      sentry_debug:
+        description: "Set true only for internal debug handoffs"
+        required: false
+        default: "false"
+        type: string
   push:
     tags:
       - desktop-v*
@@ -33,8 +75,49 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate demo runtime config
-        run: pnpm desktop:config -- --out output/desktop-runtime/shape-meet.env
+      - name: Generate runtime config
+        env:
+          SHAPE_RUNTIME_ADMIN_URL: ${{ github.event.inputs.admin_url || vars.DESKTOP_SHAPE_API_URL || '' }}
+          SHAPE_RUNTIME_MEETING_URL: ${{ github.event.inputs.meeting_url || vars.DESKTOP_SHAPE_MEETING_URL || '' }}
+          SHAPE_RUNTIME_AI_URL: ${{ github.event.inputs.ai_url || vars.DESKTOP_SHAPE_AI_SERVICE_URL || 'http://127.0.0.1:7851' }}
+          SHAPE_RUNTIME_HOST_IDENTIFIER: ${{ github.event.inputs.host_identifier || vars.DESKTOP_SHAPE_HOST_IDENTIFIER || '' }}
+          SHAPE_RUNTIME_SENTRY_DSN: ${{ github.event.inputs.sentry_dsn || vars.DESKTOP_SENTRY_DSN || secrets.DESKTOP_SENTRY_DSN || '' }}
+          SHAPE_RUNTIME_SENTRY_ENVIRONMENT: ${{ github.event.inputs.sentry_environment || vars.DESKTOP_SENTRY_ENVIRONMENT || 'internal-debug' }}
+          SHAPE_RUNTIME_SENTRY_RELEASE: ${{ github.event.inputs.sentry_release || vars.DESKTOP_SENTRY_RELEASE || 'shape-meet-desktop@0.1.0' }}
+          SHAPE_RUNTIME_SENTRY_TRACES_SAMPLE_RATE: ${{ github.event.inputs.sentry_traces_sample_rate || vars.DESKTOP_SENTRY_TRACES_SAMPLE_RATE || '1.0' }}
+          SHAPE_RUNTIME_SENTRY_DEBUG: ${{ github.event.inputs.sentry_debug || vars.DESKTOP_SENTRY_DEBUG || 'false' }}
+        run: |
+          args=(--out output/desktop-runtime/shape-meet.env)
+
+          if [ -n "$SHAPE_RUNTIME_ADMIN_URL" ]; then
+            args+=(--api-url "$SHAPE_RUNTIME_ADMIN_URL")
+          fi
+          if [ -n "$SHAPE_RUNTIME_MEETING_URL" ]; then
+            args+=(--meeting-url "$SHAPE_RUNTIME_MEETING_URL")
+          fi
+          if [ -n "$SHAPE_RUNTIME_AI_URL" ]; then
+            args+=(--ai-url "$SHAPE_RUNTIME_AI_URL")
+          fi
+          if [ -n "$SHAPE_RUNTIME_HOST_IDENTIFIER" ]; then
+            args+=(--host-identifier "$SHAPE_RUNTIME_HOST_IDENTIFIER")
+          fi
+          if [ -n "$SHAPE_RUNTIME_SENTRY_DSN" ]; then
+            args+=(--sentry-dsn "$SHAPE_RUNTIME_SENTRY_DSN")
+          fi
+          if [ -n "$SHAPE_RUNTIME_SENTRY_ENVIRONMENT" ]; then
+            args+=(--sentry-environment "$SHAPE_RUNTIME_SENTRY_ENVIRONMENT")
+          fi
+          if [ -n "$SHAPE_RUNTIME_SENTRY_RELEASE" ]; then
+            args+=(--release "$SHAPE_RUNTIME_SENTRY_RELEASE")
+          fi
+          if [ -n "$SHAPE_RUNTIME_SENTRY_TRACES_SAMPLE_RATE" ]; then
+            args+=(--sentry-traces-sample-rate "$SHAPE_RUNTIME_SENTRY_TRACES_SAMPLE_RATE")
+          fi
+          if [ -n "$SHAPE_RUNTIME_SENTRY_DEBUG" ]; then
+            args+=(--sentry-debug "$SHAPE_RUNTIME_SENTRY_DEBUG")
+          fi
+
+          pnpm desktop:config -- "${args[@]}"
 
       - name: Upload runtime config
         uses: actions/upload-artifact@v4

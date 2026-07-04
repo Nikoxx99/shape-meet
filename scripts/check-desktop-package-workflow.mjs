@@ -49,6 +49,19 @@ function checkWorkflowExists() {
 
 function checkTriggers() {
   expectText("workflow_dispatch:", "workflow ejecutable manualmente");
+  for (const input of [
+    "admin_url:",
+    "meeting_url:",
+    "ai_url:",
+    "host_identifier:",
+    "sentry_dsn:",
+    "sentry_environment:",
+    "sentry_release:",
+    "sentry_traces_sample_rate:",
+    "sentry_debug:",
+  ]) {
+    expectText(input, `input ${input.replace(":", "")} disponible`);
+  }
   expectText("desktop-v*", "workflow dispara por tags desktop-v*");
   expectText(
     "cancel-in-progress: false",
@@ -60,9 +73,29 @@ function checkRuntimeConfigJob() {
   expectText("runtime-config:", "job runtime-config presente");
   expectText("runs-on: ubuntu-latest", "runtime config usa ubuntu-latest");
   expectText(
-    "pnpm desktop:config -- --out output/desktop-runtime/shape-meet.env",
+    "args=(--out output/desktop-runtime/shape-meet.env)",
     "runtime config genera shape-meet.env",
   );
+  for (const expected of [
+    "vars.DESKTOP_SHAPE_API_URL",
+    "vars.DESKTOP_SHAPE_MEETING_URL",
+    "vars.DESKTOP_SHAPE_AI_SERVICE_URL",
+    "vars.DESKTOP_SHAPE_HOST_IDENTIFIER",
+    "vars.DESKTOP_SENTRY_DSN",
+    "secrets.DESKTOP_SENTRY_DSN",
+    "args+=(--api-url",
+    "args+=(--meeting-url",
+    "args+=(--ai-url",
+    "args+=(--host-identifier",
+    "args+=(--sentry-dsn",
+    "args+=(--sentry-environment",
+    "args+=(--release",
+    "args+=(--sentry-traces-sample-rate",
+    "args+=(--sentry-debug",
+    'pnpm desktop:config -- "${args[@]}"',
+  ]) {
+    expectText(expected, `runtime config usa ${expected}`);
+  }
   expectText(
     "name: shape-meet-runtime-config",
     "artifact runtime config declarado",

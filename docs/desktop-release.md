@@ -79,6 +79,35 @@ demo local apunta por defecto a `http://localhost:13000`,
 `http://localhost:1420` y `http://127.0.0.1:7851`; edítalo o regenéralo con
 `pnpm desktop:config` para apuntar a Coolify antes de entregarlo a otra máquina.
 
+Para un handoff remoto, llena los inputs del workflow manual:
+
+- `admin_url`: URL pública del admin/API en Coolify.
+- `meeting_url`: URL pública de reuniones.
+- `ai_url`: normalmente `http://127.0.0.1:7851`, porque el sidecar IA corre
+  local en la workstation.
+- `host_identifier`: correo del host autorizado que aparecerá prellenado.
+- `sentry_dsn`, `sentry_environment`, `sentry_release`,
+  `sentry_traces_sample_rate`, `sentry_debug`: debug desktop.
+
+Los mismos valores pueden quedar como GitHub repository variables para builds
+por tag:
+
+```env
+DESKTOP_SHAPE_API_URL=https://admin.tudominio.com
+DESKTOP_SHAPE_MEETING_URL=https://meet.tudominio.com
+DESKTOP_SHAPE_AI_SERVICE_URL=http://127.0.0.1:7851
+DESKTOP_SHAPE_HOST_IDENTIFIER=host@tudominio.com
+DESKTOP_SENTRY_DSN=https://...
+DESKTOP_SENTRY_ENVIRONMENT=internal-debug
+DESKTOP_SENTRY_RELEASE=shape-meet-desktop@0.1.0
+DESKTOP_SENTRY_TRACES_SAMPLE_RATE=1.0
+DESKTOP_SENTRY_DEBUG=false
+```
+
+Si prefieres guardar el DSN como secret, usa `DESKTOP_SENTRY_DSN`. No agregues
+tokens de Sentry, secretos de LiveKit ni credenciales de Postgres al runtime
+desktop.
+
 ## Enlaces de reunión
 
 El bundle desktop registra los esquemas `shapemeet://` y `shape-meet://`.
