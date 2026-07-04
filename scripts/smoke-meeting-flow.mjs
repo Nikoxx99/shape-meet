@@ -87,8 +87,23 @@ async function main() {
   assertOk("waiting room", access);
   const participantId = access.data.participantId;
   if (!participantId) fail("waiting room", access, "No participant id returned.");
+  const participantToken = access.data.participantToken;
+  if (!participantToken) fail("waiting room", access, "No participant token returned.");
   assertParticipantMedia("waiting room", access.data.meeting, participantId, { camera: "off", mic: "muted" }, access);
   console.log(`waiting room ok: ${participantId}`);
+
+  const missingParticipantTokenJoin = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/join-token`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      displayName: guestName,
+      camera: false,
+      microphone: false,
+      participantId
+    })
+  });
+  assertStatus("guest join token guard", missingParticipantTokenJoin, 401, "PARTICIPANT_TOKEN_REQUIRED");
+  console.log("guest join token guard ok: PARTICIPANT_TOKEN_REQUIRED");
 
   const earlyJoin = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/join-token`, {
     method: "POST",
@@ -97,7 +112,8 @@ async function main() {
       displayName: guestName,
       camera: false,
       microphone: false,
-      participantId
+      participantId,
+      participantToken
     })
   });
   assertStatus("guest join before admit", earlyJoin, 409, "WAITING_FOR_HOST");
@@ -120,13 +136,28 @@ async function main() {
       displayName: guestName,
       camera: false,
       microphone: true,
-      participantId
+      participantId,
+      participantToken
     })
   });
   assertOk("guest join", guestJoin);
   if (!guestJoin.data.livekit?.token) fail("guest join", guestJoin, "No LiveKit token returned for guest.");
   assertParticipantMedia("guest join", guestJoin.data.meeting, participantId, { camera: "off", mic: "on" }, guestJoin);
   console.log(`guest join ok: room=${guestJoin.data.livekit.room}`);
+
+  const guestMediaUpdateWithoutToken = await request(
+    `/api/meetings/${encodeURIComponent(meeting.code)}/participants/${encodeURIComponent(participantId)}/media`,
+    {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        camera: true,
+        microphone: false
+      })
+    }
+  );
+  assertStatus("guest media token guard", guestMediaUpdateWithoutToken, 403);
+  console.log("guest media token guard ok");
 
   const guestMediaUpdate = await request(
     `/api/meetings/${encodeURIComponent(meeting.code)}/participants/${encodeURIComponent(participantId)}/media`,
@@ -135,7 +166,8 @@ async function main() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         camera: true,
-        microphone: false
+        microphone: false,
+        participantToken
       })
     }
   );

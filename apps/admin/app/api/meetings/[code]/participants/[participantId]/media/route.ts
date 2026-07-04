@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAuthenticatedHost } from "../../../../../../../lib/auth";
+import { getAuthenticatedHost, participantTokenMatches } from "../../../../../../../lib/auth";
 import { serializeMeeting } from "../../../../../../../lib/formatters";
 import { prisma } from "../../../../../../../lib/prisma";
 import { apiErrorResponse } from "../../../../../../../lib/api-errors";
@@ -8,7 +8,8 @@ import { apiErrorResponse } from "../../../../../../../lib/api-errors";
 const mediaSchema = z
   .object({
     camera: z.boolean().optional(),
-    microphone: z.boolean().optional()
+    microphone: z.boolean().optional(),
+    participantToken: z.string().min(20).optional()
   })
   .refine((input) => input.camera !== undefined || input.microphone !== undefined, {
     message: "Envía al menos un estado de dispositivo."
@@ -45,12 +46,16 @@ export async function PATCH(request: Request, context: { params: Promise<{ code:
     }
 
     const canUpdateParticipant =
-      !participant.userId ||
       participant.userId === session?.user.id ||
       session?.user.id === meeting.hostId ||
       session?.user.rank === "ADMIN";
+    const canUpdateGuestParticipant = await participantTokenMatches(input.participantToken, {
+      meetingId: meeting.id,
+      meetingCode: meeting.code,
+      participantId: participant.id
+    });
 
-    if (!canUpdateParticipant) {
+    if (!canUpdateParticipant && !canUpdateGuestParticipant) {
       return NextResponse.json({ error: "No puedes actualizar este participante." }, { status: 403 });
     }
 

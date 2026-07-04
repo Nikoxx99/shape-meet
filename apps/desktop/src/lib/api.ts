@@ -112,7 +112,7 @@ export async function requestMeetingAccess(input: {
   email?: string | null;
   camera: boolean;
   microphone: boolean;
-}): Promise<{ meeting: Meeting; participantId: string }> {
+}): Promise<{ meeting: Meeting; participantId: string; participantToken: string }> {
   return request(
     `/api/meetings/${encodeURIComponent(input.code)}/waiting-room`,
     {
@@ -171,6 +171,7 @@ export async function requestMeetingToken(input: {
   camera: boolean;
   microphone: boolean;
   participantId?: string | null;
+  participantToken?: string | null;
   token?: string | null;
 }): Promise<{
   meeting: Meeting;
@@ -184,6 +185,7 @@ export async function requestMeetingToken(input: {
       camera: input.camera,
       microphone: input.microphone,
       participantId: input.participantId ?? undefined,
+      participantToken: input.participantToken ?? undefined,
     }),
   });
 }
@@ -191,6 +193,7 @@ export async function requestMeetingToken(input: {
 export async function leaveMeeting(input: {
   code: string;
   participantId: string;
+  participantToken?: string | null;
   token?: string | null;
 }): Promise<Meeting> {
   const data = await request<{ meeting: Meeting }>(
@@ -200,6 +203,7 @@ export async function leaveMeeting(input: {
       token: input.token,
       body: JSON.stringify({
         participantId: input.participantId,
+        participantToken: input.participantToken ?? undefined,
       }),
     },
   );
@@ -212,6 +216,7 @@ export async function updateMeetingParticipantMedia(input: {
   participantId: string;
   camera?: boolean;
   microphone?: boolean;
+  participantToken?: string | null;
   token?: string | null;
 }): Promise<Meeting> {
   const data = await request<{ meeting: Meeting }>(
@@ -222,6 +227,7 @@ export async function updateMeetingParticipantMedia(input: {
       body: JSON.stringify({
         camera: input.camera,
         microphone: input.microphone,
+        participantToken: input.participantToken ?? undefined,
       }),
     },
   );

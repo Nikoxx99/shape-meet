@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AccessToken } from "livekit-server-sdk";
 import { z } from "zod";
-import { getAuthenticatedHost } from "../../../../../lib/auth";
+import { getAuthenticatedHost, participantTokenMatches } from "../../../../../lib/auth";
 import { serializeMeeting } from "../../../../../lib/formatters";
 import { prisma } from "../../../../../lib/prisma";
 import { apiErrorResponse } from "../../../../../lib/api-errors";
@@ -10,7 +10,8 @@ const joinSchema = z.object({
   displayName: z.string().min(2).max(80),
   camera: z.boolean().default(true),
   microphone: z.boolean().default(true),
-  participantId: z.string().min(6).optional()
+  participantId: z.string().min(6).optional(),
+  participantToken: z.string().min(20).optional()
 });
 
 export async function POST(request: Request, context: { params: Promise<{ code: string }> }) {
@@ -59,6 +60,20 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
       return NextResponse.json(
         { error: "Debes solicitar acceso desde la sala de espera.", code: "WAITING_ROOM_REQUIRED" },
         { status: 409 }
+      );
+    }
+
+    if (
+      !isHost &&
+      !(await participantTokenMatches(input.participantToken, {
+        meetingId: meeting.id,
+        meetingCode: meeting.code,
+        participantId: pendingParticipant!.id
+      }))
+    ) {
+      return NextResponse.json(
+        { error: "Sesión de invitado requerida.", code: "PARTICIPANT_TOKEN_REQUIRED" },
+        { status: 401 }
       );
     }
 

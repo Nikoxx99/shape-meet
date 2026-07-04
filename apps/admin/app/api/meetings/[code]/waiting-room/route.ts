@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { signMeetingParticipantToken } from "../../../../../lib/auth";
 import { serializeMeeting } from "../../../../../lib/formatters";
 import { prisma } from "../../../../../lib/prisma";
 import { apiErrorResponse } from "../../../../../lib/api-errors";
@@ -108,6 +109,11 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
 
     return NextResponse.json({
       participantId: participant.id,
+      participantToken: await signMeetingParticipantToken({
+        meetingId: meeting.id,
+        meetingCode: meeting.code,
+        participantId: participant.id
+      }),
       meeting: serializeMeeting(updatedMeeting, {
         includeInvites: false,
         includeParticipantEmails: false

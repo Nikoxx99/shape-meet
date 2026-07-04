@@ -4,6 +4,7 @@ import { prisma } from "./prisma";
 import { serializeUser } from "./formatters";
 
 const TOKEN_TTL = "12h";
+const PARTICIPANT_TOKEN_TTL = "6h";
 
 interface HostTokenPayload {
   sub: string;
@@ -17,6 +18,12 @@ interface ArtifactTokenInput {
   identityId: string;
   artifactUri: string;
   admin: boolean;
+}
+
+interface ParticipantTokenInput {
+  meetingId: string;
+  meetingCode: string;
+  participantId: string;
 }
 
 export function readBearerToken(request: Request) {
@@ -100,6 +107,59 @@ export async function verifyArtifactDownloadToken(token: string) {
     artifactUri: payload.artifactUri,
     admin: payload.admin === true
   };
+}
+
+export async function signMeetingParticipantToken(input: ParticipantTokenInput) {
+  return new SignJWT({
+    kind: "shape-meeting-participant",
+    meetingId: input.meetingId,
+    meetingCode: input.meetingCode
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(input.participantId)
+    .setAudience("shape-meeting-participant")
+    .setIssuedAt()
+    .setExpirationTime(PARTICIPANT_TOKEN_TTL)
+    .sign(getJwtSecret());
+}
+
+export async function verifyMeetingParticipantToken(token: string) {
+  const { payload } = await jwtVerify(token, getJwtSecret(), {
+    audience: "shape-meeting-participant"
+  });
+
+  if (
+    payload.kind !== "shape-meeting-participant" ||
+    !payload.sub ||
+    typeof payload.meetingId !== "string" ||
+    typeof payload.meetingCode !== "string"
+  ) {
+    throw new Error("Invalid participant token");
+  }
+
+  return {
+    meetingId: payload.meetingId,
+    meetingCode: payload.meetingCode,
+    participantId: payload.sub
+  };
+}
+
+export async function participantTokenMatches(
+  token: string | null | undefined,
+  input: ParticipantTokenInput
+) {
+  if (!token) return false;
+
+  try {
+    const payload = await verifyMeetingParticipantToken(token);
+    return (
+      payload.meetingId === input.meetingId &&
+      payload.meetingCode === input.meetingCode &&
+      payload.participantId === input.participantId
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function getAuthenticatedHost(request: Request) {

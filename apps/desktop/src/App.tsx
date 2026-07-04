@@ -775,6 +775,9 @@ export default function App() {
   const [waitingParticipantId, setWaitingParticipantId] = useState<
     string | null
   >(null);
+  const [waitingParticipantToken, setWaitingParticipantToken] = useState<
+    string | null
+  >(null);
   const [pendingDeepLinkCode, setPendingDeepLinkCode] =
     useState(initialDeepLinkCode);
   const [liveKitConnection, setLiveKitConnection] = useState<
@@ -822,6 +825,7 @@ export default function App() {
 
       setApiMessage(null);
       setWaitingParticipantId(null);
+      setWaitingParticipantToken(null);
       setLiveKitConnection(null);
       setJoinCode(meetingCode);
       setIsHostFlow(false);
@@ -1019,6 +1023,10 @@ export default function App() {
     return liveKitConnection?.identity ?? waitingParticipantId;
   }
 
+  function guestParticipantToken() {
+    return isHostFlow ? null : waitingParticipantToken;
+  }
+
   function patchLocalParticipantMedia(
     participantId: string,
     media: { camera?: boolean; microphone?: boolean },
@@ -1060,6 +1068,7 @@ export default function App() {
         participantId,
         camera: media.camera,
         microphone: media.microphone,
+        participantToken: guestParticipantToken(),
         token: isHostFlow ? hostSession?.token : null,
       });
       updateMeetingState(updatedMeeting);
@@ -1150,6 +1159,7 @@ export default function App() {
     try {
       setApiMessage(null);
       setWaitingParticipantId(null);
+      setWaitingParticipantToken(null);
       if (!joinCode.trim()) {
         setApiMessage("Ingresa un código o enlace de reunión.");
         return;
@@ -1212,6 +1222,7 @@ export default function App() {
     setJoinCode(initialDeepLinkCode || initialMeeting?.code || "");
     setLiveKitConnection(null);
     setWaitingParticipantId(null);
+    setWaitingParticipantToken(null);
     setApiMessage(null);
     navigate("home");
   }
@@ -1290,6 +1301,7 @@ export default function App() {
       });
 
       setWaitingParticipantId(result.participantId);
+      setWaitingParticipantToken(result.participantToken);
       setCurrentMeeting(result.meeting);
       navigate("waiting");
     } catch (error) {
@@ -1301,6 +1313,7 @@ export default function App() {
           microphone: micEnabled,
         });
         setWaitingParticipantId(result.participantId);
+        setWaitingParticipantToken("shape-demo-participant-token");
         setCurrentMeeting(result.meeting);
         setApiMessage(null);
         navigate("waiting");
@@ -1336,12 +1349,14 @@ export default function App() {
         camera: cameraEnabled,
         microphone: micEnabled,
         participantId: isHostFlow ? null : participantId,
+        participantToken: isHostFlow ? null : waitingParticipantToken,
         token: isHostFlow ? hostSession?.token : null,
       });
 
       setCurrentMeeting(result.meeting);
       setLiveKitConnection(result.livekit);
       setWaitingParticipantId(null);
+      if (isHostFlow) setWaitingParticipantToken(null);
       navigate("call");
     } catch (error) {
       if (canUseDemoRuntimeFallback(error) && currentMeeting) {
@@ -1380,6 +1395,7 @@ export default function App() {
           warning: "Modo demo sin LiveKit local.",
         });
         setWaitingParticipantId(null);
+        if (isHostFlow) setWaitingParticipantToken(null);
         navigate("call");
         return;
       }
@@ -1417,14 +1433,20 @@ export default function App() {
 
   function handleLeaveWaitingRoom() {
     const participantId = waitingParticipantId;
+    const participantToken = waitingParticipantToken;
     const meetingCode = currentMeeting?.code;
 
     setWaitingParticipantId(null);
+    setWaitingParticipantToken(null);
     navigate("home");
 
     if (!participantId || !meetingCode) return;
 
-    void leaveMeeting({ code: meetingCode, participantId })
+    void leaveMeeting({
+      code: meetingCode,
+      participantId,
+      participantToken,
+    })
       .then((meeting) => setCurrentMeeting(meeting))
       .catch((error) =>
         setApiMessage(
@@ -1437,10 +1459,12 @@ export default function App() {
 
   function handleLeaveCall() {
     const participantId = liveKitConnection?.identity;
+    const participantToken = waitingParticipantToken;
     const meetingCode = currentMeeting?.code;
     const hostToken = isHostFlow ? hostSession?.token : null;
 
     setLiveKitConnection(null);
+    if (!isHostFlow) setWaitingParticipantToken(null);
     navigate("home");
 
     if (!meetingCode) return;
@@ -1460,7 +1484,12 @@ export default function App() {
 
     if (!participantId) return;
 
-    void leaveMeeting({ code: meetingCode, participantId, token: hostToken })
+    void leaveMeeting({
+      code: meetingCode,
+      participantId,
+      participantToken,
+      token: hostToken,
+    })
       .then((meeting) => setCurrentMeeting(meeting))
       .catch((error) =>
         setApiMessage(

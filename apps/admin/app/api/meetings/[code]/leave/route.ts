@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAuthenticatedHost } from "../../../../../lib/auth";
+import { getAuthenticatedHost, participantTokenMatches } from "../../../../../lib/auth";
 import { serializeMeeting } from "../../../../../lib/formatters";
 import { prisma } from "../../../../../lib/prisma";
 import { apiErrorResponse } from "../../../../../lib/api-errors";
 
 const leaveSchema = z.object({
-  participantId: z.string().min(6)
+  participantId: z.string().min(6),
+  participantToken: z.string().min(20).optional()
 });
 
 export async function POST(request: Request, context: { params: Promise<{ code: string }> }) {
@@ -32,9 +33,16 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
     }
 
     const canLeaveAuthenticatedParticipant =
-      !participant.userId || participant.userId === session?.user.id || session?.user.rank === "ADMIN";
+      participant.userId === session?.user.id ||
+      session?.user.id === meeting.hostId ||
+      session?.user.rank === "ADMIN";
+    const canLeaveGuestParticipant = await participantTokenMatches(input.participantToken, {
+      meetingId: meeting.id,
+      meetingCode: meeting.code,
+      participantId: participant.id
+    });
 
-    if (!canLeaveAuthenticatedParticipant) {
+    if (!canLeaveAuthenticatedParticipant && !canLeaveGuestParticipant) {
       return NextResponse.json({ error: "No puedes cerrar esta sesión." }, { status: 403 });
     }
 
