@@ -198,10 +198,11 @@ para enseñar es:
 `pnpm demo:check` verifica admin/API, sidecar IA, Sentry local, prepara datos,
 corre el smoke de reunión, valida handshake LiveKit, valida contrato IA,
 procesador demo, runtime env generado, procesadores gestionados, adaptadores por
-comando combinado y comandos separados por motor, y vuelve a dejar una reunión
-demo limpia lista para enseñar. Usa `--verify-ui` si quieres incluir el flujo
-host/invitado completo en Chromium dentro del mismo check. Usa
-`--skip-ai-adapters` si solo necesitas validar el flujo base.
+comando combinado, comandos separados por motor y endpoints persistentes de
+modelos, y vuelve a dejar una reunión demo limpia lista para enseñar. Usa
+`--verify-ui` si quieres incluir el flujo host/invitado completo en Chromium
+dentro del mismo check. Usa `--skip-ai-adapters` si solo necesitas validar el
+flujo base.
 
 `pnpm demo:ai-runtime` escribe `shape-ai-runtime.env` con procesadores demo para
 Tauri. Esos procesadores marcan el track de video con una capa visible de IA y

@@ -9,6 +9,9 @@ const skipAiDemo = skipAiAdapters || args.includes("--skip-ai-demo");
 const skipAiRuntime = skipAiAdapters || args.includes("--skip-ai-runtime");
 const skipAiManaged = skipAiAdapters || args.includes("--skip-ai-managed");
 const skipAiCommand = skipAiAdapters || args.includes("--skip-ai-command");
+const skipAiEndpoint = skipAiAdapters || args.includes("--skip-ai-endpoint");
+const skipAiModelEndpoint =
+  skipAiAdapters || args.includes("--skip-ai-model-endpoint");
 const verifyUi = args.includes("--verify-ui") || args.includes("--ui");
 const apiUrl = (
   envOrFile(
@@ -63,12 +66,18 @@ async function main() {
     runPnpm("smoke:ai-model-wrappers");
     runPnpm("smoke:ai-demo-sidecar");
   }
+  if (!skipAiModelEndpoint) {
+    runPnpm("smoke:ai-model-endpoint");
+  }
   if (!skipAiManaged) {
     runPnpm("smoke:ai-managed");
   }
   if (!skipAiCommand) {
     runPnpm("smoke:ai-command");
     runPnpm("smoke:ai-stage-command");
+  }
+  if (!skipAiEndpoint) {
+    runPnpm("smoke:ai-endpoint");
   }
 
   if (verifyUi) {
