@@ -178,6 +178,7 @@ async function enterHostCall(page, meetingCode) {
   await clickByRole(page, "button", "Configurar como host");
   await expectVisibleText(page, "Ajustes de cámara e identidad");
   await expectVisibleText(page, "Identidad principal");
+  await expectSelectValue(page, "Identidad", /.+/);
   await enableToggleRow(page, "Activar voz configurada");
   await openDetailsByTestId(page, "host-setup-diagnostics");
   await clickByRole(page, "button", "Runtime IA local");
@@ -337,6 +338,16 @@ async function expectTestIdText(page, testId, expected, timeout = 10_000) {
   throw new Error(
     `Expected ${testId} to include ${expected}; last text was: ${lastText}`,
   );
+}
+
+async function expectSelectValue(page, label, expected, timeout = 10_000) {
+  const locator = page.getByLabel(label);
+  await locator.waitFor({ state: "visible", timeout });
+  const value = await locator.inputValue();
+  if (expected instanceof RegExp ? expected.test(value) : value === expected) {
+    return;
+  }
+  fail(`Expected ${label} select value to match ${expected}; got: ${value}`);
 }
 
 async function openDetailsByTestId(page, testId) {

@@ -1382,6 +1382,17 @@ function runtimeIdentityFor(
   );
 }
 
+function defaultFaceIdentityFor(identities: HostIdentity[]) {
+  return (
+    identities.find(
+      (identity) =>
+        identity.status === "AVAILABLE" && identity.deliveryStatus === "PUSHED",
+    ) ??
+    identities.find((identity) => identity.status === "AVAILABLE") ??
+    null
+  );
+}
+
 export default function App() {
   const [route, setRoute] = useState<Route>(
     initialDeepLinkCode ? "join" : "home",
@@ -1420,7 +1431,9 @@ export default function App() {
   const [deviceSelection, setDeviceSelection] = useState<DeviceSelection>(() =>
     readStoredDeviceSelection(),
   );
-  const [faceEnabled, setFaceEnabled] = useState(false);
+  const [faceEnabled, setFaceEnabled] = useState(
+    Boolean(defaultFaceIdentityFor(initialIdentities)),
+  );
   const [backgroundEnabled, setBackgroundEnabled] = useState(true);
   const [backgroundCalibration, setBackgroundCalibration] =
     useState<BackgroundCalibration | null>(null);
@@ -1946,12 +1959,14 @@ export default function App() {
     }
 
     evictUnauthorizedIdentityArtifacts(identities, nextIdentities);
+    const preferredIdentity = defaultFaceIdentityFor(nextIdentities);
     setIdentities(nextIdentities);
     setSelectedIdentityId((current) =>
       current && nextIdentities.some((identity) => identity.id === current)
         ? current
-        : (nextIdentities[0]?.id ?? null),
+        : (preferredIdentity?.id ?? nextIdentities[0]?.id ?? null),
     );
+    setFaceEnabled((current) => current || Boolean(preferredIdentity));
   }
 
   async function handleHostLogin(identifier: string, password: string) {
@@ -1981,6 +1996,7 @@ export default function App() {
         setJoinCode(initialMeeting?.code ?? "");
         setIdentities(initialIdentities);
         setSelectedIdentityId(initialIdentity?.id ?? null);
+        setFaceEnabled(Boolean(defaultFaceIdentityFor(initialIdentities)));
         navigate("verify");
         return;
       }
@@ -2054,6 +2070,7 @@ export default function App() {
     setMeetings(initialMeetings);
     setIdentities(initialIdentities);
     setSelectedIdentityId(initialIdentity?.id ?? null);
+    setFaceEnabled(Boolean(defaultFaceIdentityFor(initialIdentities)));
     setCurrentMeeting(initialMeeting);
     setJoinCode(initialDeepLinkCode || initialMeeting?.code || "");
     setLiveKitConnection(null);
