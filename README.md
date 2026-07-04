@@ -160,7 +160,7 @@ pnpm demo:ui:install
 pnpm demo:ui
 pnpm demo:local-preview
 pnpm demo:real:check
-pnpm sentry:configure -- --dsn "https://public_key@o123.ingest.us.sentry.io/456" --environment internal-debug --debug true
+pnpm sentry:configure -- --dsn "https://public_key@o123.ingest.us.sentry.io/456" --environment internal-debug --debug true --verify-live
 pnpm check:sentry
 pnpm check:sentry:live
 
@@ -778,11 +778,12 @@ local.
 Para conectar una máquina local de demo con Sentry sin commitear credenciales:
 
 ```bash
-pnpm sentry:configure -- --dsn "https://public_key@o123.ingest.us.sentry.io/456" --environment internal-debug --debug true
+pnpm sentry:configure -- --dsn "https://public_key@o123.ingest.us.sentry.io/456" --environment internal-debug --debug true --verify-live
 pnpm check:sentry
 pnpm check:sentry:live
 ```
 
+`sentry:configure -- --verify-live` no escribe archivos si la ingesta falla.
 `check:sentry:live` debe pasar antes del demo. Si Sentry responde `ProjectId`,
 copia de nuevo la DSN desde Project Settings > Client Keys: normalmente indica
 que la clave pública y el project id no pertenecen al mismo proyecto.

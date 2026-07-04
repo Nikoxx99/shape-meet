@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 const tempDir = mkdtempSync(join(tmpdir(), "shape-sentry-local-"));
+const liveTempDir = mkdtempSync(join(tmpdir(), "shape-sentry-live-"));
+const failTempDir = mkdtempSync(join(tmpdir(), "shape-sentry-live-fail-"));
 
 try {
   writeFixture(
@@ -87,9 +89,66 @@ try {
     "sentry JSON leaked raw DSN",
   );
 
+  execFileSync(
+    process.execPath,
+    [
+      resolve("scripts/configure-sentry-local.mjs"),
+      "--root",
+      liveTempDir,
+      "--dsn",
+      "https://publickey@example.ingest.us.sentry.io/123",
+      "--verify-live",
+    ],
+    {
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        SHAPE_SENTRY_CONFIGURE_LIVE_STATUS: "200",
+      },
+    },
+  );
+  assertFileIncludesIn(
+    liveTempDir,
+    ".env.local",
+    "SENTRY_DSN=https://publickey@example.ingest.us.sentry.io/123",
+  );
+
+  const failResult = spawnSync(
+    process.execPath,
+    [
+      resolve("scripts/configure-sentry-local.mjs"),
+      "--root",
+      failTempDir,
+      "--dsn",
+      "https://publickey@example.ingest.us.sentry.io/123",
+      "--verify-live",
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SHAPE_SENTRY_CONFIGURE_LIVE_STATUS: "403",
+        SHAPE_SENTRY_CONFIGURE_LIVE_BODY:
+          '{"detail":"event submission rejected with_reason: ProjectId"}',
+      },
+    },
+  );
+  assert(failResult.status !== 0, "invalid live DSN should fail");
+  assert(
+    failResult.stderr.includes("ProjectId"),
+    "invalid live DSN did not explain ProjectId",
+  );
+  assert(
+    !existsSync(join(failTempDir, ".env.local")),
+    "invalid live DSN should not write env files",
+  );
+
   console.log("sentry local config smoke ok");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
+  rmSync(liveTempDir, { recursive: true, force: true });
+  rmSync(failTempDir, { recursive: true, force: true });
 }
 
 function writeFixture(file, content) {
@@ -99,7 +158,11 @@ function writeFixture(file, content) {
 }
 
 function assertFileIncludes(file, expected) {
-  const target = join(tempDir, file);
+  assertFileIncludesIn(tempDir, file, expected);
+}
+
+function assertFileIncludesIn(root, file, expected) {
+  const target = join(root, file);
   if (!existsSync(target)) {
     throw new Error(`expected file to exist: ${file}`);
   }

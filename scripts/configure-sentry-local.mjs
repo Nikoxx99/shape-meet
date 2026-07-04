@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 const args = process.argv.slice(2);
 const root = resolve(argValue("--root") ?? process.cwd());
 const dryRun = args.includes("--dry-run");
+const verifyLive =
+  args.includes("--verify-live") ||
+  args.includes("--live") ||
+  args.includes("--send-test-event");
+const allowInvalidLive = args.includes("--allow-invalid-live");
 const dsn =
   argValue("--dsn") ??
   process.env.SENTRY_DSN ??
@@ -16,6 +22,21 @@ const debug = argValue("--debug") ?? "true";
 const releaseSuffix = argValue("--release-suffix") ?? "0.1.0";
 
 validateInput();
+
+if (verifyLive) {
+  const live = await verifyLiveDsn(dsn);
+  if (!live.ok) {
+    const message = `Sentry live check failed: ${live.message}`;
+    if (!allowInvalidLive) {
+      fail(
+        `${message}\nNo se escribieron cambios. Copia una DSN nueva desde Sentry Project Settings > Client Keys, o usa --allow-invalid-live para forzar.`,
+      );
+    }
+    console.warn(`${message}\nContinuando por --allow-invalid-live.`);
+  } else {
+    console.log(`Sentry live ok: ${maskDsn(dsn)}`);
+  }
+}
 
 const files = [
   {
@@ -56,7 +77,11 @@ for (const item of files) {
 
 console.log(`Sentry DSN: ${maskDsn(dsn)}`);
 console.log(`Environment: ${environment}`);
-console.log("Next: pnpm check:sentry && pnpm check:sentry:live");
+console.log(
+  verifyLive
+    ? "Next: pnpm check:sentry:live"
+    : "Next: pnpm check:sentry && pnpm check:sentry:live",
+);
 
 function commonEntries({ release, includeAdminPublic, includeDesktopPublic }) {
   const entries = {
@@ -153,6 +178,90 @@ function validateInput() {
   if (!["true", "false"].includes(String(debug).toLowerCase())) {
     fail("--debug must be true or false.");
   }
+}
+
+async function verifyLiveDsn(value) {
+  const parsed = parseDsn(value);
+  if (!parsed) {
+    return { ok: false, message: "DSN inválida." };
+  }
+
+  const fixtureStatus = process.env.SHAPE_SENTRY_CONFIGURE_LIVE_STATUS;
+  if (fixtureStatus) {
+    const status = Number(fixtureStatus);
+    const body = process.env.SHAPE_SENTRY_CONFIGURE_LIVE_BODY ?? "";
+    return {
+      ok: status >= 200 && status < 300,
+      message:
+        status >= 200 && status < 300
+          ? "ok"
+          : sentryHttpErrorMessage(status, body),
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  const endpoint = `${parsed.protocol}//${parsed.host}/api/${parsed.projectId}/store/?sentry_key=${encodeURIComponent(
+    parsed.publicKey,
+  )}&sentry_version=7&sentry_client=shape-meet-configure/0.1`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        event_id: randomUUID().replaceAll("-", ""),
+        timestamp: new Date().toISOString(),
+        platform: "javascript",
+        logger: "shape-meet.configure-sentry",
+        level: "info",
+        message: "Shape Meet Sentry configure live check",
+        environment,
+        release: `shape-meet-configure@${releaseSuffix}`,
+        tags: {
+          "app.surface": "sentry-configure",
+          "shape.check": "configure-live",
+        },
+      }),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      message: response.ok
+        ? "ok"
+        : sentryHttpErrorMessage(response.status, text),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function parseDsn(value) {
+  try {
+    const url = new URL(value);
+    return {
+      protocol: url.protocol,
+      host: url.host,
+      publicKey: url.username,
+      projectId: url.pathname.replace(/^\/+|\/+$/g, ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function sentryHttpErrorMessage(status, text) {
+  const detail = String(text ?? "").slice(0, 240);
+  const hint = /ProjectId/i.test(detail)
+    ? "La clave pública y el project id no pertenecen al mismo proyecto, o el proyecto no acepta ingesta para esa DSN."
+    : "";
+  return [`HTTP ${status}: ${detail}`, hint].filter(Boolean).join(" ");
 }
 
 function argValue(name) {
