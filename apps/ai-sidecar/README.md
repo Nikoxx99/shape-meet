@@ -125,15 +125,20 @@ SHAPE_VIDEO_FRAME_COMMAND="/path/to/video-wrapper --input {input} --output {outp
 SHAPE_FACE_COMMAND="/path/to/facefusion-wrapper --input {input} --output {output} --identity {identity}"
 SHAPE_BACKGROUND_COMMAND="/path/to/backgroundmattingv2-wrapper --input {input} --output {output} --clean-plate {clean_plate}"
 
+# Opcion C: servicios persistentes por etapa.
+SHAPE_FACE_ENDPOINT="http://127.0.0.1:9101/face"
+SHAPE_BACKGROUND_ENDPOINT="http://127.0.0.1:9102/background"
+
 SHAPE_AUDIO_PROCESSOR_COMMAND="python3 apps/ai-sidecar/processors/shape_processor_command.py --kind audio --port 7861"
 SHAPE_AUDIO_CHUNK_COMMAND="/path/to/voice-wrapper --input {input} --output {output} --sample-rate {sample_rate}"
 SHAPE_VOICE_COMMAND="/path/to/vcclient000-wrapper --input {input} --output {output} --sample-rate {sample_rate}"
+SHAPE_VOICE_ENDPOINT="http://127.0.0.1:9103/voice"
 ```
 
-`SHAPE_VIDEO_FRAME_COMMAND` y `SHAPE_AUDIO_CHUNK_COMMAND` tienen prioridad
-porque representan wrappers combinados. Si los dejas vacios, el adaptador usa
-`SHAPE_FACE_COMMAND`, `SHAPE_BACKGROUND_COMMAND` y `SHAPE_VOICE_COMMAND` segun
-los efectos activos en la reunion.
+`SHAPE_VIDEO_FRAME_COMMAND` / `SHAPE_AUDIO_CHUNK_COMMAND` y sus equivalentes
+`*_ENDPOINT` representan wrappers combinados. Si los dejas vacios, el adaptador
+usa `SHAPE_FACE_COMMAND`, `SHAPE_BACKGROUND_COMMAND`, `SHAPE_VOICE_COMMAND` o
+los endpoints por etapa segun los efectos activos en la reunion.
 
 Cada comando recibe placeholders `{input}`, `{output}`, `{identity}`,
 `{clean_plate}`, `{width}`, `{height}`, `{fps}`, `{session_id}`,
@@ -141,6 +146,11 @@ Cada comando recibe placeholders `{input}`, `{output}`, `{identity}`,
 incluye `SHAPE_SESSION_ID`, `SHAPE_PROCESSOR_KIND`, `SHAPE_MODEL_STAGE`,
 `SHAPE_REQUEST_SEQUENCE` y la variante `SHAPE_FRAME_SEQUENCE` o
 `SHAPE_AUDIO_SEQUENCE` para correlacionar errores con la reunion/frame/chunk.
+
+Cada endpoint por etapa recibe JSON con `stage`, `session`, `frame` o `audio`,
+`identity`, `enabled` y `target`. El procesador incluye `inputPath` y
+`outputPath` temporales; el servicio puede devolver `frame.dataUrl` /
+`audio.audioDataBase64` o escribir directamente en `outputPath`.
 
 Para demo sin modelos reales, `SHAPE_PROCESSOR_DEMO_EFFECTS=true` hace que el
 procesador empaquetable devuelva un SVG con una capa visible sobre el frame y
@@ -269,6 +279,7 @@ pnpm smoke:ai-model-wrappers
 pnpm smoke:ai-demo-sidecar
 pnpm smoke:ai-managed
 pnpm smoke:ai-command
+pnpm smoke:ai-endpoint
 pnpm smoke:ai-stage-command
 ```
 
@@ -283,6 +294,8 @@ comando, reportarlos en diagnostics y delegar frame/audio a esos procesos.
 procesadores demo gestionados y que `/preflight` use esos procesadores.
 `smoke:ai-command` valida la ruta completa usando el adaptador de comandos:
 sidecar gestionado -> procesador HTTP -> comando de modelo -> output procesado.
+`smoke:ai-endpoint` valida la ruta para servicios persistentes por etapa:
+sidecar gestionado -> procesador HTTP -> endpoints de face/background/voice.
 `smoke:ai-stage-command` valida la ruta de comandos separados para
 FaceFusion/BackgroundMattingV2/vcclient000.
 

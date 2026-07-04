@@ -53,12 +53,23 @@ const config = {
     "vcclient000",
   videoFrameCommand:
     argValue("--video-frame-command") ?? process.env.SHAPE_VIDEO_FRAME_COMMAND,
+  videoFrameEndpoint:
+    argValue("--video-frame-endpoint") ??
+    process.env.SHAPE_VIDEO_FRAME_ENDPOINT,
   faceCommand: argValue("--face-command") ?? process.env.SHAPE_FACE_COMMAND,
+  faceEndpoint: argValue("--face-endpoint") ?? process.env.SHAPE_FACE_ENDPOINT,
   backgroundCommand:
     argValue("--background-command") ?? process.env.SHAPE_BACKGROUND_COMMAND,
+  backgroundEndpoint:
+    argValue("--background-endpoint") ?? process.env.SHAPE_BACKGROUND_ENDPOINT,
   audioChunkCommand:
     argValue("--audio-chunk-command") ?? process.env.SHAPE_AUDIO_CHUNK_COMMAND,
+  audioChunkEndpoint:
+    argValue("--audio-chunk-endpoint") ??
+    process.env.SHAPE_AUDIO_CHUNK_ENDPOINT,
   voiceCommand: argValue("--voice-command") ?? process.env.SHAPE_VOICE_COMMAND,
+  voiceEndpoint:
+    argValue("--voice-endpoint") ?? process.env.SHAPE_VOICE_ENDPOINT,
   modelTimeout:
     argValue("--model-timeout") ??
     process.env.SHAPE_MODEL_COMMAND_TIMEOUT_SECS ??
@@ -75,13 +86,14 @@ const config = {
 
 applyPreset(config);
 
-if (!hasAnyModelCommand(config)) {
+if (!hasAnyModelAdapter(config)) {
   fail(
     [
-      "Define al menos un comando de modelo:",
-      "--preset local-wrappers, --video-frame-command, --face-command, --background-command, --audio-chunk-command o --voice-command.",
+      "Define al menos un comando o endpoint de modelo:",
+      "--preset local-wrappers, --video-frame-command, --video-frame-endpoint, --face-command, --face-endpoint, --background-command, --background-endpoint, --audio-chunk-command, --audio-chunk-endpoint, --voice-command o --voice-endpoint.",
       "Ejemplo:",
       "pnpm models:runtime -- --preset local-wrappers --passthrough",
+      "pnpm models:runtime -- --face-endpoint http://127.0.0.1:9101/face --background-endpoint http://127.0.0.1:9102/background --voice-endpoint http://127.0.0.1:9103/voice",
       "pnpm models:runtime -- --face-command 'python wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}' --background-command 'python wrappers/bmv2_frame.py --input {input} --output {output} --clean-plate {clean_plate}'",
     ].join("\n"),
   );
@@ -117,13 +129,18 @@ function renderRuntimeEnv(input) {
     `SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://${processorHost}:${videoPort}/process-frame`,
     `SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://${processorHost}:${videoPort}/health`,
     ...optionalLine("SHAPE_VIDEO_FRAME_COMMAND", input.videoFrameCommand),
+    ...optionalLine("SHAPE_VIDEO_FRAME_ENDPOINT", input.videoFrameEndpoint),
     ...optionalLine("SHAPE_FACE_COMMAND", input.faceCommand),
+    ...optionalLine("SHAPE_FACE_ENDPOINT", input.faceEndpoint),
     ...optionalLine("SHAPE_BACKGROUND_COMMAND", input.backgroundCommand),
+    ...optionalLine("SHAPE_BACKGROUND_ENDPOINT", input.backgroundEndpoint),
     `SHAPE_AUDIO_PROCESSOR_COMMAND=${input.processorCommand} --kind audio --host ${processorHost} --port ${audioPort}`,
     `SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://${processorHost}:${audioPort}/process-audio`,
     `SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://${processorHost}:${audioPort}/health`,
     ...optionalLine("SHAPE_AUDIO_CHUNK_COMMAND", input.audioChunkCommand),
+    ...optionalLine("SHAPE_AUDIO_CHUNK_ENDPOINT", input.audioChunkEndpoint),
     ...optionalLine("SHAPE_VOICE_COMMAND", input.voiceCommand),
+    ...optionalLine("SHAPE_VOICE_ENDPOINT", input.voiceEndpoint),
     ...Object.entries(input.modelEnv).map(([key, value]) => `${key}=${value}`),
     "",
   ].join("\n");
@@ -133,13 +150,18 @@ function optionalLine(key, value) {
   return value ? [`${key}=${value}`] : [`# ${key}=`];
 }
 
-function hasAnyModelCommand(input) {
+function hasAnyModelAdapter(input) {
   return Boolean(
     input.videoFrameCommand ||
+    input.videoFrameEndpoint ||
     input.faceCommand ||
+    input.faceEndpoint ||
     input.backgroundCommand ||
+    input.backgroundEndpoint ||
     input.audioChunkCommand ||
-    input.voiceCommand,
+    input.audioChunkEndpoint ||
+    input.voiceCommand ||
+    input.voiceEndpoint,
   );
 }
 

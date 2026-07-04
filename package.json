@@ -77,6 +77,7 @@
     "smoke:real-demo": "node scripts/smoke-real-demo-readiness.mjs",
     "smoke:ai-managed": "node scripts/smoke-ai-managed-processors.mjs",
     "smoke:ai-command": "node scripts/smoke-ai-command-adapters.mjs",
+    "smoke:ai-endpoint": "node scripts/smoke-ai-endpoint-adapters.mjs",
     "smoke:ai-stage-command": "node scripts/smoke-ai-stage-commands.mjs",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",

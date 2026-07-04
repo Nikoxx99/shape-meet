@@ -161,8 +161,11 @@ function checkProcessor(kind) {
 
 function checkVideoModelCommands() {
   const combined = env.SHAPE_VIDEO_FRAME_COMMAND;
+  const combinedEndpoint = env.SHAPE_VIDEO_FRAME_ENDPOINT;
   const face = env.SHAPE_FACE_COMMAND;
+  const faceEndpoint = env.SHAPE_FACE_ENDPOINT;
   const background = env.SHAPE_BACKGROUND_COMMAND;
+  const backgroundEndpoint = env.SHAPE_BACKGROUND_ENDPOINT;
 
   if (combined) {
     checkModelCommand(combined, "SHAPE_VIDEO_FRAME_COMMAND", [
@@ -183,13 +186,24 @@ function checkVideoModelCommands() {
     return;
   }
 
-  checkFaceCommand(face);
-  checkBackgroundCommand(background);
+  if (combinedEndpoint) {
+    checkUrl(combinedEndpoint, "SHAPE_VIDEO_FRAME_ENDPOINT");
+    ok("endpoint combinado de video configurado");
+    return;
+  }
+
+  checkFaceCommand(face, faceEndpoint);
+  checkBackgroundCommand(background, backgroundEndpoint);
 }
 
-function checkFaceCommand(command) {
+function checkFaceCommand(command, endpoint) {
   if (!command) {
-    warn("SHAPE_FACE_COMMAND no configurado.");
+    if (endpoint) {
+      checkUrl(endpoint, "SHAPE_FACE_ENDPOINT");
+      ok("endpoint de face swap configurado");
+    } else {
+      warn("SHAPE_FACE_COMMAND/SHAPE_FACE_ENDPOINT no configurado.");
+    }
     return;
   }
 
@@ -205,9 +219,16 @@ function checkFaceCommand(command) {
   }
 }
 
-function checkBackgroundCommand(command) {
+function checkBackgroundCommand(command, endpoint) {
   if (!command) {
-    warn("SHAPE_BACKGROUND_COMMAND no configurado.");
+    if (endpoint) {
+      checkUrl(endpoint, "SHAPE_BACKGROUND_ENDPOINT");
+      ok("endpoint de matting/fondo configurado");
+    } else {
+      warn(
+        "SHAPE_BACKGROUND_COMMAND/SHAPE_BACKGROUND_ENDPOINT no configurado.",
+      );
+    }
     return;
   }
 
@@ -225,7 +246,9 @@ function checkBackgroundCommand(command) {
 
 function checkVoiceModelCommands() {
   const combined = env.SHAPE_AUDIO_CHUNK_COMMAND;
+  const combinedEndpoint = env.SHAPE_AUDIO_CHUNK_ENDPOINT;
   const voice = env.SHAPE_VOICE_COMMAND;
+  const voiceEndpoint = env.SHAPE_VOICE_ENDPOINT;
 
   if (combined) {
     checkModelCommand(combined, "SHAPE_AUDIO_CHUNK_COMMAND", [
@@ -237,8 +260,19 @@ function checkVoiceModelCommands() {
     return;
   }
 
+  if (combinedEndpoint) {
+    checkUrl(combinedEndpoint, "SHAPE_AUDIO_CHUNK_ENDPOINT");
+    ok("endpoint combinado de audio configurado");
+    return;
+  }
+
   if (!voice) {
-    warn("SHAPE_VOICE_COMMAND no configurado.");
+    if (voiceEndpoint) {
+      checkUrl(voiceEndpoint, "SHAPE_VOICE_ENDPOINT");
+      ok("endpoint de voz configurado");
+    } else {
+      warn("SHAPE_VOICE_COMMAND/SHAPE_VOICE_ENDPOINT no configurado.");
+    }
     return;
   }
 
@@ -800,9 +834,19 @@ function buildFaceReadiness() {
   const issues = [];
   const warnings = [];
   const command = env.SHAPE_VIDEO_FRAME_COMMAND ?? env.SHAPE_FACE_COMMAND;
+  const endpoint = env.SHAPE_VIDEO_FRAME_ENDPOINT ?? env.SHAPE_FACE_ENDPOINT;
 
   if (!command) {
-    issues.push("Falta SHAPE_FACE_COMMAND o SHAPE_VIDEO_FRAME_COMMAND.");
+    if (endpoint) {
+      if (!validHttpUrl(endpoint)) {
+        issues.push(`Endpoint de face swap inválido: ${endpoint}.`);
+      }
+      return readinessStage("face", "Face swap", issues, warnings);
+    }
+
+    issues.push(
+      "Falta SHAPE_FACE_COMMAND, SHAPE_VIDEO_FRAME_COMMAND, SHAPE_FACE_ENDPOINT o SHAPE_VIDEO_FRAME_ENDPOINT.",
+    );
     return readinessStage("face", "Face swap", issues, warnings);
   }
 
@@ -827,9 +871,25 @@ function buildBackgroundReadiness() {
   const issues = [];
   const warnings = [];
   const command = env.SHAPE_VIDEO_FRAME_COMMAND ?? env.SHAPE_BACKGROUND_COMMAND;
+  const endpoint =
+    env.SHAPE_VIDEO_FRAME_ENDPOINT ?? env.SHAPE_BACKGROUND_ENDPOINT;
 
   if (!command) {
-    issues.push("Falta SHAPE_BACKGROUND_COMMAND o SHAPE_VIDEO_FRAME_COMMAND.");
+    if (endpoint) {
+      if (!validHttpUrl(endpoint)) {
+        issues.push(`Endpoint de background inválido: ${endpoint}.`);
+      }
+      return readinessStage(
+        "background",
+        "Background matting",
+        issues,
+        warnings,
+      );
+    }
+
+    issues.push(
+      "Falta SHAPE_BACKGROUND_COMMAND, SHAPE_VIDEO_FRAME_COMMAND, SHAPE_BACKGROUND_ENDPOINT o SHAPE_VIDEO_FRAME_ENDPOINT.",
+    );
     return readinessStage("background", "Background matting", issues, warnings);
   }
 
@@ -854,9 +914,19 @@ function buildVoiceReadiness() {
   const issues = [];
   const warnings = [];
   const command = env.SHAPE_AUDIO_CHUNK_COMMAND ?? env.SHAPE_VOICE_COMMAND;
+  const endpoint = env.SHAPE_AUDIO_CHUNK_ENDPOINT ?? env.SHAPE_VOICE_ENDPOINT;
 
   if (!command) {
-    issues.push("Falta SHAPE_VOICE_COMMAND o SHAPE_AUDIO_CHUNK_COMMAND.");
+    if (endpoint) {
+      if (!validHttpUrl(endpoint)) {
+        issues.push(`Endpoint de voz inválido: ${endpoint}.`);
+      }
+      return readinessStage("voice", "Cambio de voz", issues, warnings);
+    }
+
+    issues.push(
+      "Falta SHAPE_VOICE_COMMAND, SHAPE_AUDIO_CHUNK_COMMAND, SHAPE_VOICE_ENDPOINT o SHAPE_AUDIO_CHUNK_ENDPOINT.",
+    );
     return readinessStage("voice", "Cambio de voz", issues, warnings);
   }
 

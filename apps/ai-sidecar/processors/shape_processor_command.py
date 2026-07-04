@@ -12,7 +12,9 @@ import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib import error as urllib_error
 from urllib.parse import quote
+from urllib import request as urllib_request
 
 
 DEFAULT_VIDEO_PORT = 7860
@@ -39,13 +41,21 @@ class ShapeProcessorHandler(BaseHTTPRequestHandler):
 
         kind = STATE["kind"]
         command = any_model_command_configured(kind)
+        endpoint = any_model_endpoint_configured(kind)
         demo_effects = demo_effects_enabled()
         self._json(
             {
-                "status": "ready" if command or demo_effects else "limited",
+                "status": "ready" if command or endpoint or demo_effects else "limited",
                 "kind": kind,
-                "mode": "command" if command else "demo-effects" if demo_effects else "passthrough",
+                "mode": "command"
+                if command
+                else "endpoint"
+                if endpoint
+                else "demo-effects"
+                if demo_effects
+                else "passthrough",
                 "commandConfigured": bool(command),
+                "endpointConfigured": bool(endpoint),
                 "demoEffects": demo_effects,
                 "startedAt": STATE["startedAt"],
                 "requests": STATE["requests"],
@@ -134,7 +144,8 @@ def process_video(payload):
         warnings.append("invalid_frame_data_url")
     else:
         command = combined_model_command("video")
-        stage_commands = video_stage_commands(enabled) if not command else []
+        endpoint = combined_model_endpoint("video")
+        stage_adapters = video_stage_adapters(enabled) if not command and not endpoint else []
         if command:
             with tempfile.TemporaryDirectory(prefix="shape-video-") as workdir:
                 input_path = os.path.join(workdir, "input.jpg")
@@ -178,7 +189,39 @@ def process_video(payload):
                     status = "error"
                 else:
                     status = "error"
-        elif stage_commands:
+        elif endpoint:
+            with tempfile.TemporaryDirectory(prefix="shape-video-") as workdir:
+                input_path = os.path.join(workdir, "input.jpg")
+                output_path = os.path.join(workdir, "output.jpg")
+                clean_plate_path = write_clean_plate(background, workdir)
+                write_data_url(input_data_url, input_path)
+
+                result = call_video_endpoint(
+                    endpoint,
+                    payload,
+                    "video",
+                    input_data_url,
+                    input_path,
+                    output_path,
+                    clean_plate_path,
+                    identity,
+                    width,
+                    height,
+                    fps,
+                    sequence,
+                )
+                warnings.extend(result["warnings"])
+
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    output_data_url = file_to_data_url(output_path, "image/jpeg")
+                    status = "processed"
+                    processor = "shape-video-endpoint-adapter"
+                elif result["ok"]:
+                    warnings.append("video_endpoint_output_missing")
+                    status = "error"
+                else:
+                    status = "error"
+        elif stage_adapters:
             with tempfile.TemporaryDirectory(prefix="shape-video-") as workdir:
                 input_path = os.path.join(workdir, "input.jpg")
                 clean_plate_path = write_clean_plate(background, workdir)
@@ -187,35 +230,51 @@ def process_video(payload):
                 completed_stages = []
                 stage_failed = False
 
-                for stage, stage_command in stage_commands:
+                for stage, stage_command, stage_endpoint in stage_adapters:
                     output_path = os.path.join(workdir, f"output-{stage}.jpg")
-                    result = run_model_command(
-                        stage_command,
-                        {
-                            "input": current_input_path,
-                            "output": output_path,
-                            "identity": identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
-                            "clean_plate": clean_plate_path or "",
-                            "width": str(width),
-                            "height": str(height),
-                            "fps": str(fps),
-                            "session_id": session_id(payload),
-                            "sequence": str(sequence),
-                            "stage": stage,
-                        },
-                        {
-                            **command_context_env("video", payload, sequence, stage),
-                            "SHAPE_FRAME_INPUT_PATH": current_input_path,
-                            "SHAPE_FRAME_OUTPUT_PATH": output_path,
-                            "SHAPE_VIDEO_STAGE": stage,
-                            "SHAPE_IDENTITY_PATH": identity.get("localArtifactPath") or "",
-                            "SHAPE_IDENTITY_URI": identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
-                            "SHAPE_CLEAN_PLATE_PATH": clean_plate_path or "",
-                            "SHAPE_TARGET_WIDTH": str(width),
-                            "SHAPE_TARGET_HEIGHT": str(height),
-                            "SHAPE_TARGET_FPS": str(fps),
-                        },
-                    )
+                    if stage_command:
+                        result = run_model_command(
+                            stage_command,
+                            {
+                                "input": current_input_path,
+                                "output": output_path,
+                                "identity": identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
+                                "clean_plate": clean_plate_path or "",
+                                "width": str(width),
+                                "height": str(height),
+                                "fps": str(fps),
+                                "session_id": session_id(payload),
+                                "sequence": str(sequence),
+                                "stage": stage,
+                            },
+                            {
+                                **command_context_env("video", payload, sequence, stage),
+                                "SHAPE_FRAME_INPUT_PATH": current_input_path,
+                                "SHAPE_FRAME_OUTPUT_PATH": output_path,
+                                "SHAPE_VIDEO_STAGE": stage,
+                                "SHAPE_IDENTITY_PATH": identity.get("localArtifactPath") or "",
+                                "SHAPE_IDENTITY_URI": identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
+                                "SHAPE_CLEAN_PLATE_PATH": clean_plate_path or "",
+                                "SHAPE_TARGET_WIDTH": str(width),
+                                "SHAPE_TARGET_HEIGHT": str(height),
+                                "SHAPE_TARGET_FPS": str(fps),
+                            },
+                        )
+                    else:
+                        result = call_video_endpoint(
+                            stage_endpoint,
+                            payload,
+                            stage,
+                            file_to_data_url(current_input_path, "image/jpeg"),
+                            current_input_path,
+                            output_path,
+                            clean_plate_path,
+                            identity,
+                            width,
+                            height,
+                            fps,
+                            sequence,
+                        )
                     warnings.extend(prefix_warnings(stage, result["warnings"]))
 
                     if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
@@ -282,7 +341,9 @@ def process_audio(payload):
         warnings.append("invalid_audio_payload")
     else:
         combined_command = combined_model_command("audio")
+        combined_endpoint = combined_model_endpoint("audio")
         command = combined_command or voice_stage_command(enabled)
+        endpoint = None if command else combined_endpoint or voice_stage_endpoint(enabled)
         if command:
             with tempfile.TemporaryDirectory(prefix="shape-audio-") as workdir:
                 input_path = os.path.join(workdir, f"input.{audio_extension(audio_format)}")
@@ -323,6 +384,37 @@ def process_audio(payload):
                         processor = "shape-voice-command-adapter"
                 elif result["ok"]:
                     warnings.append("audio_model_output_missing")
+                    status = "error"
+                else:
+                    status = "error"
+        elif endpoint:
+            with tempfile.TemporaryDirectory(prefix="shape-audio-") as workdir:
+                input_path = os.path.join(workdir, f"input.{audio_extension(audio_format)}")
+                output_path = os.path.join(workdir, f"output.{audio_extension(audio_format)}")
+                write_base64(input_base64, input_path)
+                command_stage = "audio" if combined_endpoint else "voice"
+
+                result = call_audio_endpoint(
+                    endpoint,
+                    payload,
+                    command_stage,
+                    input_base64,
+                    input_path,
+                    output_path,
+                    identity,
+                    sample_rate,
+                    channels,
+                    audio_format,
+                    sequence,
+                )
+                warnings.extend(result["warnings"])
+
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    output_base64 = file_to_base64(output_path)
+                    status = "processed"
+                    processor = "shape-audio-endpoint-adapter" if combined_endpoint else "shape-voice-endpoint-adapter"
+                elif result["ok"]:
+                    warnings.append("audio_endpoint_output_missing")
                     status = "error"
                 else:
                     status = "error"
@@ -383,6 +475,203 @@ def run_model_command(command, replacements, extra_env):
     if detail:
         warning = f"{warning}:{detail}"
     return {"ok": False, "warnings": [warning]}
+
+
+def call_video_endpoint(
+    endpoint,
+    payload,
+    stage,
+    input_data_url,
+    input_path,
+    output_path,
+    clean_plate_path,
+    identity,
+    width,
+    height,
+    fps,
+    sequence,
+):
+    response = post_model_endpoint(
+        endpoint,
+        {
+            "stage": stage,
+            "session": payload.get("session") if isinstance(payload.get("session"), dict) else {},
+            "sequence": sequence,
+            "frame": {
+                **(payload.get("frame") if isinstance(payload.get("frame"), dict) else {}),
+                "dataUrl": input_data_url,
+                "frameDataUrl": input_data_url,
+                "inputPath": input_path,
+                "outputPath": output_path,
+                "width": width,
+                "height": height,
+                "format": "image/jpeg",
+            },
+            "identity": identity,
+            "background": {
+                **(payload.get("background") if isinstance(payload.get("background"), dict) else {}),
+                "cleanPlatePath": clean_plate_path or "",
+            },
+            "enabled": payload.get("enabled") if isinstance(payload.get("enabled"), dict) else {},
+            "target": {
+                **(payload.get("target") if isinstance(payload.get("target"), dict) else {}),
+                "width": width,
+                "height": height,
+                "fps": fps,
+            },
+        },
+        "video_endpoint",
+    )
+    if not response["ok"]:
+        return response
+
+    data_url = extract_frame_data_url(response["data"])
+    if data_url:
+        write_data_url(data_url, output_path)
+    if endpoint_status(response["data"]) == "error":
+        response["warnings"].append("video_endpoint_error_status")
+        response["ok"] = False
+    return response
+
+
+def call_audio_endpoint(
+    endpoint,
+    payload,
+    stage,
+    input_base64,
+    input_path,
+    output_path,
+    identity,
+    sample_rate,
+    channels,
+    audio_format,
+    sequence,
+):
+    response = post_model_endpoint(
+        endpoint,
+        {
+            "stage": stage,
+            "session": payload.get("session") if isinstance(payload.get("session"), dict) else {},
+            "sequence": sequence,
+            "audio": {
+                **(payload.get("audio") if isinstance(payload.get("audio"), dict) else {}),
+                "audioDataBase64": input_base64,
+                "inputPath": input_path,
+                "outputPath": output_path,
+                "sampleRate": sample_rate,
+                "channels": channels,
+                "format": audio_format,
+            },
+            "identity": identity,
+            "enabled": payload.get("enabled") if isinstance(payload.get("enabled"), dict) else {},
+        },
+        "audio_endpoint",
+    )
+    if not response["ok"]:
+        return response
+
+    encoded = extract_audio_base64(response["data"])
+    if encoded:
+        write_base64(encoded, output_path)
+    if endpoint_status(response["data"]) == "error":
+        response["warnings"].append("audio_endpoint_error_status")
+        response["ok"] = False
+    return response
+
+
+def post_model_endpoint(endpoint, payload, label):
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib_request.Request(
+        endpoint,
+        data=body,
+        headers={"content-type": "application/json", "accept": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib_request.urlopen(request, timeout=model_timeout()) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib_error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:COMMAND_DETAIL_LIMIT]
+        return {"ok": False, "warnings": [f"{label}_http_error:{error.code}:{detail}"], "data": {}}
+    except json.JSONDecodeError as error:
+        return {"ok": False, "warnings": [f"{label}_invalid_json:{str(error)[:COMMAND_DETAIL_LIMIT]}"], "data": {}}
+    except Exception as error:
+        return {"ok": False, "warnings": [f"{label}_error:{str(error)[:COMMAND_DETAIL_LIMIT]}"], "data": {}}
+
+    return {"ok": True, "warnings": endpoint_warnings(data), "data": data}
+
+
+def endpoint_warnings(data):
+    values = []
+    if isinstance(data, dict):
+        values.extend(data.get("warnings") if isinstance(data.get("warnings"), list) else [])
+        frame = data.get("frame")
+        if isinstance(frame, dict):
+            values.extend(frame.get("warnings") if isinstance(frame.get("warnings"), list) else [])
+        audio = data.get("audio")
+        if isinstance(audio, dict):
+            values.extend(audio.get("warnings") if isinstance(audio.get("warnings"), list) else [])
+    return unique_warnings(values)
+
+
+def endpoint_status(data):
+    if not isinstance(data, dict):
+        return None
+    if isinstance(data.get("status"), str):
+        return data.get("status")
+    for key in ("frame", "audio"):
+        nested = data.get(key)
+        if isinstance(nested, dict) and isinstance(nested.get("status"), str):
+            return nested.get("status")
+    return None
+
+
+def extract_frame_data_url(data):
+    if not isinstance(data, dict):
+        return None
+
+    for key in ("dataUrl", "frameDataUrl", "imageDataUrl"):
+        value = data.get(key)
+        if isinstance(value, str) and value.startswith("data:image/"):
+            return value
+
+    frame = data.get("frame")
+    if isinstance(frame, dict):
+        for key in ("dataUrl", "frameDataUrl", "imageDataUrl"):
+            value = frame.get(key)
+            if isinstance(value, str) and value.startswith("data:image/"):
+                return value
+        nested = frame.get("frame")
+        if isinstance(nested, dict):
+            for key in ("dataUrl", "frameDataUrl", "imageDataUrl"):
+                value = nested.get(key)
+                if isinstance(value, str) and value.startswith("data:image/"):
+                    return value
+
+    return None
+
+
+def extract_audio_base64(data):
+    if not isinstance(data, dict):
+        return None
+
+    value = data.get("audioDataBase64")
+    if isinstance(value, str) and value:
+        return value
+
+    audio = data.get("audio")
+    if isinstance(audio, dict):
+        value = audio.get("audioDataBase64")
+        if isinstance(value, str) and value:
+            return value
+        nested = audio.get("audio")
+        if isinstance(nested, dict):
+            value = nested.get("audioDataBase64")
+            if isinstance(value, str) and value:
+                return value
+
+    return None
 
 
 def command_args(command, replacements):
@@ -452,6 +741,12 @@ def combined_model_command(kind):
     return env_non_empty("SHAPE_VIDEO_FRAME_COMMAND")
 
 
+def combined_model_endpoint(kind):
+    if kind == "audio":
+        return env_non_empty("SHAPE_AUDIO_CHUNK_ENDPOINT")
+    return env_non_empty("SHAPE_VIDEO_FRAME_ENDPOINT")
+
+
 def any_model_command_configured(kind):
     if combined_model_command(kind):
         return True
@@ -462,23 +757,41 @@ def any_model_command_configured(kind):
     return bool(env_non_empty("SHAPE_FACE_COMMAND") or env_non_empty("SHAPE_BACKGROUND_COMMAND"))
 
 
-def video_stage_commands(enabled):
-    commands = []
+def any_model_endpoint_configured(kind):
+    if combined_model_endpoint(kind):
+        return True
+
+    if kind == "audio":
+        return bool(env_non_empty("SHAPE_VOICE_ENDPOINT"))
+
+    return bool(env_non_empty("SHAPE_FACE_ENDPOINT") or env_non_empty("SHAPE_BACKGROUND_ENDPOINT"))
+
+
+def video_stage_adapters(enabled):
+    adapters = []
     if enabled.get("face"):
         command = env_non_empty("SHAPE_FACE_COMMAND")
-        if command:
-            commands.append(("face", command))
+        endpoint = env_non_empty("SHAPE_FACE_ENDPOINT")
+        if command or endpoint:
+            adapters.append(("face", command, endpoint))
     if enabled.get("background"):
         command = env_non_empty("SHAPE_BACKGROUND_COMMAND")
-        if command:
-            commands.append(("background", command))
-    return commands
+        endpoint = env_non_empty("SHAPE_BACKGROUND_ENDPOINT")
+        if command or endpoint:
+            adapters.append(("background", command, endpoint))
+    return adapters
 
 
 def voice_stage_command(enabled):
     if not enabled.get("voice"):
         return None
     return env_non_empty("SHAPE_VOICE_COMMAND")
+
+
+def voice_stage_endpoint(enabled):
+    if not enabled.get("voice"):
+        return None
+    return env_non_empty("SHAPE_VOICE_ENDPOINT")
 
 
 def prefix_warnings(stage, warnings):

@@ -203,9 +203,11 @@ Tauri ni de `shape-ai-runtime.env`.
 
 `pnpm models:runtime` escribe `shape-ai-runtime.env` para wrappers reales. Acepta
 `--video-frame-command` para un wrapper combinado o `--face-command`,
-`--background-command` y `--voice-command` para comandos separados. Los comandos
-reciben placeholders como `{input}`, `{output}`, `{identity}`, `{clean_plate}`,
-`{sample_rate}` y `{session_id}`.
+`--background-command` y `--voice-command` para comandos separados. Tambien
+acepta `--video-frame-endpoint`, `--face-endpoint`, `--background-endpoint`,
+`--audio-chunk-endpoint` y `--voice-endpoint` para procesos persistentes que
+mantengan modelos cargados. Los comandos reciben placeholders como `{input}`,
+`{output}`, `{identity}`, `{clean_plate}`, `{sample_rate}` y `{session_id}`.
 Los wrappers de referencia viven en `apps/ai-sidecar/wrappers` y cubren
 FaceFusion, BackgroundMattingV2 y vcclient000.
 Usa `--profile windows-nvidia` para generar defaults estrictos de demo en
@@ -698,8 +700,9 @@ resume la readiness real por etapa: procesador video, face swap, fondo,
 procesador audio y voz.
 
 También puedes usar `--vcclient000-command` si prefieres invocar vcclient000 por
-CLI. El archivo resultante `shape-ai-runtime.env` queda en la ruta local de la
-app y Tauri lo carga al iniciar el sidecar gestionado.
+CLI, o `--voice-endpoint` si vcclient000 queda detras de un proxy HTTP propio.
+El archivo resultante `shape-ai-runtime.env` queda en la ruta local de la app y
+Tauri lo carga al iniciar el sidecar gestionado.
 
 Sentry nativo usa `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE` y
 `SENTRY_TRACES_SAMPLE_RATE`. El webview React/Vite usa las variables `VITE_*`

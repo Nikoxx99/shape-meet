@@ -235,6 +235,10 @@ Implementacion actual:
   el repo: el sidecar levanta `shape_processor_command.py`, ese procesador
   ejecuta un comando de modelo por frame/chunk y devuelve el output al pipeline
   WebRTC.
+- `pnpm smoke:ai-endpoint` verifica la ruta preparada para procesos persistentes:
+  `shape_processor_command.py` mantiene el contrato de sidecar, pero delega
+  `face`, `background` y `voice` a endpoints HTTP por etapa que pueden mantener
+  modelos cargados en VRAM.
 - `apps/ai-sidecar/wrappers` contiene wrappers CLI de referencia para
   FaceFusion, BackgroundMattingV2 y vcclient000. Estos wrappers son el puente
   inicial para máquinas de demo con modelos instalados; para producción de baja
@@ -257,20 +261,30 @@ Variables del supervisor nativo:
   `shape_processor_command.py --kind video`. Recibe placeholders `{input}`,
   `{output}`, `{identity}`, `{clean_plate}`, `{width}`, `{height}`, `{fps}` y
   `{session_id}`, ademas de variables `SHAPE_FRAME_*`.
+- `SHAPE_VIDEO_FRAME_ENDPOINT`: endpoint HTTP combinado de video invocado por
+  `shape_processor_command.py --kind video` cuando no hay comando combinado.
 - `SHAPE_FACE_COMMAND`: comando local de face swap invocado por
   `shape_processor_command.py --kind video` cuando el rostro esta activo y no
   hay `SHAPE_VIDEO_FRAME_COMMAND`. Recibe los mismos placeholders de video y
   variables `SHAPE_FRAME_*`.
+- `SHAPE_FACE_ENDPOINT`: endpoint HTTP de face swap por etapa. Recibe
+  `stage=face`, frame actual, paths temporales, identidad y target.
 - `SHAPE_BACKGROUND_COMMAND`: comando local de matting/fondo invocado despues de
   `SHAPE_FACE_COMMAND` cuando fondo esta activo y no hay
   `SHAPE_VIDEO_FRAME_COMMAND`. Recibe los mismos placeholders de video.
+- `SHAPE_BACKGROUND_ENDPOINT`: endpoint HTTP de matting/fondo por etapa. Recibe
+  `stage=background`, frame actual, paths temporales, clean plate y target.
 - `SHAPE_AUDIO_CHUNK_COMMAND`: comando local invocado por
   `shape_processor_command.py --kind audio`. Recibe placeholders `{input}`,
   `{output}`, `{sample_rate}`, `{channels}`, `{format}` y `{session_id}`, ademas
   de variables `SHAPE_AUDIO_*`.
+- `SHAPE_AUDIO_CHUNK_ENDPOINT`: endpoint HTTP combinado de audio invocado por
+  `shape_processor_command.py --kind audio` cuando no hay comando combinado.
 - `SHAPE_VOICE_COMMAND`: comando local de vcclient000 invocado cuando voz esta
   activa y no hay `SHAPE_AUDIO_CHUNK_COMMAND`. Recibe los mismos placeholders de
   audio y `{identity}`.
+- `SHAPE_VOICE_ENDPOINT`: endpoint HTTP de voz por etapa. Recibe `stage=voice`,
+  chunk de audio, paths temporales, identidad y formato.
 - `shape-ai-runtime.env`: archivo local cargado por la app Tauri antes de iniciar
   el sidecar gestionado. Windows usa `%LOCALAPPDATA%\Shape Meet`, macOS usa
   `~/Library/Application Support/Shape Meet` y Linux usa XDG data dir. Puede
