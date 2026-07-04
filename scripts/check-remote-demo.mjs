@@ -3,6 +3,7 @@ import { lookup } from "node:dns/promises";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createSocket } from "node:dgram";
 import { Socket } from "node:net";
+import { connect as tlsConnect } from "node:tls";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -11,6 +12,7 @@ const strict = args.includes("--strict");
 const json = args.includes("--json");
 const skipNetwork = args.includes("--skip-network");
 const skipTurnutils = args.includes("--skip-turnutils");
+const skipLiveKitHandshake = args.includes("--skip-livekit-handshake");
 const apiFlow =
   args.includes("--api-flow") || args.includes("--check-api-flow");
 const identityFlow =
@@ -516,6 +518,7 @@ async function checkAdminApiFlow() {
   }
 
   const tokenStarted = Date.now();
+  let livekitConnection = null;
   try {
     const joined = await postAdminJson(
       `/api/meetings/${encodeURIComponent(meetingCode)}/join-token`,
@@ -541,6 +544,7 @@ async function checkAdminApiFlow() {
         tokenStarted,
       );
     } else {
+      livekitConnection = livekit;
       ok(
         "api.livekit-token",
         `Token LiveKit emitido para room ${livekit.room}.`,
@@ -550,6 +554,10 @@ async function checkAdminApiFlow() {
   } catch (error) {
     issue("api.livekit-token", errorMessage(error), tokenStarted);
   } finally {
+    if (livekitConnection) {
+      await checkLiveKitClientHandshake(livekitConnection);
+    }
+
     const endStarted = Date.now();
     try {
       await postAdminJson(
@@ -569,6 +577,41 @@ async function checkAdminApiFlow() {
         endStarted,
       );
     }
+  }
+}
+
+async function checkLiveKitClientHandshake(livekit) {
+  if (skipLiveKitHandshake) {
+    skipped(
+      "api.livekit-client-handshake",
+      "Handshake LiveKit omitido por flag.",
+    );
+    return;
+  }
+
+  const started = Date.now();
+  try {
+    const response = await websocketUpgrade(
+      liveKitRtcUrl(livekit.url, livekit.token),
+      timeoutMs,
+    );
+
+    if (response.statusCode !== 101) {
+      issue(
+        "api.livekit-client-handshake",
+        `LiveKit /rtc devolvió HTTP ${response.statusCode}: ${response.statusText}`,
+        started,
+      );
+      return;
+    }
+
+    ok(
+      "api.livekit-client-handshake",
+      `Handshake LiveKit /rtc ok para room ${livekit.room}.`,
+      started,
+    );
+  } catch (error) {
+    issue("api.livekit-client-handshake", errorMessage(error), started);
   }
 }
 
@@ -943,6 +986,91 @@ function tcpConnect(host, port, timeout) {
     });
     socket.connect(port, host);
   });
+}
+
+function websocketUpgrade(url, timeout) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const secure = parsed.protocol === "wss:";
+    const port = Number(parsed.port || (secure ? 443 : 80));
+    const hostHeader = hostHeaderValue(parsed.hostname, parsed.port);
+    const key = randomBytes(16).toString("base64");
+    const request = [
+      `GET ${parsed.pathname}${parsed.search} HTTP/1.1`,
+      `Host: ${hostHeader}`,
+      "Upgrade: websocket",
+      "Connection: Upgrade",
+      `Sec-WebSocket-Key: ${key}`,
+      "Sec-WebSocket-Version: 13",
+      "User-Agent: shape-meet-remote-check",
+      "",
+      "",
+    ].join("\r\n");
+    const socket = secure
+      ? tlsConnect(
+          {
+            host: parsed.hostname,
+            port,
+            servername: parsed.hostname,
+          },
+          writeRequest,
+        )
+      : new Socket();
+    let raw = "";
+    const timer = setTimeout(() => {
+      socket.destroy(new Error("timeout"));
+    }, timeout);
+
+    if (!secure) socket.once("connect", writeRequest);
+    socket.on("data", (chunk) => {
+      raw += chunk.toString("utf8");
+      if (!raw.includes("\r\n\r\n")) return;
+
+      clearTimeout(timer);
+      socket.destroy();
+      const [statusLine = ""] = raw.split("\r\n", 1);
+      const match = statusLine.match(/^HTTP\/\d(?:\.\d)?\s+(\d+)\s*(.*)$/);
+      if (!match) {
+        reject(new Error(`Respuesta WebSocket inválida: ${statusLine}`));
+        return;
+      }
+      resolve({
+        statusCode: Number(match[1]),
+        statusText: match[2] || "",
+      });
+    });
+    socket.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+
+    if (!secure) socket.connect(port, parsed.hostname);
+
+    function writeRequest() {
+      socket.write(request);
+    }
+  });
+}
+
+function liveKitRtcUrl(baseUrl, token) {
+  const parsed = new URL(baseUrl);
+  if (parsed.protocol === "http:") parsed.protocol = "ws:";
+  if (parsed.protocol === "https:") parsed.protocol = "wss:";
+
+  const basePath = parsed.pathname.replace(/\/$/, "");
+  parsed.pathname = `${basePath}/rtc`;
+  parsed.search = "";
+  parsed.searchParams.set("access_token", token);
+  parsed.searchParams.set("auto_subscribe", "0");
+  parsed.searchParams.set("sdk", "shape-remote-check");
+  parsed.searchParams.set("version", "0.1.0");
+  parsed.searchParams.set("protocol", "15");
+  return parsed.toString();
+}
+
+function hostHeaderValue(hostname, port) {
+  const host = hostname.includes(":") ? `[${hostname}]` : hostname;
+  return port ? `${host}:${port}` : host;
 }
 
 function stunBindingRequest(host, port, timeout) {

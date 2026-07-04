@@ -406,14 +406,16 @@ puertos TURN/RTC:
 ```bash
 pnpm demo:remote:check -- \
   --env-file infra/shape-meet.production.env \
+  --api-flow \
   --strict \
   --output output/remote-demo/shape-remote-demo.json
 ```
 
 Si tienes `turnutils_uclient` instalado, el comando también valida credenciales
-TURN REST generadas desde `LIVEKIT_TURN_SHARED_SECRET`. Sin esa herramienta,
-mantiene el check de STUN UDP y deja un aviso operativo. El JSON de `--output`
-sirve para soporte sin exponer secretos.
+TURN REST generadas desde `LIVEKIT_TURN_SHARED_SECRET`. Con `--api-flow`, además
+crea una reunión temporal, emite token LiveKit y hace handshake WebSocket contra
+`/rtc`; sin esa herramienta, mantiene el check de STUN UDP y deja un aviso
+operativo. El JSON de `--output` sirve para soporte sin exponer secretos.
 
 Para preparar una desktop instalada contra ese mismo entorno, deriva un
 `shape-meet.env` sin copiar secretos del servidor:

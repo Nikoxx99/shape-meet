@@ -186,12 +186,13 @@ Si la máquina tiene
 `turnutils_uclient`, además prueba la autenticación TURN REST con el
 `LIVEKIT_TURN_SHARED_SECRET`. Con `--api-flow` también inicia sesión con
 `HOST_BOOTSTRAP_EMAIL` / `HOST_BOOTSTRAP_PASSWORD`, crea una reunión temporal,
-emite un token LiveKit de host y cierra esa reunión. Con `--identity-flow`
-crea una identidad temporal con artefacto mínimo, la publica, la lista como host,
-resuelve la URL firmada y valida descarga + SHA256; úsalo después del seed
-inicial para validar el flujo real del demo. El archivo `--output` es seguro
-para soporte: incluye checks, latencias, dominios y puertos, pero no imprime
-secretos.
+emite un token LiveKit de host, hace handshake WebSocket contra `/rtc` con ese
+token y cierra esa reunión. Si necesitas aislar un diagnóstico de API sin tocar
+signaling, usa `--skip-livekit-handshake`. Con `--identity-flow` crea una
+identidad temporal con artefacto mínimo, la publica, la lista como host, resuelve
+la URL firmada y valida descarga + SHA256; úsalo después del seed inicial para
+validar el flujo real del demo. El archivo `--output` es seguro para soporte:
+incluye checks, latencias, dominios y puertos, pero no imprime secretos.
 
 Para cargar el rostro/modelo real del host antes del demo:
 

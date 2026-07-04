@@ -308,6 +308,34 @@ try {
     response.writeHead(200);
     response.end("livekit");
   });
+  livekit.server.on("upgrade", (request, socket) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (
+      url.pathname !== "/rtc" ||
+      url.searchParams.get("access_token") !== "livekit.jwt.remote.check"
+    ) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    const accept = createHash("sha1")
+      .update(
+        `${request.headers["sec-websocket-key"]}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`,
+      )
+      .digest("base64");
+    socket.write(
+      [
+        "HTTP/1.1 101 Switching Protocols",
+        "Upgrade: websocket",
+        "Connection: Upgrade",
+        `Sec-WebSocket-Accept: ${accept}`,
+        "",
+        "",
+      ].join("\r\n"),
+    );
+    socket.end();
+  });
   livekitUrlForToken = `ws://127.0.0.1:${livekit.port}`;
   const rtcTcp = await listenTcp();
   const turnTcp = await listenTcp();
@@ -359,6 +387,7 @@ try {
   assertCheck(report, "api.host-login", "ok");
   assertCheck(report, "api.meeting-create", "ok");
   assertCheck(report, "api.livekit-token", "ok");
+  assertCheck(report, "api.livekit-client-handshake", "ok");
   assertCheck(report, "api.meeting-end", "ok");
   assertCheck(report, "api.identity-admin-login", "ok");
   assertCheck(report, "api.identity-host-login", "ok");
