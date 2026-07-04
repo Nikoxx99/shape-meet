@@ -209,6 +209,20 @@ modelos, y vuelve a dejar una reunión demo limpia lista para enseñar. Usa
 dentro del mismo check. Usa `--skip-ai-adapters` si solo necesitas validar el
 flujo base.
 
+`pnpm demo:status` resume el estado del demo en una sola salida: servicios
+locales, Sentry, compuerta de modelos reales y porcentaje verificado. Por
+defecto es rápido y no ejecuta flows pesados. Para una lectura más fuerte antes
+de enseñar:
+
+```bash
+pnpm demo:status -- --verify-preview --verify-handoff
+pnpm demo:status -- --verify-full --sentry-live
+```
+
+El porcentaje es de demo verificado, no de producto completo: sube cuando los
+checks realmente se ejecutan y pasan. Si Sentry live o modelos reales siguen
+pendientes, el reporte los deja como siguientes pasos.
+
 `pnpm demo:ai-runtime` escribe `shape-ai-runtime.env` con procesadores demo para
 Tauri. Esos procesadores marcan el track de video con una capa visible de IA y
 aplican un efecto de voz demo al PCM local, sin usar modelos reales. Sirve para
