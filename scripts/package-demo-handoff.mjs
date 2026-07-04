@@ -31,6 +31,8 @@ const skipVerifyUi = args.includes("--skip-verify-ui");
 const skipDesktop = args.includes("--skip-desktop");
 const skipCoolify = args.includes("--skip-coolify");
 const skipModelBootstrap = args.includes("--skip-model-bootstrap");
+const skipModelRuntime =
+  args.includes("--skip-model-runtime") || skipModelBootstrap;
 const skipIdentityPush = args.includes("--skip-identity-push");
 const skipRemoteApiFlow = args.includes("--skip-remote-api-flow");
 const skipRemoteIdentityFlow = args.includes("--skip-remote-identity-flow");
@@ -58,6 +60,7 @@ const modelEndpointPort =
   argValue("--model-endpoint-port") ??
   process.env.SHAPE_MODEL_ENDPOINT_PORT ??
   "9100";
+const modelEndpointBaseUrl = `http://${modelEndpointHost}:${modelEndpointPort}`;
 const videoFrameEndpoint =
   argValue("--video-frame-endpoint") ??
   process.env.SHAPE_VIDEO_FRAME_ENDPOINT ??
@@ -74,6 +77,29 @@ const audioChunkEndpoint =
   null;
 const voiceEndpoint =
   argValue("--voice-endpoint") ?? process.env.SHAPE_VOICE_ENDPOINT ?? null;
+const resolvedVideoFrameEndpoint =
+  videoFrameEndpoint ??
+  (runtimePreset === "local-endpoints"
+    ? `${modelEndpointBaseUrl}/video-frame`
+    : null);
+const resolvedFaceEndpoint =
+  faceEndpoint ??
+  (runtimePreset === "local-endpoints" ? `${modelEndpointBaseUrl}/face` : null);
+const resolvedBackgroundEndpoint =
+  backgroundEndpoint ??
+  (runtimePreset === "local-endpoints"
+    ? `${modelEndpointBaseUrl}/background`
+    : null);
+const resolvedAudioChunkEndpoint =
+  audioChunkEndpoint ??
+  (runtimePreset === "local-endpoints"
+    ? `${modelEndpointBaseUrl}/voice`
+    : null);
+const resolvedVoiceEndpoint =
+  voiceEndpoint ??
+  (runtimePreset === "local-endpoints"
+    ? `${modelEndpointBaseUrl}/voice`
+    : null);
 const runtimeEnvFile =
   argValue("--env-file") ?? process.env.SHAPE_AI_RUNTIME_ENV_FILE ?? null;
 const remoteEnvFile = argValue("--remote-env-file") ?? null;
@@ -108,11 +134,11 @@ const report = {
         ? {
             host: modelEndpointHost,
             port: modelEndpointPort,
-            videoFrameEndpoint,
-            faceEndpoint,
-            backgroundEndpoint,
-            audioChunkEndpoint,
-            voiceEndpoint,
+            videoFrameEndpoint: resolvedVideoFrameEndpoint,
+            faceEndpoint: resolvedFaceEndpoint,
+            backgroundEndpoint: resolvedBackgroundEndpoint,
+            audioChunkEndpoint: resolvedAudioChunkEndpoint,
+            voiceEndpoint: resolvedVoiceEndpoint,
           }
         : null,
     runtimeEnvFile,
@@ -187,6 +213,15 @@ function main() {
   report.steps.modelBootstrap = skipModelBootstrap
     ? skipped("Bootstrap modelos", "omitido por --skip-model-bootstrap")
     : runModelBootstrapStep();
+
+  report.steps.modelRuntime = skipModelRuntime
+    ? skipped(
+        "Runtime modelos",
+        skipModelBootstrap
+          ? "omitido porque bootstrap modelos fue omitido"
+          : "omitido por --skip-model-runtime",
+      )
+    : runModelRuntimeStep();
 
   collectSummary();
   report.artifacts.manifest = join(outputDir, "manifest.json");
@@ -494,11 +529,23 @@ function runModelBootstrapStep() {
     );
   }
 
-  pushOptional(commandArgs, "--video-frame-endpoint", videoFrameEndpoint);
-  pushOptional(commandArgs, "--face-endpoint", faceEndpoint);
-  pushOptional(commandArgs, "--background-endpoint", backgroundEndpoint);
-  pushOptional(commandArgs, "--audio-chunk-endpoint", audioChunkEndpoint);
-  pushOptional(commandArgs, "--voice-endpoint", voiceEndpoint);
+  pushOptional(
+    commandArgs,
+    "--video-frame-endpoint",
+    resolvedVideoFrameEndpoint,
+  );
+  pushOptional(commandArgs, "--face-endpoint", resolvedFaceEndpoint);
+  pushOptional(
+    commandArgs,
+    "--background-endpoint",
+    resolvedBackgroundEndpoint,
+  );
+  pushOptional(
+    commandArgs,
+    "--audio-chunk-endpoint",
+    resolvedAudioChunkEndpoint,
+  );
+  pushOptional(commandArgs, "--voice-endpoint", resolvedVoiceEndpoint);
 
   forwardValue(commandArgs, "--workspace");
   forwardValue(commandArgs, "--facefusion-repo");
@@ -518,6 +565,93 @@ function runModelBootstrapStep() {
   step.setupScriptPath = existsSync(setupScriptPath) ? setupScriptPath : null;
   report.artifacts.modelChecklist = step.checklistPath;
   report.artifacts.modelSetupScript = step.setupScriptPath;
+  return step;
+}
+
+function runModelRuntimeStep() {
+  const modelDir = join(outputDir, "model-workstation");
+  const runtimePath = join(modelDir, "shape-ai-runtime.env");
+  const workstationReadmePath = join(modelDir, "README.md");
+  const startEndpointScriptPath = join(modelDir, "start-model-endpoint.ps1");
+  const verifyRuntimeScriptPath = join(modelDir, "verify-model-runtime.ps1");
+  const commandArgs = [
+    "models:runtime",
+    "--",
+    "--profile",
+    profile,
+    "--preset",
+    runtimePreset,
+    "--out",
+    runtimePath,
+  ];
+
+  if (runtimePreset === "local-endpoints") {
+    commandArgs.push(
+      "--model-endpoint-host",
+      modelEndpointHost,
+      "--model-endpoint-port",
+      modelEndpointPort,
+    );
+  }
+
+  pushOptional(
+    commandArgs,
+    "--video-frame-endpoint",
+    resolvedVideoFrameEndpoint,
+  );
+  pushOptional(commandArgs, "--face-endpoint", resolvedFaceEndpoint);
+  pushOptional(
+    commandArgs,
+    "--background-endpoint",
+    resolvedBackgroundEndpoint,
+  );
+  pushOptional(
+    commandArgs,
+    "--audio-chunk-endpoint",
+    resolvedAudioChunkEndpoint,
+  );
+  pushOptional(commandArgs, "--voice-endpoint", resolvedVoiceEndpoint);
+  forwardValue(commandArgs, "--facefusion-dir");
+  forwardValue(commandArgs, "--facefusion-python");
+  forwardValue(commandArgs, "--facefusion-entrypoint");
+  forwardValue(commandArgs, "--facefusion-processors");
+  forwardValue(commandArgs, "--facefusion-providers");
+  forwardValue(commandArgs, "--facefusion-extra-args");
+  forwardValue(commandArgs, "--bmv2-repo-dir");
+  forwardValue(commandArgs, "--bmv2-python");
+  forwardValue(commandArgs, "--bmv2-checkpoint");
+  forwardValue(commandArgs, "--bmv2-device");
+  forwardValue(commandArgs, "--bmv2-extra-args");
+  forwardValue(commandArgs, "--vcclient000-http-endpoint");
+  forwardValue(commandArgs, "--vcclient000-http-mode");
+  forwardFlag(commandArgs, "--passthrough");
+
+  const step = commandStep("Runtime modelos", commandArgs, {
+    parseJson: false,
+    timeout: 60_000,
+  });
+
+  if (step.ok) {
+    writeFileSync(workstationReadmePath, renderModelWorkstationReadme());
+    writeFileSync(startEndpointScriptPath, renderStartEndpointPowerShell());
+    writeFileSync(verifyRuntimeScriptPath, renderVerifyRuntimePowerShell());
+  }
+
+  step.runtimeEnvPath = existsSync(runtimePath) ? runtimePath : null;
+  step.workstationReadmePath = existsSync(workstationReadmePath)
+    ? workstationReadmePath
+    : null;
+  step.startEndpointScriptPath = existsSync(startEndpointScriptPath)
+    ? startEndpointScriptPath
+    : null;
+  step.verifyRuntimeScriptPath = existsSync(verifyRuntimeScriptPath)
+    ? verifyRuntimeScriptPath
+    : null;
+  report.artifacts.modelRuntimeEnv = step.runtimeEnvPath;
+  report.artifacts.modelWorkstationReadme = step.workstationReadmePath;
+  report.artifacts.modelStartEndpointScript = step.startEndpointScriptPath;
+  report.artifacts.modelVerifyRuntimeScript = step.verifyRuntimeScriptPath;
+
   return step;
 }
 
@@ -599,10 +733,26 @@ function collectSummary() {
     report.demo.models = {
       ok: modelReport.ok,
       profile: modelReport.profile,
+      runtimePreset,
       warnings: modelReport.checks?.filter((check) => check.status === "warn")
         .length,
       errors: modelReport.checks?.filter((check) => check.status === "error")
         .length,
+    };
+  }
+
+  const modelRuntimeStep = report.steps.modelRuntime;
+  if (modelRuntimeStep && !modelRuntimeStep.skipped) {
+    report.demo.models = {
+      ...(report.demo.models ?? {}),
+      runtimeEnv: modelRuntimeStep.runtimeEnvPath
+        ? relativePath(modelRuntimeStep.runtimeEnvPath)
+        : null,
+      workstationReadme: modelRuntimeStep.workstationReadmePath
+        ? relativePath(modelRuntimeStep.workstationReadmePath)
+        : null,
+      endpoint:
+        runtimePreset === "local-endpoints" ? modelEndpointBaseUrl : null,
     };
   }
 
@@ -716,6 +866,12 @@ function renderReadme(currentReport) {
     currentReport.demo.desktop?.artifacts?.length
       ? `- Desktop artifacts: ${currentReport.demo.desktop.artifacts.join(", ")}`
       : null,
+    currentReport.demo.models?.runtimeEnv
+      ? `- Runtime modelos: ${currentReport.demo.models.runtimeEnv}`
+      : null,
+    currentReport.demo.models?.endpoint
+      ? `- Endpoint modelos: ${currentReport.demo.models.endpoint}`
+      : null,
     currentReport.demo.identity
       ? `- Identidad host: ${currentReport.demo.identity.name} ${currentReport.demo.identity.status}/${currentReport.demo.identity.deliveryStatus}`
       : null,
@@ -763,7 +919,128 @@ pnpm demo:handoff -- --admin-domain admin.tudominio.com --meeting-domain meet.tu
 pnpm demo:handoff -- --coolify-env-file infra/shape-meet.production.env --remote-env-file infra/shape-meet.production.env --identity-artifact-file /ruta/rostro-o-modelo.bin
 pnpm demo:real:check -- --include-desktop --require-real-models --strict
 pnpm models:bootstrap -- --profile ${currentReport.options.profile} --runtime-preset ${currentReport.options.runtimePreset} --write-runtime --strict --write-checklist
+pnpm models:endpoint -- --host ${currentReport.options.modelEndpoint?.host ?? "127.0.0.1"} --port ${currentReport.options.modelEndpoint?.port ?? "9100"}
+pnpm models:preflight -- --env-file ${currentReport.demo.models?.runtimeEnv ?? "output/demo-handoff/.../model-workstation/shape-ai-runtime.env"}
 \`\`\`
+`;
+}
+
+function renderModelWorkstationReadme() {
+  const runtimeRel = relativePath(
+    join(outputDir, "model-workstation", "shape-ai-runtime.env"),
+  );
+  const startScriptRel = relativePath(
+    join(outputDir, "model-workstation", "start-model-endpoint.ps1"),
+  );
+  const verifyScriptRel = relativePath(
+    join(outputDir, "model-workstation", "verify-model-runtime.ps1"),
+  );
+  const checklistRel = relativePath(
+    join(
+      outputDir,
+      "model-workstation",
+      `shape-model-workstation-${profile}.md`,
+    ),
+  );
+  const setupRel = relativePath(
+    join(
+      outputDir,
+      "model-workstation",
+      profile === "apple-silicon"
+        ? "setup-apple-silicon.sh"
+        : "setup-windows-nvidia.ps1",
+    ),
+  );
+
+  return `# Shape Meet Model Workstation
+
+Perfil: ${profile}
+Runtime preset: ${runtimePreset}
+Endpoint base: ${runtimePreset === "local-endpoints" ? modelEndpointBaseUrl : "no aplica"}
+Runtime env: ${runtimeRel}
+
+## Rutas configuradas
+
+- Video combinado: ${resolvedVideoFrameEndpoint ?? "no configurado"}
+- Face stage: ${resolvedFaceEndpoint ?? "no configurado"}
+- Background stage: ${resolvedBackgroundEndpoint ?? "no configurado"}
+- Audio chunk: ${resolvedAudioChunkEndpoint ?? "no configurado"}
+- Voice stage: ${resolvedVoiceEndpoint ?? "no configurado"}
+
+## Primer arranque en Windows RTX
+
+Ejecuta desde la raiz del repo:
+
+\`\`\`powershell
+powershell -ExecutionPolicy Bypass -File .\\${windowsPath(setupRel)}
+powershell -ExecutionPolicy Bypass -File .\\${windowsPath(startScriptRel)}
+\`\`\`
+
+En otra terminal, desde la raiz del repo:
+
+\`\`\`powershell
+powershell -ExecutionPolicy Bypass -File .\\${windowsPath(verifyScriptRel)}
+\`\`\`
+
+Para que la app empaquetada lea este runtime IA sin variables de entorno:
+
+\`\`\`powershell
+New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\\Shape Meet" | Out-Null
+Copy-Item ".\\${windowsPath(runtimeRel)}" "$env:LOCALAPPDATA\\Shape Meet\\shape-ai-runtime.env" -Force
+\`\`\`
+
+Para una prueba de contrato sin modelos pesados, puedes levantar el endpoint con efectos demo:
+
+\`\`\`powershell
+pnpm models:endpoint -- --host ${modelEndpointHost} --port ${modelEndpointPort} --demo-effects
+\`\`\`
+
+## Artefactos
+
+- Checklist: ${checklistRel}
+- Setup workstation: ${setupRel}
+- Runtime env: ${runtimeRel}
+- Start endpoint: ${startScriptRel}
+- Verify runtime: ${verifyScriptRel}
+`;
+}
+
+function renderStartEndpointPowerShell() {
+  const runtimeRel = windowsPath(
+    relativePath(join(outputDir, "model-workstation", "shape-ai-runtime.env")),
+  );
+  return `$ErrorActionPreference = "Stop"
+if (!(Test-Path ".\\package.json")) {
+  throw "Ejecuta este script desde la raiz del repo shape-meet."
+}
+$runtimeEnv = Join-Path (Get-Location) ${psSingleQuote(runtimeRel)}
+if (!(Test-Path $runtimeEnv)) {
+  throw "No existe runtime env: $runtimeEnv"
+}
+$env:SHAPE_AI_RUNTIME_ENV_FILE = (Resolve-Path $runtimeEnv).Path
+$env:SHAPE_MODEL_ENDPOINT_HOST = ${psSingleQuote(modelEndpointHost)}
+$env:SHAPE_MODEL_ENDPOINT_PORT = ${psSingleQuote(modelEndpointPort)}
+Write-Host "SHAPE_AI_RUNTIME_ENV_FILE=$env:SHAPE_AI_RUNTIME_ENV_FILE"
+Write-Host "Endpoint modelos: ${modelEndpointBaseUrl}"
+pnpm models:endpoint -- --host ${psSingleQuote(modelEndpointHost)} --port ${psSingleQuote(modelEndpointPort)}
+`;
+}
+
+function renderVerifyRuntimePowerShell() {
+  const runtimeRel = windowsPath(
+    relativePath(join(outputDir, "model-workstation", "shape-ai-runtime.env")),
+  );
+  return `$ErrorActionPreference = "Stop"
+if (!(Test-Path ".\\package.json")) {
+  throw "Ejecuta este script desde la raiz del repo shape-meet."
+}
+$runtimeEnv = Join-Path (Get-Location) ${psSingleQuote(runtimeRel)}
+if (!(Test-Path $runtimeEnv)) {
+  throw "No existe runtime env: $runtimeEnv"
+}
+$env:SHAPE_AI_RUNTIME_ENV_FILE = (Resolve-Path $runtimeEnv).Path
+pnpm models:doctor -- --env-file $env:SHAPE_AI_RUNTIME_ENV_FILE --profile ${psSingleQuote(profile)}
+pnpm models:preflight -- --env-file $env:SHAPE_AI_RUNTIME_ENV_FILE --timeout-ms 90000
 `;
 }
 
@@ -996,6 +1273,14 @@ function redactEmbeddedSecrets(value) {
 function relativePath(path) {
   if (!path) return null;
   return relative(repoRoot, path).replace(/\\/g, "/");
+}
+
+function windowsPath(path) {
+  return String(path ?? "").replace(/\//g, "\\");
+}
+
+function psSingleQuote(value) {
+  return `'${String(value ?? "").replace(/'/g, "''")}'`;
 }
 
 function finish(code) {

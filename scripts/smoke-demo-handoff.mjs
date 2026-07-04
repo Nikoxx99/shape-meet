@@ -341,8 +341,17 @@ function smokeModelEndpointBootstrap() {
     "model endpoint port option missing",
   );
   assert(
+    report.options.modelEndpoint?.videoFrameEndpoint ===
+      "http://127.0.0.1:9292/video-frame",
+    "model endpoint combined video URL missing",
+  );
+  assert(
     report.steps.modelBootstrap.ok === true,
     "model bootstrap step did not pass",
+  );
+  assert(
+    report.steps.modelRuntime.ok === true,
+    "model runtime step did not pass",
   );
   assert(
     report.steps.modelBootstrap.command.includes(
@@ -363,10 +372,77 @@ function smokeModelEndpointBootstrap() {
     "checklist did not include combined video endpoint",
   );
 
+  const runtimePath = report.artifacts.modelRuntimeEnv;
+  assert(runtimePath && existsSync(runtimePath), "model runtime env missing");
+  const runtimeEnv = readFileSync(runtimePath, "utf8");
+  assert(
+    runtimeEnv.includes(
+      "SHAPE_VIDEO_FRAME_ENDPOINT=http://127.0.0.1:9292/video-frame",
+    ),
+    "runtime env did not include combined video endpoint",
+  );
+  assert(
+    runtimeEnv.includes(
+      "SHAPE_AUDIO_CHUNK_ENDPOINT=http://127.0.0.1:9292/voice",
+    ),
+    "runtime env did not include audio endpoint",
+  );
+
+  for (const artifactKey of [
+    "modelWorkstationReadme",
+    "modelStartEndpointScript",
+    "modelVerifyRuntimeScript",
+  ]) {
+    assert(
+      report.artifacts[artifactKey] &&
+        existsSync(report.artifacts[artifactKey]),
+      `${artifactKey} missing`,
+    );
+  }
+
+  const workstationReadme = readFileSync(
+    report.artifacts.modelWorkstationReadme,
+    "utf8",
+  );
+  assert(
+    workstationReadme.includes("pnpm models:endpoint"),
+    "workstation README did not include endpoint command",
+  );
+  assert(
+    workstationReadme.includes("Copy-Item"),
+    "workstation README did not include packaged app runtime copy command",
+  );
+
+  const startScript = readFileSync(
+    report.artifacts.modelStartEndpointScript,
+    "utf8",
+  );
+  assert(
+    startScript.includes("pnpm models:endpoint"),
+    "start endpoint script did not start endpoint server",
+  );
+
+  const verifyScript = readFileSync(
+    report.artifacts.modelVerifyRuntimeScript,
+    "utf8",
+  );
+  assert(
+    verifyScript.includes("pnpm models:preflight"),
+    "verify runtime script did not include preflight",
+  );
+
   const readme = readFileSync(join(outputDir, "README.md"), "utf8");
   assert(
     readme.includes("--runtime-preset local-endpoints"),
     "handoff README did not document endpoint bootstrap",
+  );
+  assert(
+    readme.includes("Runtime modelos:"),
+    "handoff README did not summarize model runtime",
+  );
+  assert(
+    readme.includes("Endpoint modelos: http://127.0.0.1:9292"),
+    "handoff README did not summarize model endpoint",
   );
 }
 
