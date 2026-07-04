@@ -264,6 +264,28 @@ pnpm check:coolify ruta/a/produccion.env --strict
 El modo estricto falla si quedan placeholders de secretos y avisa cuando
 TURN/TLS necesita un balanceador L4 o un puerto `443/tcp` dedicado.
 
+Para preparar una desktop instalada contra ese mismo entorno, deriva un
+`shape-meet.env` sin copiar secretos del servidor:
+
+```bash
+pnpm desktop:config -- \
+  --env-file infra/shape-meet.production.env \
+  --ai-url http://127.0.0.1:7851 \
+  --out output/shape-meet.env
+```
+
+En la máquina demo puedes escribirlo directo en el directorio de datos de la app:
+
+```bash
+pnpm desktop:config -- \
+  --env-file infra/shape-meet.production.env \
+  --ai-url http://127.0.0.1:7851 \
+  --install
+```
+
+Ese archivo contiene solo URLs públicas, Sentry y el host inicial; no incluye
+`LIVEKIT_API_SECRET`, passwords de Postgres ni otros secretos de Coolify.
+
 ## Build desktop con sidecar
 
 El build empaquetado genera primero el sidecar Python como binario PyInstaller y

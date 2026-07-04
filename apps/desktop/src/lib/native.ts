@@ -42,6 +42,11 @@ export interface NativeDesktopRuntimeConfig {
   aiServiceUrl: string;
   hostIdentifier: string | null;
   demoDataEnabled: boolean;
+  sentryDsn: string | null;
+  sentryEnvironment: string;
+  sentryRelease: string;
+  sentryTracesSampleRate: number;
+  sentryDebug: boolean;
   configPath: string | null;
   warnings: string[];
 }
@@ -415,19 +420,15 @@ export async function exportDebugBundle(): Promise<string> {
 }
 
 function frontendObservabilityStatus() {
-  const tracesSampleRate = Number(
-    import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE ?? "1",
-  );
+  const config = getCachedDesktopRuntimeConfig();
 
   return {
-    enabled: Boolean(import.meta.env.VITE_SENTRY_DSN),
-    environment:
-      (import.meta.env.VITE_SENTRY_ENVIRONMENT as string | undefined) ??
-      import.meta.env.MODE,
-    release:
-      (import.meta.env.VITE_SENTRY_RELEASE as string | undefined) ??
-      "shape-meet-desktop@0.1.0",
-    tracesSampleRate: Number.isFinite(tracesSampleRate) ? tracesSampleRate : 1,
+    enabled: Boolean(config.sentryDsn),
+    environment: config.sentryEnvironment,
+    release: config.sentryRelease,
+    tracesSampleRate: Number.isFinite(config.sentryTracesSampleRate)
+      ? config.sentryTracesSampleRate
+      : 1,
   };
 }
 
@@ -553,6 +554,19 @@ function fallbackDesktopRuntimeConfig(): NativeDesktopRuntimeConfig {
     demoDataEnabled:
       String(import.meta.env.VITE_SHAPE_DEMO_DATA ?? "").toLowerCase() ===
       "true",
+    sentryDsn: (import.meta.env.VITE_SENTRY_DSN as string | undefined) ?? null,
+    sentryEnvironment:
+      (import.meta.env.VITE_SENTRY_ENVIRONMENT as string | undefined) ??
+      import.meta.env.MODE,
+    sentryRelease:
+      (import.meta.env.VITE_SENTRY_RELEASE as string | undefined) ??
+      "shape-meet-desktop@0.1.0",
+    sentryTracesSampleRate: Number(
+      import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE ?? "1",
+    ),
+    sentryDebug: ["1", "true", "yes"].includes(
+      String(import.meta.env.VITE_SENTRY_DEBUG ?? "").toLowerCase(),
+    ),
     configPath: null,
     warnings: [],
   });
@@ -574,6 +588,13 @@ function normalizeDesktopRuntimeConfig(
     ),
     hostIdentifier: config.hostIdentifier?.trim() || null,
     demoDataEnabled: Boolean(config.demoDataEnabled),
+    sentryDsn: config.sentryDsn?.trim() || null,
+    sentryEnvironment: config.sentryEnvironment || "development",
+    sentryRelease: config.sentryRelease || "shape-meet-desktop@0.1.0",
+    sentryTracesSampleRate: Number.isFinite(config.sentryTracesSampleRate)
+      ? config.sentryTracesSampleRate
+      : 1,
+    sentryDebug: Boolean(config.sentryDebug),
     configPath: config.configPath?.trim() || null,
     warnings: Array.isArray(config.warnings) ? config.warnings : [],
   };

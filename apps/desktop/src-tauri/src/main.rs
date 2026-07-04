@@ -67,6 +67,11 @@ struct DesktopRuntimeConfig {
     ai_service_url: String,
     host_identifier: Option<String>,
     demo_data_enabled: bool,
+    sentry_dsn: Option<String>,
+    sentry_environment: String,
+    sentry_release: String,
+    sentry_traces_sample_rate: f32,
+    sentry_debug: bool,
     config_path: Option<String>,
     warnings: Vec<String>,
 }
@@ -2211,6 +2216,11 @@ fn desktop_runtime_config() -> DesktopRuntimeConfig {
     let host_identifier =
         local_config_value(&["SHAPE_HOST_IDENTIFIER", "VITE_SHAPE_HOST_IDENTIFIER"]);
     let demo_data_enabled = local_config_bool(&["SHAPE_DEMO_DATA", "VITE_SHAPE_DEMO_DATA"]);
+    let sentry_dsn = sentry_dsn();
+    let sentry_environment = sentry_environment();
+    let sentry_release = sentry_release();
+    let sentry_traces_sample_rate = sentry_traces_sample_rate();
+    let sentry_debug = sentry_debug();
     let config_path = first_existing_local_config_path().map(|path| path.display().to_string());
     let mut warnings = Vec::new();
 
@@ -2232,6 +2242,11 @@ fn desktop_runtime_config() -> DesktopRuntimeConfig {
         ai_service_url,
         host_identifier,
         demo_data_enabled,
+        sentry_dsn,
+        sentry_environment,
+        sentry_release,
+        sentry_traces_sample_rate,
+        sentry_debug,
         config_path,
         warnings,
     }

@@ -72,5 +72,8 @@ jobs:
       - name: Smoke AI model doctor
         run: pnpm smoke:ai-model-doctor
 
+      - name: Smoke desktop runtime config
+        run: pnpm smoke:desktop-config
+
       - name: Validate Coolify compose
         run: pnpm check:coolify infra/env.coolify.example

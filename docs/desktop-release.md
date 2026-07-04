@@ -63,6 +63,18 @@ La desktop usa esta configuración para API, enlaces públicos, sidecar IA local
 Sentry nativo y debug bundles. Si el archivo no existe, conserva los valores
 compilados por Vite y los defaults locales.
 
+Para generarlo desde el env de Coolify sin copiar secretos del servidor:
+
+```bash
+pnpm desktop:config -- \
+  --env-file infra/shape-meet.production.env \
+  --ai-url http://127.0.0.1:7851 \
+  --out output/shape-meet.env
+```
+
+Usa `--install` para escribirlo directamente en el directorio de datos de la app
+del equipo actual.
+
 ## Firma
 
 El workflow macOS usa `--no-sign` por ahora. Para distribución externa hay que

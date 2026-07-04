@@ -1,26 +1,44 @@
 import ReactDOM from "react-dom/client";
 import * as Sentry from "@sentry/react";
 import App from "./App";
+import {
+  getDesktopRuntimeConfig,
+  type NativeDesktopRuntimeConfig,
+} from "./lib/native";
 import "./styles.css";
 
-const sentryDsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
-const sentryTracesSampleRate = Number(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE ?? "1");
-const sentryDebug = ["1", "true", "yes"].includes(
-  String(import.meta.env.VITE_SENTRY_DEBUG ?? "").toLowerCase()
-);
+void bootstrap();
 
-if (sentryDsn) {
+async function bootstrap() {
+  const runtimeConfig = await getDesktopRuntimeConfig();
+  initSentry(runtimeConfig);
+
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <Sentry.ErrorBoundary fallback={<CrashFallback />}>
+      <App />
+    </Sentry.ErrorBoundary>,
+  );
+}
+
+function initSentry(runtimeConfig: NativeDesktopRuntimeConfig) {
+  const sentryDsn = runtimeConfig.sentryDsn;
+
+  if (!sentryDsn) return;
+
   Sentry.init({
     dsn: sentryDsn,
-    environment: (import.meta.env.VITE_SENTRY_ENVIRONMENT as string | undefined) ?? import.meta.env.MODE,
-    release: import.meta.env.VITE_SENTRY_RELEASE as string | undefined,
-    tracesSampleRate: Number.isFinite(sentryTracesSampleRate) ? sentryTracesSampleRate : 1,
-    debug: sentryDebug,
+    environment: runtimeConfig.sentryEnvironment,
+    release: runtimeConfig.sentryRelease,
+    tracesSampleRate: Number.isFinite(runtimeConfig.sentryTracesSampleRate)
+      ? runtimeConfig.sentryTracesSampleRate
+      : 1,
+    debug: runtimeConfig.sentryDebug,
     sendDefaultPii: false,
     initialScope: {
       tags: {
-        "app.surface": "desktop-webview"
-      }
+        "app.surface": "desktop-webview",
+        "shape.config.runtime": runtimeConfig.configPath ? "file" : "build",
+      },
     },
     beforeSend(event) {
       event.contexts = {
@@ -29,19 +47,13 @@ if (sentryDsn) {
           frames: "not-collected",
           audio: "not-collected",
           sourceImages: "not-collected",
-          modelArtifacts: "not-collected"
-        }
+          modelArtifacts: "not-collected",
+        },
       };
       return event;
-    }
+    },
   });
 }
-
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <Sentry.ErrorBoundary fallback={<CrashFallback />}>
-    <App />
-  </Sentry.ErrorBoundary>
-);
 
 function CrashFallback() {
   return (
