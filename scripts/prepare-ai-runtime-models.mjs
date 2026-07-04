@@ -169,6 +169,7 @@ function resolveModelEnv() {
     BMV2_TIMEOUT_SECS: "--bmv2-timeout",
     VCCLIENT000_CHUNK_COMMAND: "--vcclient000-command",
     VCCLIENT000_HTTP_ENDPOINT: "--vcclient000-http-endpoint",
+    VCCLIENT000_HTTP_MODE: "--vcclient000-http-mode",
     VCCLIENT000_TIMEOUT_SECS: "--vcclient000-timeout",
   };
 
@@ -183,6 +184,9 @@ function resolveModelEnv() {
     (passthrough ? "true" : null);
   if (passthroughValue) {
     values.SHAPE_WRAPPER_PASSTHROUGH = passthroughValue;
+  }
+  if (values.VCCLIENT000_HTTP_ENDPOINT && !values.VCCLIENT000_HTTP_MODE) {
+    values.VCCLIENT000_HTTP_MODE = "w-okada-rest";
   }
 
   return values;

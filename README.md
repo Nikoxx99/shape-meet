@@ -495,8 +495,12 @@ pnpm models:runtime -- --preset local-wrappers \
   --facefusion-dir "C:\\models\\FaceFusion" \
   --bmv2-repo-dir "C:\\models\\BackgroundMattingV2" \
   --bmv2-checkpoint "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth" \
-  --vcclient000-http-endpoint "http://127.0.0.1:18888/convert"
+  --vcclient000-http-endpoint "http://127.0.0.1:18888/test"
 ```
+
+El endpoint anterior usa el REST oficial de w-okada/VCClient. `models:runtime`
+agrega `VCCLIENT000_HTTP_MODE=w-okada-rest` automáticamente cuando defines
+`--vcclient000-http-endpoint`.
 
 También puedes usar `--vcclient000-command` si prefieres invocar vcclient000 por
 CLI. El archivo resultante `shape-ai-runtime.env` queda en la ruta local de la

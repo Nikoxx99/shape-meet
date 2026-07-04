@@ -350,6 +350,7 @@ function checkBackgroundMattingWrapper() {
 function checkVcClientWrapper() {
   const commandTemplate = env.VCCLIENT000_CHUNK_COMMAND;
   const endpoint = env.VCCLIENT000_HTTP_ENDPOINT;
+  const httpMode = normalizeVcClientHttpMode(env.VCCLIENT000_HTTP_MODE);
 
   if (commandTemplate) {
     checkModelCommand(commandTemplate, "VCCLIENT000_CHUNK_COMMAND", [
@@ -362,13 +363,45 @@ function checkVcClientWrapper() {
 
   if (endpoint) {
     checkUrl(endpoint, "VCCLIENT000_HTTP_ENDPOINT");
-    ok("vcclient000 HTTP endpoint configurado");
+    ok(`vcclient000 HTTP endpoint configurado (${httpMode})`);
+    checkVcClientEndpointShape(endpoint, httpMode);
     return;
   }
 
   warn(
     "vcclient000 wrapper requiere VCCLIENT000_CHUNK_COMMAND o VCCLIENT000_HTTP_ENDPOINT.",
   );
+}
+
+function normalizeVcClientHttpMode(value) {
+  const mode = (value || "auto").trim().toLowerCase().replace(/_/g, "-");
+  if (["w-okada", "w-okada-rest", "vcclient", "vcclient-rest"].includes(mode))
+    return "w-okada-rest";
+  if (["shape", "shape-json", "shape-meet"].includes(mode)) return "shape-json";
+  return mode || "auto";
+}
+
+function checkVcClientEndpointShape(endpoint, httpMode) {
+  let parsed;
+  try {
+    parsed = new URL(endpoint);
+  } catch {
+    return;
+  }
+
+  const path = parsed.pathname.replace(/\/+$/, "");
+  const looksLikeWOkada = path === "" || path === "/test";
+  if (httpMode === "w-okada-rest" && !looksLikeWOkada) {
+    warn(
+      "VCCLIENT000_HTTP_MODE=w-okada-rest usa el REST oficial de VCClient; normalmente el endpoint es http://127.0.0.1:18888/test o la URL base.",
+    );
+  }
+
+  if (httpMode === "auto" && !looksLikeWOkada) {
+    warn(
+      "VCCLIENT000_HTTP_ENDPOINT no termina en /test y VCCLIENT000_HTTP_MODE está en auto; se tratará como endpoint Shape JSON. Para VCClient oficial usa VCCLIENT000_HTTP_MODE=w-okada-rest.",
+    );
+  }
 }
 
 function wrapperPassthroughEnabled() {

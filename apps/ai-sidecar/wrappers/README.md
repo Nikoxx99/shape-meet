@@ -57,8 +57,11 @@ python apps/ai-sidecar/wrappers/vcclient000_chunk.py \
 Configura una de estas rutas:
 
 - `VCCLIENT000_CHUNK_COMMAND`: comando local con placeholders.
-- `VCCLIENT000_HTTP_ENDPOINT`: endpoint JSON que recibe y devuelve
-  `audioDataBase64`.
+- `VCCLIENT000_HTTP_ENDPOINT`: endpoint HTTP. Con
+  `VCCLIENT000_HTTP_MODE=w-okada-rest`, usa el REST oficial de VCClient
+  (`POST /test`, `buffer` PCM s16le y respuesta `changedVoiceBase64`). Con
+  `VCCLIENT000_HTTP_MODE=shape-json`, usa el contrato JSON Shape Meet que recibe
+  y devuelve `audioDataBase64`.
 
 ## Runtime
 
@@ -77,5 +80,5 @@ pnpm models:runtime -- --preset local-wrappers \
   --facefusion-dir "/models/FaceFusion" \
   --bmv2-repo-dir "/models/BackgroundMattingV2" \
   --bmv2-checkpoint "/models/BackgroundMattingV2/pytorch_resnet50.pth" \
-  --vcclient000-http-endpoint "http://127.0.0.1:18888/convert"
+  --vcclient000-http-endpoint "http://127.0.0.1:18888/test"
 ```

@@ -1447,7 +1447,8 @@ fn default_ai_runtime_env_template() -> String {
         "# FACEFUSION_DIR=C:\\\\models\\\\FaceFusion",
         "# BMV2_REPO_DIR=C:\\\\models\\\\BackgroundMattingV2",
         "# BMV2_MODEL_CHECKPOINT=C:\\\\models\\\\BackgroundMattingV2\\\\pytorch_resnet50.pth",
-        "# VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/convert",
+        "# VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test",
+        "# VCCLIENT000_HTTP_MODE=w-okada-rest",
         "",
     ]
     .join("\n")
@@ -1556,8 +1557,18 @@ fn model_ai_runtime_env_content(
         &mut lines,
         "VCCLIENT000_HTTP_ENDPOINT",
         input.and_then(|value| value.vcclient000_http_endpoint.as_deref()),
-        "http://127.0.0.1:18888/convert",
+        "http://127.0.0.1:18888/test",
     );
+    if input
+        .and_then(|value| value.vcclient000_http_endpoint.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        lines.push("VCCLIENT000_HTTP_MODE=w-okada-rest".to_string());
+    } else {
+        lines.push("# VCCLIENT000_HTTP_MODE=w-okada-rest".to_string());
+    }
     lines.push(String::new());
 
     Ok(lines.join("\n"))
@@ -2428,7 +2439,8 @@ mod tests {
             SHAPE_VIDEO_FRAME_COMMAND="C:\models\video.exe --input {input} --output {output}"
             FACEFUSION_DIR=C:\models\FaceFusion
             BMV2_MODEL_CHECKPOINT=C:\models\BackgroundMattingV2\pytorch_resnet50.pth
-            VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/convert
+            VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test
+            VCCLIENT000_HTTP_MODE=w-okada-rest
             CUDA_VISIBLE_DEVICES=0
             ORT_LOGGING_LEVEL=3
             "#,
@@ -2444,6 +2456,7 @@ mod tests {
                 "FACEFUSION_DIR",
                 "BMV2_MODEL_CHECKPOINT",
                 "VCCLIENT000_HTTP_ENDPOINT",
+                "VCCLIENT000_HTTP_MODE",
                 "CUDA_VISIBLE_DEVICES",
                 "ORT_LOGGING_LEVEL"
             ]
@@ -2538,7 +2551,7 @@ mod tests {
             bmv2_checkpoint: Some(
                 r"C:\models\BackgroundMattingV2\pytorch_resnet50.pth".to_string(),
             ),
-            vcclient000_http_endpoint: Some("http://127.0.0.1:18888/convert".to_string()),
+            vcclient000_http_endpoint: Some("http://127.0.0.1:18888/test".to_string()),
         };
         let content =
             model_ai_runtime_env_content("python3 /tmp/shape_processor_command.py", Some(&input))
@@ -2560,7 +2573,11 @@ mod tests {
                 && value == r"C:\models\BackgroundMattingV2\pytorch_resnet50.pth"
         }));
         assert!(parsed.values.iter().any(|(key, value)| {
-            key == "VCCLIENT000_HTTP_ENDPOINT" && value == "http://127.0.0.1:18888/convert"
+            key == "VCCLIENT000_HTTP_ENDPOINT" && value == "http://127.0.0.1:18888/test"
         }));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "VCCLIENT000_HTTP_MODE" && value == "w-okada-rest"));
     }
 }

@@ -86,6 +86,8 @@ SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio
 SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health
 SHAPE_AUDIO_CHUNK_COMMAND=
 SHAPE_VOICE_COMMAND=
+VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test
+VCCLIENT000_HTTP_MODE=w-okada-rest
 SHAPE_PROCESSOR_DEMO_EFFECTS=false
 SHAPE_MODEL_COMMAND_TIMEOUT_SECS=2.0
 SHAPE_PROCESSOR_TIMEOUT_SECS=0.8
@@ -161,8 +163,12 @@ pnpm models:runtime -- --preset local-wrappers \
   --facefusion-dir "C:\\models\\FaceFusion" \
   --bmv2-repo-dir "C:\\models\\BackgroundMattingV2" \
   --bmv2-checkpoint "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth" \
-  --vcclient000-http-endpoint "http://127.0.0.1:18888/convert"
+  --vcclient000-http-endpoint "http://127.0.0.1:18888/test"
 ```
+
+Ese endpoint usa el REST oficial de w-okada/VCClient (`POST /test`) y el
+wrapper convierte entre el `pcm_f32le` de Shape Meet y el `pcm_s16le` que espera
+VCClient.
 
 También puedes usar `--vcclient000-command` para un comando local de vcclient000.
 Usa `--video-frame-command` si prefieres un solo wrapper combinado para rostro y

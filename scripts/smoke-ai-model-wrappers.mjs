@@ -1,5 +1,7 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -48,10 +50,89 @@ try {
     "--format",
     "pcm_f32le",
   ]);
+  await smokeVcClientRestWrapper(inputAudio);
 
   console.log("model wrappers smoke ok");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
+}
+
+async function smokeVcClientRestWrapper(inputAudio) {
+  let seenRequest = false;
+  const server = createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/test") {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "not_found" }));
+      return;
+    }
+
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      seenRequest = true;
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const audio = Buffer.from(body.buffer, "base64");
+      if (audio.byteLength !== 480 * 2) {
+        response.writeHead(422, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "unexpected_audio_size" }));
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          timestamp: body.timestamp,
+          changedVoiceBase64: audio.toString("base64"),
+        }),
+      );
+    });
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : null;
+  if (!port) fail("vcclient000 REST mock did not expose a port");
+
+  try {
+    const output = join(tempDir, "voice.rest.out.f32le");
+    const child = spawn(
+      python,
+      [
+        "apps/ai-sidecar/wrappers/vcclient000_chunk.py",
+        "--input",
+        inputAudio,
+        "--output",
+        output,
+        "--sample-rate",
+        "48000",
+        "--channels",
+        "1",
+        "--format",
+        "pcm_f32le",
+        "--http-endpoint",
+        `http://127.0.0.1:${port}/test`,
+        "--http-mode",
+        "w-okada-rest",
+      ],
+      {
+        cwd: process.cwd(),
+      },
+    );
+    child.stdout.on("data", (chunk) => process.stdout.write(chunk));
+    child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+    const [code] = await once(child, "close");
+
+    if (code !== 0) {
+      fail(`vcclient000 REST wrapper failed with ${code}`);
+    }
+    if (!seenRequest) fail("vcclient000 REST mock did not receive a request");
+    const bytes = readFileSync(output);
+    if (bytes.byteLength !== 480 * 4) {
+      fail(`vcclient000 REST wrapper output size was ${bytes.byteLength}`);
+    }
+  } finally {
+    server.close();
+  }
 }
 
 function smokeWrapper(label, args) {
