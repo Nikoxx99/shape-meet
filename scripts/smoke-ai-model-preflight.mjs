@@ -81,18 +81,56 @@ try {
     "voice pipeline did not expose audio latency",
   );
 
+  const failingEnvPath = join(tempDir, "shape-ai-runtime-failing.env");
+  writeFileSync(
+    failingEnvPath,
+    replaceEnvValue(
+      readFileSync(envPath, "utf8"),
+      "SHAPE_FACE_COMMAND",
+      nodeSnippetCommand(
+        "process.stderr.write('[shape-wrapper] FaceFusion runtime missing identity'); process.exit(7)",
+      ),
+    ),
+  );
+  const failedReport = runPreflight(
+    {
+      envPath: failingEnvPath,
+      framePath,
+      identityPath,
+      cleanPlatePath,
+      audioPath,
+    },
+    { expectFailure: true },
+  );
+  const failedVideoCheck = failedReport.preflight?.checks?.find(
+    (check) => check.id === "video",
+  );
+  assert(
+    failedReport.preflight?.status === "failed",
+    "failing model command did not fail preflight",
+  );
+  assert(
+    failedVideoCheck?.status === "error",
+    "failing model command did not mark video check as error",
+  );
+  assert(
+    failedVideoCheck?.warnings?.some(
+      (warning) =>
+        warning.includes("face:model_command_failed:7") &&
+        warning.includes("shape-wrapper: FaceFusion runtime missing identity"),
+    ),
+    `failing model command did not preserve wrapper detail: ${JSON.stringify(failedVideoCheck?.warnings)}`,
+  );
+
   console.log("model preflight smoke ok");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
-function runPreflight({
-  envPath,
-  framePath,
-  identityPath,
-  cleanPlatePath,
-  audioPath,
-}) {
+function runPreflight(
+  { envPath, framePath, identityPath, cleanPlatePath, audioPath },
+  options = {},
+) {
   const result = spawnSync(
     process.execPath,
     [
@@ -115,10 +153,15 @@ function runPreflight({
     },
   );
 
-  if (result.status !== 0) {
+  if (result.status !== 0 && !options.expectFailure) {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     throw new Error(`models preflight failed with ${result.status}`);
+  }
+  if (result.status === 0 && options.expectFailure) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    throw new Error("models preflight should have failed");
   }
 
   try {
@@ -128,6 +171,17 @@ function runPreflight({
     if (result.stderr) process.stderr.write(result.stderr);
     throw error;
   }
+}
+
+function replaceEnvValue(content, key, value) {
+  const line = `${key}=${value}`;
+  const pattern = new RegExp(`^${key}=.*$`, "m");
+  if (pattern.test(content)) return content.replace(pattern, line);
+  return `${content.trimEnd()}\n${line}\n`;
+}
+
+function nodeSnippetCommand(source) {
+  return `${process.execPath} -e ${JSON.stringify(source)}`;
 }
 
 function runChecked(args) {

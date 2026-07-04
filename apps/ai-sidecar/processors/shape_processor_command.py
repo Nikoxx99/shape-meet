@@ -18,6 +18,7 @@ from urllib.parse import quote
 DEFAULT_VIDEO_PORT = 7860
 DEFAULT_AUDIO_PORT = 7861
 MAX_BODY_BYTES = 10 * 1024 * 1024
+COMMAND_DETAIL_LIMIT = 600
 STATE = {
     "kind": "video",
     "startedAt": None,
@@ -171,6 +172,9 @@ def process_video(payload):
                     status = "processed"
                 elif result["ok"]:
                     warnings.append("video_model_output_missing")
+                    status = "error"
+                else:
+                    status = "error"
         elif stage_commands:
             with tempfile.TemporaryDirectory(prefix="shape-video-") as workdir:
                 input_path = os.path.join(workdir, "input.jpg")
@@ -178,6 +182,7 @@ def process_video(payload):
                 write_data_url(input_data_url, input_path)
                 current_input_path = input_path
                 completed_stages = []
+                stage_failed = False
 
                 for stage, stage_command in stage_commands:
                     output_path = os.path.join(workdir, f"output-{stage}.jpg")
@@ -215,11 +220,15 @@ def process_video(payload):
 
                     if result["ok"]:
                         warnings.append(f"{stage}_model_output_missing")
+                    stage_failed = True
+                    break
 
                 if completed_stages:
                     output_data_url = file_to_data_url(current_input_path, "image/jpeg")
-                    status = "processed"
+                    status = "error" if stage_failed else "processed"
                     processor = "shape-video-model-chain:" + "+".join(completed_stages)
+                elif stage_failed:
+                    status = "error"
         elif demo_effects_enabled():
             output_data_url = demo_video_data_url(payload, input_data_url, width, height, sequence)
             status = "processed"
@@ -304,6 +313,9 @@ def process_audio(payload):
                         processor = "shape-voice-command-adapter"
                 elif result["ok"]:
                     warnings.append("audio_model_output_missing")
+                    status = "error"
+                else:
+                    status = "error"
         elif demo_effects_enabled():
             status = "processed"
             processor = "shape-demo-audio-processor"
@@ -344,15 +356,19 @@ def run_model_command(command, replacements, extra_env):
             timeout=model_timeout(),
             check=False,
         )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "warnings": ["model_command_timeout"]}
+    except subprocess.TimeoutExpired as error:
+        detail = command_output_detail(error.stdout, error.stderr)
+        warning = "model_command_timeout"
+        if detail:
+            warning = f"{warning}:{detail}"
+        return {"ok": False, "warnings": [warning]}
     except Exception as error:
-        return {"ok": False, "warnings": [f"model_command_error:{str(error)[:160]}"]}
+        return {"ok": False, "warnings": [f"model_command_error:{str(error)[:COMMAND_DETAIL_LIMIT]}"]}
 
     if result.returncode == 0:
         return {"ok": True, "warnings": command_warnings(result)}
 
-    detail = (result.stderr or result.stdout or "").strip().replace("\n", " ")[:180]
+    detail = command_output_detail(result.stdout, result.stderr)
     warning = f"model_command_failed:{result.returncode}"
     if detail:
         warning = f"{warning}:{detail}"
@@ -376,10 +392,32 @@ def replace_placeholders(value, replacements):
 
 def command_warnings(result):
     warnings = []
-    stderr = (result.stderr or "").strip()
+    stderr = command_output_detail("", result.stderr, limit=240)
     if stderr:
-        warnings.append(f"model_command_stderr:{stderr.replace(chr(10), ' ')[:180]}")
+        warnings.append(f"model_command_stderr:{stderr}")
     return warnings
+
+
+def command_output_detail(stdout, stderr, limit=COMMAND_DETAIL_LIMIT):
+    text = "\n".join(part for part in (normalize_output(stderr), normalize_output(stdout)) if part)
+    if not text.strip():
+        return ""
+
+    text = " ".join(text.split())
+    wrapper_marker = "[shape-wrapper]"
+    marker_index = text.rfind(wrapper_marker)
+    if marker_index >= 0:
+        text = "shape-wrapper: " + text[marker_index + len(wrapper_marker):].strip()
+
+    return text[-limit:]
+
+
+def normalize_output(value):
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
 
 
 def combined_model_command(kind):
