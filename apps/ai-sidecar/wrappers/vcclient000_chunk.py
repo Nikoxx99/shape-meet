@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 
 from shape_wrapper_common import (
@@ -31,11 +32,15 @@ if str(_AI_SIDECAR_DIR) not in sys.path:
 
 try:
     from engines.voice_wokada import (  # noqa: F401
+        audio_bytes_to_f32_mono as _shared_audio_bytes_to_f32_mono,
         audio_bytes_to_s16_mono as _shared_audio_bytes_to_s16_mono,
+        f32_mono_to_audio_bytes as _shared_f32_mono_to_audio_bytes,
         s16_mono_to_audio_bytes as _shared_s16_mono_to_audio_bytes,
     )
 except Exception:  # pragma: no cover - packaged/standalone fallback
+    _shared_audio_bytes_to_f32_mono = None
     _shared_audio_bytes_to_s16_mono = None
+    _shared_f32_mono_to_audio_bytes = None
     _shared_s16_mono_to_audio_bytes = None
 
 
@@ -94,6 +99,9 @@ def main():
 
 def call_http_endpoint(args, input_path):
     mode = normalize_http_mode(args.http_mode, args.http_endpoint)
+    if mode == "vcclient2":
+        call_w_okada_v2_endpoint(args, input_path)
+        return
     if mode == "w-okada-rest":
         call_w_okada_rest_endpoint(args, input_path)
         return
@@ -108,13 +116,17 @@ def normalize_http_mode(mode, endpoint):
     normalized = str(mode or "auto").strip().lower().replace("_", "-")
     if normalized in {"shape", "shape-json", "shape-meet"}:
         return "shape-json"
-    if normalized in {"w-okada", "w-okada-rest", "vcclient", "vcclient-rest"}:
+    if normalized in {"vcclient2", "vcclient-v2", "w-okada-v2", "wokada-v2", "v2"}:
+        return "vcclient2"
+    if normalized in {"w-okada", "w-okada-rest", "vcclient", "vcclient-rest", "v1"}:
         return "w-okada-rest"
     if normalized != "auto":
         return normalized
 
     parsed = urllib.parse.urlparse(endpoint)
     path = (parsed.path or "").rstrip("/")
+    if path.endswith("/api/voice-changer/convert_chunk"):
+        return "vcclient2"
     if path in {"", "/test"} or path.endswith("/test"):
         return "w-okada-rest"
     return "shape-json"
@@ -160,11 +172,56 @@ def call_w_okada_rest_endpoint(args, input_path):
     Path(args.output).write_bytes(s16_mono_to_audio_bytes(output_s16, args.format, channels))
 
 
+def call_w_okada_v2_endpoint(args, input_path):
+    endpoint = normalize_w_okada_v2_endpoint(args.http_endpoint)
+    channels = max(1, int(args.channels))
+    waveform = audio_bytes_to_f32_mono(Path(input_path).read_bytes(), args.format, channels)
+
+    boundary = uuid.uuid4().hex
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="waveform"; filename="chunk.bin"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+    ).encode("ascii") + waveform + f"\r\n--{boundary}--\r\n".encode("ascii")
+    request = urllib.request.Request(
+        endpoint,
+        data=body,
+        headers={
+            "content-type": f"multipart/form-data; boundary={boundary}",
+            "x-timestamp": str(int(time.time() * 1000)),
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=args.timeout) as response:
+            output_f32 = response.read()
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:240]
+        fail(f"vcclient000 VCClient v2 {error.code}: {detail}")
+    except OSError as error:
+        fail(f"vcclient000 VCClient v2 no disponible: {error}")
+
+    if not output_f32:
+        fail("vcclient000 VCClient v2 devolvió un cuerpo vacío.")
+
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.output).write_bytes(f32_mono_to_audio_bytes(output_f32, args.format, channels))
+
+
 def normalize_w_okada_endpoint(endpoint):
     parsed = urllib.parse.urlparse(endpoint)
     if parsed.path and parsed.path not in {"", "/"}:
         return endpoint
     return urllib.parse.urlunparse(parsed._replace(path="/test"))
+
+
+def normalize_w_okada_v2_endpoint(endpoint):
+    parsed = urllib.parse.urlparse(endpoint)
+    path = (parsed.path or "").rstrip("/")
+    if path.endswith("/api/voice-changer/convert_chunk"):
+        return endpoint
+    return urllib.parse.urlunparse(parsed._replace(path="/api/voice-changer/convert_chunk"))
 
 
 def post_json(endpoint, payload, timeout, label):
@@ -206,6 +263,90 @@ def s16_mono_to_audio_bytes(raw, audio_format, channels):
         except ValueError as error:
             fail(str(error))
     return _local_s16_mono_to_audio_bytes(raw, audio_format, channels)
+
+
+def audio_bytes_to_f32_mono(raw, audio_format, channels):
+    if _shared_audio_bytes_to_f32_mono is not None:
+        try:
+            return _shared_audio_bytes_to_f32_mono(raw, audio_format, channels)
+        except ValueError as error:
+            fail(str(error))
+    return _local_audio_bytes_to_f32_mono(raw, audio_format, channels)
+
+
+def f32_mono_to_audio_bytes(raw, audio_format, channels):
+    if _shared_f32_mono_to_audio_bytes is not None:
+        try:
+            return _shared_f32_mono_to_audio_bytes(raw, audio_format, channels)
+        except ValueError as error:
+            fail(str(error))
+    return _local_f32_mono_to_audio_bytes(raw, audio_format, channels)
+
+
+def _local_audio_bytes_to_f32_mono(raw, audio_format, channels):
+    normalized = audio_format.lower()
+    channels = max(1, int(channels))
+
+    if normalized in {"pcm_f32le", "f32le", "float32"}:
+        if channels <= 1:
+            return raw[: (len(raw) // 4) * 4]
+        samples = [value[0] for value in struct.iter_unpack("<f", raw[: (len(raw) // 4) * 4])]
+        return _pack_f32(_downmix_float(samples, channels))
+
+    if normalized in {"pcm_s16le", "s16le", "int16"}:
+        sample_count = len(raw) // 2
+        samples = [value[0] / 32768.0 for value in struct.iter_unpack("<h", raw[: sample_count * 2])]
+        return _pack_f32(_downmix_float(samples, channels))
+
+    if normalized in {"uint8-time-domain", "u8", "uint8"}:
+        samples = [(byte - 128) / 128.0 for byte in raw]
+        return _pack_f32(_downmix_float(samples, channels))
+
+    fail(f"Formato de audio no soportado para VCClient v2: {audio_format}")
+
+
+def _local_f32_mono_to_audio_bytes(raw, audio_format, channels):
+    normalized = audio_format.lower()
+    channels = max(1, int(channels))
+    mono = [value[0] for value in struct.iter_unpack("<f", raw[: (len(raw) // 4) * 4])]
+    expanded = _expand_float(mono, channels)
+
+    if normalized in {"pcm_f32le", "f32le", "float32"}:
+        return _pack_f32(expanded)
+
+    if normalized in {"pcm_s16le", "s16le", "int16"}:
+        return pack_mono_s16([int16_from_float(sample) for sample in expanded])
+
+    if normalized in {"uint8-time-domain", "u8", "uint8"}:
+        return bytes(
+            max(0, min(255, int(round(max(-1.0, min(1.0, sample)) * 128 + 128)))) for sample in expanded
+        )
+
+    fail(f"Formato de salida no soportado para VCClient v2: {audio_format}")
+
+
+def _pack_f32(samples):
+    return b"".join(struct.pack("<f", max(-1.0, min(1.0, float(sample)))) for sample in samples)
+
+
+def _downmix_float(samples, channels):
+    if channels <= 1:
+        return samples
+    frame_count = len(samples) // channels
+    mixed = []
+    for frame in range(frame_count):
+        start = frame * channels
+        mixed.append(sum(samples[start : start + channels]) / channels)
+    return mixed
+
+
+def _expand_float(samples, channels):
+    if channels <= 1:
+        return samples
+    expanded = []
+    for sample in samples:
+        expanded.extend([sample] * channels)
+    return expanded
 
 
 def _local_audio_bytes_to_s16_mono(raw, audio_format, channels):
