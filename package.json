@@ -37,6 +37,7 @@
     "demo:ai-runtime": "node scripts/prepare-ai-runtime-demo.mjs",
     "demo:prepare": "node scripts/prepare-local-demo.mjs",
     "demo:up": "node scripts/run-local-demo-stack.mjs",
+    "demo:desktop": "node scripts/run-local-demo-stack.mjs --tauri",
     "demo:ready": "node scripts/run-local-demo-stack.mjs --exit-after-ready",
     "demo:verify": "node scripts/run-local-demo-stack.mjs --verify-ui",
     "demo:admin-ui": "node scripts/smoke-admin-ui.mjs",

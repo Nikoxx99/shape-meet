@@ -71,6 +71,12 @@ hacen falta, corre `demo:prepare` y deja vivos los procesos iniciados:
 pnpm demo:up
 ```
 
+Para abrir la app nativa Tauri contra el mismo stack demo:
+
+```bash
+pnpm demo:desktop
+```
+
 Para validar que el stack queda listo y salir sin dejar procesos locales vivos:
 
 ```bash

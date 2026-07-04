@@ -9,6 +9,8 @@ const replaceAi = args.has("--replace-ai") || args.has("--restart-ai");
 const strict = args.has("--strict");
 const verifyUi = args.has("--verify-ui");
 const keepAlive = args.has("--keep-alive");
+const tauriMode =
+  args.has("--tauri") || args.has("--native") || args.has("--desktop-app");
 const exitAfterReady =
   args.has("--exit-after-ready") ||
   args.has("--once") ||
@@ -65,7 +67,7 @@ async function main() {
 
   console.log("Shape Meet demo");
   console.log(`Admin/API: ${adminUrl}`);
-  console.log(`Desktop: ${appUrl}`);
+  console.log(`Desktop: ${appUrl}${tauriMode ? " (Tauri dev)" : ""}`);
   console.log(`IA local: ${aiUrl}`);
   console.log(`LiveKit: ${liveKitUrl}`);
   console.log("");
@@ -142,7 +144,9 @@ async function main() {
     startProcess("IA demo", ["dev:ai:demo"]);
   }
 
-  if (!services.desktop.ok) {
+  if (tauriMode) {
+    startProcess("Desktop Tauri", ["dev:desktop"]);
+  } else if (!services.desktop.ok) {
     startProcess("Desktop web", [
       "--filter",
       "@shape-meet/desktop",
