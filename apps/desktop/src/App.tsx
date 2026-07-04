@@ -515,10 +515,26 @@ function modelRuntimeInputFromContent(
       ).toLowerCase(),
     ),
     facefusionDir: envContentValue(content, "FACEFUSION_DIR") ?? "",
+    facefusionPython: envContentValue(content, "FACEFUSION_PYTHON") ?? "",
+    facefusionProviders:
+      envContentValue(content, "FACEFUSION_EXECUTION_PROVIDERS") ?? "",
+    facefusionProcessors:
+      envContentValue(content, "FACEFUSION_PROCESSORS") ?? "",
+    facefusionExtraArgs:
+      envContentValue(content, "FACEFUSION_EXTRA_ARGS") ?? "",
     bmv2RepoDir: envContentValue(content, "BMV2_REPO_DIR") ?? "",
+    bmv2Python: envContentValue(content, "BMV2_PYTHON") ?? "",
     bmv2Checkpoint: envContentValue(content, "BMV2_MODEL_CHECKPOINT") ?? "",
+    bmv2Device: envContentValue(content, "BMV2_DEVICE") ?? "",
+    bmv2ExtraArgs: envContentValue(content, "BMV2_EXTRA_ARGS") ?? "",
     vcclient000HttpEndpoint:
       envContentValue(content, "VCCLIENT000_HTTP_ENDPOINT") ?? "",
+    vcclient000HttpMode:
+      envContentValue(content, "VCCLIENT000_HTTP_MODE") ?? "",
+    modelTimeoutSecs:
+      envContentValue(content, "SHAPE_MODEL_COMMAND_TIMEOUT_SECS") ?? "",
+    processorTimeoutSecs:
+      envContentValue(content, "SHAPE_PROCESSOR_TIMEOUT_SECS") ?? "",
   };
 }
 
@@ -528,9 +544,19 @@ function normalizeModelRuntimeInput(
   return {
     wrapperPassthrough: input.wrapperPassthrough,
     facefusionDir: input.facefusionDir?.trim() || null,
+    facefusionPython: input.facefusionPython?.trim() || null,
+    facefusionProviders: input.facefusionProviders?.trim() || null,
+    facefusionProcessors: input.facefusionProcessors?.trim() || null,
+    facefusionExtraArgs: input.facefusionExtraArgs?.trim() || null,
     bmv2RepoDir: input.bmv2RepoDir?.trim() || null,
+    bmv2Python: input.bmv2Python?.trim() || null,
     bmv2Checkpoint: input.bmv2Checkpoint?.trim() || null,
+    bmv2Device: input.bmv2Device?.trim() || null,
+    bmv2ExtraArgs: input.bmv2ExtraArgs?.trim() || null,
     vcclient000HttpEndpoint: input.vcclient000HttpEndpoint?.trim() || null,
+    vcclient000HttpMode: input.vcclient000HttpMode?.trim() || null,
+    modelTimeoutSecs: input.modelTimeoutSecs?.trim() || null,
+    processorTimeoutSecs: input.processorTimeoutSecs?.trim() || null,
   };
 }
 
@@ -2919,9 +2945,19 @@ function AiRuntimeScreen({
     useState<NativeModelAiRuntimeInput>({
       wrapperPassthrough: true,
       facefusionDir: "",
+      facefusionPython: "",
+      facefusionProviders: "cuda",
+      facefusionProcessors: "face_swapper face_enhancer",
+      facefusionExtraArgs: "",
       bmv2RepoDir: "",
+      bmv2Python: "",
       bmv2Checkpoint: "",
+      bmv2Device: "cuda",
+      bmv2ExtraArgs: "",
       vcclient000HttpEndpoint: "",
+      vcclient000HttpMode: "",
+      modelTimeoutSecs: "8",
+      processorTimeoutSecs: "10",
     });
 
   async function loadRuntimeState() {
@@ -3175,6 +3211,39 @@ function AiRuntimeScreen({
               }
             />
             <TextField
+              label="Python FaceFusion"
+              icon={<Settings />}
+              value={modelRuntimeInput.facefusionPython ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  facefusionPython: value,
+                }))
+              }
+            />
+            <TextField
+              label="Providers FaceFusion"
+              icon={<Sparkles />}
+              value={modelRuntimeInput.facefusionProviders ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  facefusionProviders: value,
+                }))
+              }
+            />
+            <TextField
+              label="Procesadores FaceFusion"
+              icon={<Wand2 />}
+              value={modelRuntimeInput.facefusionProcessors ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  facefusionProcessors: value,
+                }))
+              }
+            />
+            <TextField
               label="Repo BMV2"
               icon={<Video />}
               value={modelRuntimeInput.bmv2RepoDir ?? ""}
@@ -3182,6 +3251,17 @@ function AiRuntimeScreen({
                 setModelRuntimeInput((current) => ({
                   ...current,
                   bmv2RepoDir: value,
+                }))
+              }
+            />
+            <TextField
+              label="Python BMV2"
+              icon={<Settings />}
+              value={modelRuntimeInput.bmv2Python ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  bmv2Python: value,
                 }))
               }
             />
@@ -3196,6 +3276,22 @@ function AiRuntimeScreen({
                 }))
               }
             />
+            <SelectField
+              label="Dispositivo BMV2"
+              value={modelRuntimeInput.bmv2Device ?? ""}
+              options={[
+                { value: "", label: "Predeterminado" },
+                { value: "cuda", label: "CUDA" },
+                { value: "mps", label: "Apple MPS" },
+                { value: "cpu", label: "CPU" },
+              ]}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  bmv2Device: value,
+                }))
+              }
+            />
             <TextField
               label="Endpoint vcclient000"
               icon={<Mic />}
@@ -3204,6 +3300,67 @@ function AiRuntimeScreen({
                 setModelRuntimeInput((current) => ({
                   ...current,
                   vcclient000HttpEndpoint: value,
+                }))
+              }
+            />
+            <SelectField
+              label="Modo vcclient000"
+              value={modelRuntimeInput.vcclient000HttpMode ?? ""}
+              options={[
+                { value: "", label: "Auto" },
+                { value: "w-okada-rest", label: "w-okada REST" },
+                { value: "shape-json", label: "Shape JSON" },
+              ]}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  vcclient000HttpMode: value,
+                }))
+              }
+            />
+            <TextField
+              label="Timeout modelo"
+              icon={<Settings />}
+              value={modelRuntimeInput.modelTimeoutSecs ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  modelTimeoutSecs: value,
+                }))
+              }
+              type="number"
+            />
+            <TextField
+              label="Timeout procesador"
+              icon={<Settings />}
+              value={modelRuntimeInput.processorTimeoutSecs ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  processorTimeoutSecs: value,
+                }))
+              }
+              type="number"
+            />
+            <TextField
+              label="Args FaceFusion"
+              icon={<Settings />}
+              value={modelRuntimeInput.facefusionExtraArgs ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  facefusionExtraArgs: value,
+                }))
+              }
+            />
+            <TextField
+              label="Args BMV2"
+              icon={<Settings />}
+              value={modelRuntimeInput.bmv2ExtraArgs ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  bmv2ExtraArgs: value,
                 }))
               }
             />

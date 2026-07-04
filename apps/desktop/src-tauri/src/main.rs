@@ -152,9 +152,19 @@ struct SaveAiRuntimeEnvInput {
 struct PrepareModelAiRuntimeEnvInput {
     wrapper_passthrough: Option<bool>,
     facefusion_dir: Option<String>,
+    facefusion_python: Option<String>,
+    facefusion_providers: Option<String>,
+    facefusion_processors: Option<String>,
+    facefusion_extra_args: Option<String>,
     bmv2_repo_dir: Option<String>,
+    bmv2_python: Option<String>,
     bmv2_checkpoint: Option<String>,
+    bmv2_device: Option<String>,
+    bmv2_extra_args: Option<String>,
     vcclient000_http_endpoint: Option<String>,
+    vcclient000_http_mode: Option<String>,
+    model_timeout_secs: Option<String>,
+    processor_timeout_secs: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1500,6 +1510,12 @@ fn model_ai_runtime_env_content(
     let wrapper_passthrough = input
         .and_then(|value| value.wrapper_passthrough)
         .unwrap_or(true);
+    let processor_timeout =
+        trimmed_model_input_value(input.and_then(|value| value.processor_timeout_secs.as_deref()))
+            .unwrap_or_else(|| "10".to_string());
+    let model_timeout =
+        trimmed_model_input_value(input.and_then(|value| value.model_timeout_secs.as_deref()))
+            .unwrap_or_else(|| "8".to_string());
 
     let mut lines = vec![
         "# Shape Meet model AI runtime".to_string(),
@@ -1508,8 +1524,14 @@ fn model_ai_runtime_env_content(
         "SHAPE_FACE_ENGINE=facefusion".to_string(),
         "SHAPE_BACKGROUND_ENGINE=backgroundmattingv2".to_string(),
         "SHAPE_VOICE_ENGINE=vcclient000".to_string(),
-        "SHAPE_PROCESSOR_TIMEOUT_SECS=10".to_string(),
-        "SHAPE_MODEL_COMMAND_TIMEOUT_SECS=8".to_string(),
+        format!(
+            "SHAPE_PROCESSOR_TIMEOUT_SECS={}",
+            render_env_value(&processor_timeout)
+        ),
+        format!(
+            "SHAPE_MODEL_COMMAND_TIMEOUT_SECS={}",
+            render_env_value(&model_timeout)
+        ),
         format!(
             "SHAPE_VIDEO_PROCESSOR_COMMAND={processor_command} --kind video --host 127.0.0.1 --port 7860"
         ),
@@ -1543,9 +1565,39 @@ fn model_ai_runtime_env_content(
     );
     push_model_env_line(
         &mut lines,
+        "FACEFUSION_PYTHON",
+        input.and_then(|value| value.facefusion_python.as_deref()),
+        "C:\\\\models\\\\FaceFusion\\\\.venv\\\\Scripts\\\\python.exe",
+    );
+    push_model_env_line(
+        &mut lines,
+        "FACEFUSION_EXECUTION_PROVIDERS",
+        input.and_then(|value| value.facefusion_providers.as_deref()),
+        "cuda",
+    );
+    push_model_env_line(
+        &mut lines,
+        "FACEFUSION_PROCESSORS",
+        input.and_then(|value| value.facefusion_processors.as_deref()),
+        "face_swapper face_enhancer",
+    );
+    push_model_env_line(
+        &mut lines,
+        "FACEFUSION_EXTRA_ARGS",
+        input.and_then(|value| value.facefusion_extra_args.as_deref()),
+        "--execution-thread-count 4",
+    );
+    push_model_env_line(
+        &mut lines,
         "BMV2_REPO_DIR",
         input.and_then(|value| value.bmv2_repo_dir.as_deref()),
         "C:\\\\models\\\\BackgroundMattingV2",
+    );
+    push_model_env_line(
+        &mut lines,
+        "BMV2_PYTHON",
+        input.and_then(|value| value.bmv2_python.as_deref()),
+        "C:\\\\models\\\\BackgroundMattingV2\\\\.venv\\\\Scripts\\\\python.exe",
     );
     push_model_env_line(
         &mut lines,
@@ -1555,11 +1607,27 @@ fn model_ai_runtime_env_content(
     );
     push_model_env_line(
         &mut lines,
+        "BMV2_DEVICE",
+        input.and_then(|value| value.bmv2_device.as_deref()),
+        "cuda",
+    );
+    push_model_env_line(
+        &mut lines,
+        "BMV2_EXTRA_ARGS",
+        input.and_then(|value| value.bmv2_extra_args.as_deref()),
+        "--model-refine-sample-pixels 80000",
+    );
+    push_model_env_line(
+        &mut lines,
         "VCCLIENT000_HTTP_ENDPOINT",
         input.and_then(|value| value.vcclient000_http_endpoint.as_deref()),
         "http://127.0.0.1:18888/test",
     );
-    if input
+    let vcclient000_http_mode =
+        trimmed_model_input_value(input.and_then(|value| value.vcclient000_http_mode.as_deref()));
+    if let Some(mode) = vcclient000_http_mode {
+        lines.push(format!("VCCLIENT000_HTTP_MODE={}", render_env_value(&mode)));
+    } else if input
         .and_then(|value| value.vcclient000_http_endpoint.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -1572,6 +1640,13 @@ fn model_ai_runtime_env_content(
     lines.push(String::new());
 
     Ok(lines.join("\n"))
+}
+
+fn trimmed_model_input_value(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
 
 fn push_model_env_line(lines: &mut Vec<String>, key: &str, value: Option<&str>, example: &str) {
@@ -2547,11 +2622,23 @@ mod tests {
         let input = PrepareModelAiRuntimeEnvInput {
             wrapper_passthrough: Some(false),
             facefusion_dir: Some(r"C:\models\FaceFusion".to_string()),
+            facefusion_python: Some(r"C:\models\FaceFusion\.venv\Scripts\python.exe".to_string()),
+            facefusion_providers: Some("cuda".to_string()),
+            facefusion_processors: Some("face_swapper face_enhancer".to_string()),
+            facefusion_extra_args: Some("--execution-thread-count 4".to_string()),
             bmv2_repo_dir: Some(r"C:\models\BackgroundMattingV2".to_string()),
+            bmv2_python: Some(
+                r"C:\models\BackgroundMattingV2\.venv\Scripts\python.exe".to_string(),
+            ),
             bmv2_checkpoint: Some(
                 r"C:\models\BackgroundMattingV2\pytorch_resnet50.pth".to_string(),
             ),
+            bmv2_device: Some("cuda".to_string()),
+            bmv2_extra_args: Some("--model-refine-sample-pixels 80000".to_string()),
             vcclient000_http_endpoint: Some("http://127.0.0.1:18888/test".to_string()),
+            vcclient000_http_mode: Some("w-okada-rest".to_string()),
+            model_timeout_secs: Some("30".to_string()),
+            processor_timeout_secs: Some("12".to_string()),
         };
         let content =
             model_ai_runtime_env_content("python3 /tmp/shape_processor_command.py", Some(&input))
@@ -2569,9 +2656,20 @@ mod tests {
             .iter()
             .any(|(key, value)| key == "FACEFUSION_DIR" && value == r"C:\models\FaceFusion"));
         assert!(parsed.values.iter().any(|(key, value)| {
+            key == "FACEFUSION_PYTHON" && value == r"C:\models\FaceFusion\.venv\Scripts\python.exe"
+        }));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "FACEFUSION_EXECUTION_PROVIDERS" && value == "cuda"));
+        assert!(parsed.values.iter().any(|(key, value)| {
             key == "BMV2_MODEL_CHECKPOINT"
                 && value == r"C:\models\BackgroundMattingV2\pytorch_resnet50.pth"
         }));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "BMV2_DEVICE" && value == "cuda"));
         assert!(parsed.values.iter().any(|(key, value)| {
             key == "VCCLIENT000_HTTP_ENDPOINT" && value == "http://127.0.0.1:18888/test"
         }));
@@ -2579,5 +2677,13 @@ mod tests {
             .values
             .iter()
             .any(|(key, value)| key == "VCCLIENT000_HTTP_MODE" && value == "w-okada-rest"));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_MODEL_COMMAND_TIMEOUT_SECS" && value == "30"));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_PROCESSOR_TIMEOUT_SECS" && value == "12"));
     }
 }

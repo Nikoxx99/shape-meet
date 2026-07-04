@@ -178,8 +178,11 @@ Dentro de Tauri también puedes abrir `Runtime IA local`, pulsar `Cargar demo`
 y volver a la llamada. Esa ruta escribe el mismo archivo runtime desde la app y
 reinicia el sidecar gestionado para aplicar los procesadores demo.
 `Cargar wrappers` escribe el runtime `local-wrappers` con FaceFusion,
-BackgroundMattingV2 y vcclient000 en passthrough; sirve para validar la conexión
-real de wrappers en equipos sin GPU o sin modelos instalados.
+BackgroundMattingV2 y vcclient000. La pantalla permite fijar Python por motor,
+providers/procesadores de FaceFusion, dispositivo BMV2, modo REST de
+vcclient000 y timeouts antes de reiniciar el sidecar gestionado. En equipos sin
+GPU o sin modelos instalados deja `Usar passthrough` activo para validar la
+conexión de wrappers sin cargar pesos reales.
 `Probar IA` ejecuta un preflight local con la identidad, fondo y voz activos
 antes de entrar a la reunión.
 
@@ -493,8 +496,14 @@ usa el mismo preset sin `--passthrough` y agrega las rutas reales:
 ```bash
 pnpm models:runtime -- --preset local-wrappers \
   --facefusion-dir "C:\\models\\FaceFusion" \
+  --facefusion-python "C:\\models\\FaceFusion\\.venv\\Scripts\\python.exe" \
+  --facefusion-providers "cuda" \
+  --facefusion-processors "face_swapper face_enhancer" \
   --bmv2-repo-dir "C:\\models\\BackgroundMattingV2" \
+  --bmv2-python "C:\\models\\BackgroundMattingV2\\.venv\\Scripts\\python.exe" \
   --bmv2-checkpoint "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth" \
+  --bmv2-device "cuda" \
+  --model-timeout 30 \
   --vcclient000-http-endpoint "http://127.0.0.1:18888/test"
 ```
 

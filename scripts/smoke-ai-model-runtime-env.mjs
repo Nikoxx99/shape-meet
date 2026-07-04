@@ -61,6 +61,30 @@ try {
     runtimeEnv.SHAPE_WRAPPER_PASSTHROUGH === "true",
     "model runtime env did not enable wrapper passthrough",
   );
+  assert(
+    runtimeEnv.SHAPE_MODEL_COMMAND_TIMEOUT_SECS === "3",
+    "model runtime env did not preserve model timeout",
+  );
+  assert(
+    runtimeEnv.SHAPE_PROCESSOR_TIMEOUT_SECS === "4",
+    "model runtime env did not preserve processor timeout",
+  );
+  assert(
+    runtimeEnv.FACEFUSION_EXECUTION_PROVIDERS === "cuda",
+    "model runtime env did not include FaceFusion providers",
+  );
+  assert(
+    runtimeEnv.FACEFUSION_PROCESSORS === "face_swapper face_enhancer",
+    "model runtime env did not include FaceFusion processors",
+  );
+  assert(
+    runtimeEnv.BMV2_DEVICE === "cuda",
+    "model runtime env did not include BMV2 device",
+  );
+  assert(
+    runtimeEnv.VCCLIENT000_HTTP_MODE === "w-okada-rest",
+    "model runtime env did not include vcclient000 HTTP mode",
+  );
 
   sidecar = spawn(
     python,
@@ -165,6 +189,20 @@ function renderRuntimeEnv() {
       "--passthrough",
       "--model-timeout",
       "3",
+      "--processor-timeout",
+      "4",
+      "--facefusion-providers",
+      "cuda",
+      "--facefusion-processors",
+      "face_swapper face_enhancer",
+      "--facefusion-extra-args",
+      "--execution-thread-count 2",
+      "--bmv2-device",
+      "cuda",
+      "--bmv2-extra-args",
+      "--model-refine-sample-pixels 80000",
+      "--vcclient000-http-mode",
+      "w-okada-rest",
     ],
     {
       cwd: process.cwd(),

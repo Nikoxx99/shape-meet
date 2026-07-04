@@ -271,7 +271,10 @@ class ShapeMeetHandler(BaseHTTPRequestHandler):
         self.send_header("content-type", "application/json; charset=utf-8")
         self.send_header("content-length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            logging.debug("client disconnected before response body was sent")
 
     def _cors_headers(self):
         self.send_header("access-control-allow-origin", "*")

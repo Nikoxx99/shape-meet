@@ -98,9 +98,19 @@ export interface NativeAiRuntimeEnvFile {
 export interface NativeModelAiRuntimeInput {
   wrapperPassthrough: boolean;
   facefusionDir?: string | null;
+  facefusionPython?: string | null;
+  facefusionProviders?: string | null;
+  facefusionProcessors?: string | null;
+  facefusionExtraArgs?: string | null;
   bmv2RepoDir?: string | null;
+  bmv2Python?: string | null;
   bmv2Checkpoint?: string | null;
+  bmv2Device?: string | null;
+  bmv2ExtraArgs?: string | null;
   vcclient000HttpEndpoint?: string | null;
+  vcclient000HttpMode?: string | null;
+  modelTimeoutSecs?: string | null;
+  processorTimeoutSecs?: string | null;
 }
 
 export interface NativeIdentityArtifactCacheResult {
