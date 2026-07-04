@@ -369,11 +369,19 @@ function resolveModelEnv() {
     VCCLIENT000_TIMEOUT_SECS: "--vcclient000-timeout",
   };
 
+  // El default de VCCLIENT000_HTTP_ENDPOINT/MODE en workstationProfileDefaults
+  // (más abajo) es el REST v1 legado de w-okada, atado al perfil windows-nvidia
+  // del preset de wrappers; el engine inproc tiene su propio default v2 (ver
+  // debajo), así que no hereda ese fallback por perfil.
+  const isVcClientKey = (key) =>
+    key === "VCCLIENT000_HTTP_ENDPOINT" || key === "VCCLIENT000_HTTP_MODE";
+
   for (const [key, argName] of Object.entries(mappedArgs)) {
-    const value =
-      argValue(argName) ??
-      process.env[key] ??
-      workstationDefaults.modelEnv[key];
+    const workstationDefault =
+      isVcClientKey(key) && engineMode === "inproc"
+        ? undefined
+        : workstationDefaults.modelEnv[key];
+    const value = argValue(argName) ?? process.env[key] ?? workstationDefault;
     if (value) values[key] = value;
   }
 
@@ -384,8 +392,18 @@ function resolveModelEnv() {
   if (passthroughValue) {
     values.SHAPE_WRAPPER_PASSTHROUGH = passthroughValue;
   }
+
+  // El engine inproc habla con el cliente persistente (engines/voice_wokada.py,
+  // VCCLIENT000_HTTP_MODE=auto detecta v1/v2 vía GET /api/hello), así que su
+  // default apunta al puerto de VCClient v2 (18000) sin path fijo. El preset
+  // de wrappers (subproceso por chunk) conserva el REST v1 legado de w-okada
+  // como fallback cuando solo se da el endpoint sin modo explícito.
+  if (engineMode === "inproc" && !values.VCCLIENT000_HTTP_ENDPOINT) {
+    values.VCCLIENT000_HTTP_ENDPOINT = "http://127.0.0.1:18000";
+  }
   if (values.VCCLIENT000_HTTP_ENDPOINT && !values.VCCLIENT000_HTTP_MODE) {
-    values.VCCLIENT000_HTTP_MODE = "w-okada-rest";
+    values.VCCLIENT000_HTTP_MODE =
+      engineMode === "inproc" ? "auto" : "w-okada-rest";
   }
 
   return values;

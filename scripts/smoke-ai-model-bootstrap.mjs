@@ -23,6 +23,7 @@ try {
   smokeAppleWorkspaceReport();
   smokeAppleDefaultSetupScript();
   smokeInprocReport();
+  smokeInprocV1SetupScript();
   smokeDemoAssetsWrite();
   console.log("model workstation bootstrap smoke ok");
 } finally {
@@ -135,8 +136,13 @@ function smokeInprocReport() {
   );
   assertEqual(
     report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT,
-    "http://127.0.0.1:18888/test",
-    "inproc default w-okada endpoint",
+    "http://127.0.0.1:18000",
+    "inproc default VCClient v2 endpoint",
+  );
+  assertEqual(
+    report.runtimeEnv.VCCLIENT000_HTTP_MODE,
+    "auto",
+    "inproc default VCClient http mode",
   );
   assertHasCheck(report, "pesos", "ok");
   assertNoCheck(report, "FaceFusion", "error");
@@ -153,13 +159,63 @@ function smokeInprocReport() {
   );
   assertFileIncludes(setupScriptPath, "buffalo_l");
   assertFileIncludes(setupScriptPath, "inswapper_128.onnx");
-  assertFileIncludes(setupScriptPath, "changedVoiceBase64");
+  // Default endpoint has no explicit /test path -> the generated probe uses
+  // the VCClient v2 health check, not the legacy v1 POST /test contract.
+  assertFileIncludes(setupScriptPath, "Probe VCClient v2 (GET /api/hello)");
+  assertFileIncludes(setupScriptPath, "/api/voice-changer/convert_chunk");
+  assertFileExcludes(setupScriptPath, "changedVoiceBase64");
   assertFileIncludes(setupScriptPath, "pnpm models:doctor");
   assertFileExcludes(setupScriptPath, "git clone");
 
   assertFileIncludes(checklistPath, "Engine: inproc");
   assertFileIncludes(checklistPath, "--engine inproc");
   assertFileIncludes(checklistPath, "Endpoint video (colapsado)");
+}
+
+// Explicit v1 (legacy w-okada) endpoint: an endpoint whose path is /test must
+// still generate the legacy POST /test probe, not the v2 health check.
+function smokeInprocV1SetupScript() {
+  const setupScriptPath = join(tempDir, "setup-inproc-v1.sh");
+  const weightsDir = join(tempDir, "inproc-v1-weights");
+  mkdirSync(weightsDir, { recursive: true });
+  writeFileSync(join(weightsDir, "inswapper_128.onnx"), "stub-weight");
+  writeFileSync(
+    join(weightsDir, "rvm_mobilenetv3_fp32.torchscript"),
+    "stub-weight",
+  );
+
+  const report = runBootstrap([
+    "--json",
+    "--dry-run",
+    "--skip-hardware",
+    "--skip-vcclient",
+    "--profile",
+    "apple-silicon",
+    "--engine",
+    "inproc",
+    "--weights-dir",
+    weightsDir,
+    "--vcclient000-http-endpoint",
+    "http://127.0.0.1:18888/test",
+    "--write-setup-script",
+    "--setup-script-out",
+    setupScriptPath,
+  ]);
+
+  assertEqual(
+    report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT,
+    "http://127.0.0.1:18888/test",
+    "explicit v1 endpoint preserved",
+  );
+  assertEqual(
+    report.runtimeEnv.VCCLIENT000_HTTP_MODE,
+    "auto",
+    "explicit v1 endpoint still defaults http mode to auto",
+  );
+  assertFileIncludes(setupScriptPath, "Probe VCClient v1 (POST /test)");
+  assertFileIncludes(setupScriptPath, "changedVoiceBase64");
+  assertFileExcludes(setupScriptPath, "Probe VCClient v2 (GET /api/hello)");
+  assertFileExcludes(setupScriptPath, "/api/voice-changer/convert_chunk");
 }
 
 function smokeWindowsReport() {

@@ -1298,8 +1298,52 @@ function wokadaProbeBufferBase64() {
   return Buffer.alloc(480 * 2).toString("base64");
 }
 
+// El contrato v1 (w-okada legado) solo se asume cuando el endpoint apunta
+// explícitamente a /test; cualquier otro caso (incluido el default v2 sin
+// path) se prueba como VCClient v2 vía health GET /api/hello (mismo criterio
+// de auto-detección "inconclusive" de engines/voice_wokada.py y de
+// wrappers/vcclient000_chunk.py::normalize_http_mode).
+function vcClientEndpointLooksLikeV1(endpoint) {
+  try {
+    const path = new URL(endpoint).pathname.replace(/\/+$/, "");
+    return path === "/test" || path.endsWith("/test");
+  } catch {
+    return false;
+  }
+}
+
+function vcClientHealthUrl(endpoint) {
+  try {
+    const next = new URL(endpoint);
+    next.pathname = "/api/hello";
+    next.search = "";
+    return next.href;
+  } catch {
+    return endpoint;
+  }
+}
+
 function renderAppleInprocSetupScript(modelPaths) {
   const doctorCommand = `pnpm models:doctor -- --profile apple-silicon --env-file "${runtimeEnvPath}"`;
+  const resolvedVcClientEndpoint = vcclientEndpoint || "http://127.0.0.1:18000";
+  const vcClientProbeSection = vcClientEndpointLooksLikeV1(
+    resolvedVcClientEndpoint,
+  )
+    ? `echo "== Probe VCClient v1 (POST /test) =="
+if curl -fsS -m 5 -X POST -H 'content-type: application/json' \\
+  -d "{\\"timestamp\\":0,\\"buffer\\":\\"$WOKADA_BUFFER\\"}" \\
+  "$WOKADA_ENDPOINT" | grep -q changedVoiceBase64; then
+  echo "VCClient v1 (w-okada) responde con changedVoiceBase64 en $WOKADA_ENDPOINT"
+else
+  echo "warn: VCClient v1 (w-okada) no respondió en $WOKADA_ENDPOINT; arráncalo con un slot RVC cargado antes del demo."
+fi`
+    : `echo "== Probe VCClient v2 (GET /api/hello) =="
+if curl -fsS -m 5 "$WOKADA_HEALTH_ENDPOINT" | grep -qiE 'vcclient|w-okada|cute voice'; then
+  echo "VCClient v2 responde en $WOKADA_HEALTH_ENDPOINT"
+  echo "nota: la conversion real usa POST $WOKADA_ENDPOINT/api/voice-changer/convert_chunk (multipart waveform Float32 LE; ver engines/voice_wokada.py)."
+else
+  echo "warn: VCClient v2 no respondió en $WOKADA_HEALTH_ENDPOINT; arráncalo (~40s de boot) con un slot RVC cargado (index_ratio 0.0) antes del demo."
+fi`;
   return `#!/usr/bin/env bash
 # Shape Meet Apple Silicon in-process AI runtime setup (engine inproc)
 # Ejecuta desde la raíz del repo shape-meet. Descarga solo pesos con licencia
@@ -1316,7 +1360,8 @@ RVM_SHA256=${shQuote(RVM_WEIGHT_SHA256)}
 RVM_BYTES=${shQuote(String(RVM_WEIGHT_BYTES))}
 INSWAPPER_PATH=${shQuote(modelPaths.inswapperModel)}
 INSIGHTFACE_HOME_DIR=${shQuote(modelPaths.insightfaceHome)}
-WOKADA_ENDPOINT=${shQuote(vcclientEndpoint || "http://127.0.0.1:18888/test")}
+WOKADA_ENDPOINT=${shQuote(resolvedVcClientEndpoint)}
+WOKADA_HEALTH_ENDPOINT=${shQuote(vcClientHealthUrl(resolvedVcClientEndpoint))}
 WOKADA_BUFFER=${shQuote(wokadaProbeBufferBase64())}
 
 if [ ! -f "$REQUIREMENTS" ]; then
@@ -1364,14 +1409,7 @@ else
   echo "  $INSWAPPER_PATH"
 fi
 
-echo "== Probe w-okada (POST /test) =="
-if curl -fsS -m 5 -X POST -H 'content-type: application/json' \\
-  -d "{\\"timestamp\\":0,\\"buffer\\":\\"$WOKADA_BUFFER\\"}" \\
-  "$WOKADA_ENDPOINT" | grep -q changedVoiceBase64; then
-  echo "w-okada responde con changedVoiceBase64 en $WOKADA_ENDPOINT"
-else
-  echo "warn: w-okada no respondió en $WOKADA_ENDPOINT; arráncalo con un slot RVC cargado antes del demo."
-fi
+${vcClientProbeSection}
 
 echo "== Doctor final =="
 ${doctorCommand}
@@ -1380,6 +1418,34 @@ ${doctorCommand}
 
 function renderWindowsInprocSetupScript(modelPaths) {
   const doctorCommand = `pnpm models:doctor -- --profile windows-nvidia --env-file "${runtimeEnvPath}"`;
+  const resolvedVcClientEndpoint = vcclientEndpoint || "http://127.0.0.1:18000";
+  const vcClientIsV1 = vcClientEndpointLooksLikeV1(resolvedVcClientEndpoint);
+  const vcClientProbeSection = vcClientIsV1
+    ? `Write-Host "== Probe VCClient v1 (POST /test) =="
+try {
+  $Body = '{"timestamp":0,"buffer":"' + $WokadaBuffer + '"}'
+  $Response = Invoke-RestMethod -Method Post -Uri $WokadaEndpoint -ContentType 'application/json' -Body $Body -TimeoutSec 5
+  if ($Response.changedVoiceBase64 -or $Response.data.changedVoiceBase64) {
+    Write-Host "VCClient v1 (w-okada) responde con changedVoiceBase64 en $WokadaEndpoint"
+  } else {
+    Write-Host "warn: VCClient v1 (w-okada) respondió sin changedVoiceBase64; revisa el slot RVC cargado."
+  }
+} catch {
+  Write-Host "warn: VCClient v1 (w-okada) no respondió en $WokadaEndpoint; arráncalo con un slot RVC cargado antes del demo."
+}`
+    : `Write-Host "== Probe VCClient v2 (GET /api/hello) =="
+try {
+  $Hello = Invoke-RestMethod -Method Get -Uri $WokadaHealthEndpoint -TimeoutSec 5
+  $HelloText = ($Hello | ConvertTo-Json -Compress).ToLowerInvariant()
+  if ($HelloText -match 'vcclient|w-okada|cute voice') {
+    Write-Host "VCClient v2 responde en $WokadaHealthEndpoint"
+    Write-Host "nota: la conversion real usa POST $WokadaEndpoint/api/voice-changer/convert_chunk (multipart waveform Float32 LE; ver engines/voice_wokada.py)."
+  } else {
+    Write-Host "warn: $WokadaHealthEndpoint respondió pero no parece VCClient; revisa el slot RVC cargado."
+  }
+} catch {
+  Write-Host "warn: VCClient v2 no respondió en $WokadaHealthEndpoint; arráncalo (~40s de boot) con un slot RVC cargado (index_ratio 0.0) antes del demo."
+}`;
   return `# Shape Meet Windows/NVIDIA in-process AI runtime setup (engine inproc)
 # Ejecuta desde PowerShell en la raíz del repo shape-meet de la estación RTX.
 # Descarga solo pesos con licencia permisiva (RVM, MIT); inswapper_128.onnx es
@@ -1396,7 +1462,8 @@ $RvmSha256 = ${psQuote(RVM_WEIGHT_SHA256)}
 $RvmBytes = ${RVM_WEIGHT_BYTES}
 $InswapperPath = ${psQuote(modelPaths.inswapperModel)}
 $InsightfaceHome = ${psQuote(modelPaths.insightfaceHome)}
-$WokadaEndpoint = ${psQuote(vcclientEndpoint || "http://127.0.0.1:18888/test")}
+$WokadaEndpoint = ${psQuote(resolvedVcClientEndpoint)}
+$WokadaHealthEndpoint = ${psQuote(vcClientHealthUrl(resolvedVcClientEndpoint))}
 $WokadaBuffer = ${psQuote(wokadaProbeBufferBase64())}
 
 if (!(Test-Path $Requirements)) {
@@ -1442,18 +1509,7 @@ if ((Test-Path $InswapperPath) -and ((Get-Item $InswapperPath).Length -gt 0)) {
   Write-Host "  $InswapperPath"
 }
 
-Write-Host "== Probe w-okada (POST /test) =="
-try {
-  $Body = '{"timestamp":0,"buffer":"' + $WokadaBuffer + '"}'
-  $Response = Invoke-RestMethod -Method Post -Uri $WokadaEndpoint -ContentType 'application/json' -Body $Body -TimeoutSec 5
-  if ($Response.changedVoiceBase64 -or $Response.data.changedVoiceBase64) {
-    Write-Host "w-okada responde con changedVoiceBase64 en $WokadaEndpoint"
-  } else {
-    Write-Host "warn: w-okada respondió sin changedVoiceBase64; revisa el slot RVC cargado."
-  }
-} catch {
-  Write-Host "warn: w-okada no respondió en $WokadaEndpoint; arráncalo con un slot RVC cargado antes del demo."
-}
+${vcClientProbeSection}
 
 Write-Host "== Doctor final =="
 ${doctorCommand}
@@ -1751,9 +1807,15 @@ function defaultWorkspaceRoot(selectedProfile) {
 }
 
 function defaultVcClientEndpoint(selectedProfile) {
-  // El modo inproc siempre necesita w-okada configurado (cliente persistente
-  // /test); en wrappers solo la workstation Windows lo asume por defecto.
-  return selectedProfile === "windows-nvidia" || inproc
+  // El engine inproc siempre necesita VCClient configurado; el cliente
+  // persistente (engines/voice_wokada.py) resuelve v1/v2 con
+  // VCCLIENT000_HTTP_MODE=auto (GET /api/hello), así que el default apunta al
+  // puerto de VCClient v2 (18000) sin path fijo. En wrappers (subproceso por
+  // chunk) solo la workstation Windows asume por defecto el REST v1 legado de
+  // w-okada (18888/test); ver workstationProfileDefaults en
+  // prepare-ai-runtime-models.mjs.
+  if (inproc) return "http://127.0.0.1:18000";
+  return selectedProfile === "windows-nvidia"
     ? "http://127.0.0.1:18888/test"
     : "";
 }

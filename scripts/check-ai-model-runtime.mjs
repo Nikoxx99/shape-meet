@@ -521,10 +521,10 @@ function checkInprocWeights() {
   const voiceEndpoint = inprocVoiceEndpoint();
   if (!voiceEndpoint) {
     issue(
-      "VCCLIENT000_HTTP_ENDPOINT no configurado; el modo inproc habla con w-okada /test para la voz.",
+      "VCCLIENT000_HTTP_ENDPOINT no configurado; el cliente persistente de voz habla con VCClient/w-okada (v2 convert_chunk o v1 /test, VCCLIENT000_HTTP_MODE=auto detecta cuál).",
     );
     nextStep(
-      "Arranca w-okada/VCClient con un slot RVC cargado y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test.",
+      "Arranca VCClient con un slot RVC cargado y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18000 (v2, default) o http://127.0.0.1:18888/test (w-okada v1 legado).",
     );
   } else {
     checkUrl(voiceEndpoint, "VCCLIENT000_HTTP_ENDPOINT");
@@ -963,12 +963,16 @@ function checkVcClientWrapper() {
     "vcclient000 wrapper requiere VCCLIENT000_CHUNK_COMMAND o VCCLIENT000_HTTP_ENDPOINT.",
   );
   nextStep(
-    "Arranca vcclient000/w-okada localmente y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test.",
+    "Arranca VCClient/w-okada localmente y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18000 (v2, default) o http://127.0.0.1:18888/test (w-okada v1 legado).",
   );
 }
 
 function normalizeVcClientHttpMode(value) {
   const mode = (value || "auto").trim().toLowerCase().replace(/_/g, "-");
+  if (
+    ["vcclient2", "vcclient-v2", "w-okada-v2", "wokada-v2", "v2"].includes(mode)
+  )
+    return "vcclient2";
   if (["w-okada", "w-okada-rest", "vcclient", "vcclient-rest"].includes(mode))
     return "w-okada-rest";
   if (["shape", "shape-json", "shape-meet"].includes(mode)) return "shape-json";
@@ -984,16 +988,24 @@ function checkVcClientEndpointShape(endpoint, httpMode) {
   }
 
   const path = parsed.pathname.replace(/\/+$/, "");
-  const looksLikeWOkada = path === "" || path === "/test";
-  if (httpMode === "w-okada-rest" && !looksLikeWOkada) {
+  const looksLikeV1 = path === "" || path === "/test";
+  const looksLikeV2 = path.endsWith("/api/voice-changer/convert_chunk");
+
+  if (httpMode === "w-okada-rest" && !looksLikeV1) {
     warn(
-      "VCCLIENT000_HTTP_MODE=w-okada-rest usa el REST oficial de VCClient; normalmente el endpoint es http://127.0.0.1:18888/test o la URL base.",
+      "VCCLIENT000_HTTP_MODE=w-okada-rest usa el REST v1 legado de w-okada; normalmente el endpoint es http://127.0.0.1:18888/test o la URL base.",
     );
   }
 
-  if (httpMode === "auto" && !looksLikeWOkada) {
+  if (httpMode === "vcclient2" && !looksLikeV2) {
     warn(
-      "VCCLIENT000_HTTP_ENDPOINT no termina en /test y VCCLIENT000_HTTP_MODE está en auto; se tratará como endpoint Shape JSON. Para VCClient oficial usa VCCLIENT000_HTTP_MODE=w-okada-rest.",
+      "VCCLIENT000_HTTP_MODE=vcclient2 habla POST /api/voice-changer/convert_chunk; normalmente el endpoint es la URL base de VCClient (p.ej. http://127.0.0.1:18000), el path se completa solo.",
+    );
+  }
+
+  if (httpMode === "auto" && !looksLikeV1 && !looksLikeV2) {
+    warn(
+      "VCCLIENT000_HTTP_ENDPOINT no termina en /test ni en /api/voice-changer/convert_chunk y VCCLIENT000_HTTP_MODE está en auto; se tratará como endpoint Shape JSON. Para VCClient v2 (default) usa la URL base con modo auto/vcclient2; para w-okada v1 usa VCCLIENT000_HTTP_MODE=w-okada-rest.",
     );
   }
 }
@@ -1557,7 +1569,7 @@ function buildInprocVoiceReadiness() {
 
   if (!endpoint) {
     issues.push(
-      "VCCLIENT000_HTTP_ENDPOINT no configurado (cliente persistente w-okada /test).",
+      "VCCLIENT000_HTTP_ENDPOINT no configurado (cliente persistente VCClient/w-okada; v2 convert_chunk o v1 /test).",
     );
   } else if (!validHttpUrl(endpoint)) {
     issues.push(`VCCLIENT000_HTTP_ENDPOINT inválido: ${endpoint}.`);
@@ -1825,7 +1837,7 @@ function appendVcClientReadiness(issues, warnings) {
     return;
   }
 
-  if (!["auto", "w-okada-rest", "shape-json"].includes(httpMode)) {
+  if (!["auto", "vcclient2", "w-okada-rest", "shape-json"].includes(httpMode)) {
     issues.push(`VCCLIENT000_HTTP_MODE no soportado: ${httpMode}.`);
   }
 
@@ -1838,6 +1850,15 @@ function appendVcClientReadiness(issues, warnings) {
   const path = parsed?.pathname.replace(/\/+$/, "") ?? "";
   if (httpMode === "w-okada-rest" && path && path !== "/test") {
     warnings.push("vcclient000 w-okada-rest normalmente debe apuntar a /test.");
+  }
+  if (
+    httpMode === "vcclient2" &&
+    path &&
+    path !== "/api/voice-changer/convert_chunk"
+  ) {
+    warnings.push(
+      "vcclient000 vcclient2 normalmente debe apuntar a /api/voice-changer/convert_chunk (o la URL base).",
+    );
   }
 }
 
