@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -18,7 +19,7 @@ const preferBundled = args.includes("--prefer-bundled");
 const workstationProfile = normalizeWorkstationProfile(
   argValue("--profile") ??
     process.env.SHAPE_MODEL_WORKSTATION_PROFILE ??
-    "manual",
+    defaultWorkstationProfile(),
 );
 const workstationDefaults = workstationProfileDefaults(workstationProfile);
 const processorHost =
@@ -258,7 +259,7 @@ function resolveModelEnv() {
   const passthroughValue =
     argValue("--wrapper-passthrough") ??
     process.env.SHAPE_WRAPPER_PASSTHROUGH ??
-    (passthrough ? "true" : workstationDefaults.wrapperPassthrough);
+    defaultWrapperPassthrough();
   if (passthroughValue) {
     values.SHAPE_WRAPPER_PASSTHROUGH = passthroughValue;
   }
@@ -267,6 +268,12 @@ function resolveModelEnv() {
   }
 
   return values;
+}
+
+function defaultWrapperPassthrough() {
+  if (passthrough) return "true";
+  if (["local-endpoints", "endpoints"].includes(preset)) return "false";
+  return workstationDefaults.wrapperPassthrough;
 }
 
 function normalizeWorkstationProfile(value) {
@@ -288,6 +295,32 @@ function normalizeWorkstationProfile(value) {
   fail(
     `Perfil de workstation no soportado: ${value}. Usa manual, windows-nvidia o apple-silicon.`,
   );
+}
+
+function defaultWorkstationProfile() {
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return "apple-silicon";
+  }
+  if (hasNvidiaRuntime()) return "windows-nvidia";
+  return "manual";
+}
+
+function hasNvidiaRuntime() {
+  try {
+    const result = spawnSync(
+      "nvidia-smi",
+      ["--query-gpu=name", "--format=csv,noheader"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        timeout: 2000,
+        windowsHide: true,
+      },
+    );
+    return result.status === 0 && Boolean((result.stdout ?? "").trim());
+  } catch {
+    return false;
+  }
 }
 
 function workstationProfileDefaults(profile) {

@@ -238,7 +238,7 @@ function inspectRealModels() {
   if (!envPath || !existsSync(resolve(repoRoot, envPath))) {
     issues.push("No hay runtime env para validar modelos reales.");
     nextSteps.push(
-      "Genera runtime real con `pnpm models:runtime -- --profile windows-nvidia --preset local-endpoints`.",
+      `Genera runtime real con \`${runtimeCommandForCurrentMachine("local-endpoints")}\`.`,
     );
   }
 
@@ -703,6 +703,36 @@ function remoteDemoCommandTimeout() {
   const checks = 10 + (remoteApiFlow ? 4 : 0) + (remoteIdentityFlow ? 8 : 0);
   const fallback = perCheckTimeout * checks + 15_000;
   return positiveInteger(remoteCommandTimeoutMs, fallback);
+}
+
+function runtimeCommandForCurrentMachine(preset) {
+  return `pnpm models:runtime -- --profile ${recommendedRuntimeProfile()} --preset ${preset}`;
+}
+
+function recommendedRuntimeProfile() {
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return "apple-silicon";
+  }
+  if (hasNvidiaRuntime()) return "windows-nvidia";
+  return "windows-nvidia";
+}
+
+function hasNvidiaRuntime() {
+  try {
+    const result = spawnSync(
+      "nvidia-smi",
+      ["--query-gpu=name", "--format=csv,noheader"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        timeout: 2000,
+        windowsHide: true,
+      },
+    );
+    return result.status === 0 && Boolean((result.stdout ?? "").trim());
+  } catch {
+    return false;
+  }
 }
 
 function trimOutput(value) {

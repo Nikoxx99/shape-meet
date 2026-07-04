@@ -22,6 +22,8 @@ const processorScript = fileURLToPath(
   ),
 );
 const processorCommand = `${JSON.stringify(python)} ${JSON.stringify(processorScript)}`;
+const runtimeGenerationEnv = { ...process.env };
+delete runtimeGenerationEnv.SHAPE_MODEL_WORKSTATION_PROFILE;
 
 let sidecar = null;
 let stdout = "";
@@ -30,6 +32,11 @@ let stderr = "";
 try {
   renderRuntimeEnv();
   const runtimeEnv = readRuntimeEnv(runtimeEnvPath);
+  assert(
+    runtimeEnv.SHAPE_MODEL_WORKSTATION_PROFILE ===
+      expectedAutomaticWorkstationProfile(),
+    "model runtime env did not auto-detect workstation profile",
+  );
   assertWindowsNvidiaProfileRuntimeEnv();
 
   assert(
@@ -208,7 +215,7 @@ function renderRuntimeEnv() {
     {
       cwd: process.cwd(),
       encoding: "utf8",
-      env: process.env,
+      env: runtimeGenerationEnv,
     },
   );
 
@@ -237,7 +244,7 @@ function assertWindowsNvidiaProfileRuntimeEnv() {
     {
       cwd: process.cwd(),
       encoding: "utf8",
-      env: process.env,
+      env: runtimeGenerationEnv,
     },
   );
 
@@ -280,6 +287,32 @@ function assertWindowsNvidiaProfileRuntimeEnv() {
       env.VCCLIENT000_HTTP_MODE === "w-okada-rest",
     "windows-nvidia profile did not set vcclient000 REST endpoint",
   );
+}
+
+function expectedAutomaticWorkstationProfile() {
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return "apple-silicon";
+  }
+  if (hasNvidiaRuntime()) return "windows-nvidia";
+  return "manual";
+}
+
+function hasNvidiaRuntime() {
+  try {
+    const result = spawnSync(
+      "nvidia-smi",
+      ["--query-gpu=name", "--format=csv,noheader"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        timeout: 2000,
+        windowsHide: true,
+      },
+    );
+    return result.status === 0 && Boolean((result.stdout ?? "").trim());
+  } catch {
+    return false;
+  }
 }
 
 function readRuntimeEnv(path) {

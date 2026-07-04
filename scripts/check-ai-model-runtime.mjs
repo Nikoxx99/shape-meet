@@ -23,7 +23,9 @@ const env = {
   ...process.env,
 };
 const workstationProfile = normalizeWorkstationProfile(
-  argValue("--profile") ?? env.SHAPE_MODEL_WORKSTATION_PROFILE ?? "manual",
+  argValue("--profile") ??
+    env.SHAPE_MODEL_WORKSTATION_PROFILE ??
+    defaultWorkstationProfile(),
 );
 const checks = [];
 const warnings = [];
@@ -358,7 +360,7 @@ function checkFaceFusionWrapper() {
         : "FACEFUSION_DIR no configurado para el wrapper FaceFusion.",
     );
     nextStep(
-      "Configura FACEFUSION_DIR y FACEFUSION_PYTHON o usa `pnpm models:runtime -- --profile windows-nvidia --preset local-wrappers`.",
+      `Configura FACEFUSION_DIR y FACEFUSION_PYTHON o usa \`${runtimeCommandForProfile(workstationProfile)}\`.`,
     );
   } else if (!existsSync(facefusionDir)) {
     if (wrapperPassthroughEnabled()) {
@@ -1254,8 +1256,40 @@ function normalizeWorkstationProfile(value) {
   return "manual";
 }
 
+function defaultWorkstationProfile() {
+  if (platform() === "darwin" && process.arch === "arm64") {
+    return "apple-silicon";
+  }
+  if (hasNvidiaRuntime()) return "windows-nvidia";
+  return "manual";
+}
+
+function hasNvidiaRuntime() {
+  try {
+    const result = spawnSync(
+      "nvidia-smi",
+      ["--query-gpu=name", "--format=csv,noheader"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        timeout: 2000,
+        windowsHide: true,
+      },
+    );
+    return result.status === 0 && Boolean((result.stdout ?? "").trim());
+  } catch {
+    return false;
+  }
+}
+
 function runtimeCommandForProfile(profile) {
-  const selected = profile === "manual" ? "windows-nvidia" : profile;
+  const detected = defaultWorkstationProfile();
+  const selected =
+    profile === "manual"
+      ? detected === "manual"
+        ? "windows-nvidia"
+        : detected
+      : profile;
   return `pnpm models:runtime -- --profile ${selected} --preset local-wrappers`;
 }
 
