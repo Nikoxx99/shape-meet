@@ -19,6 +19,7 @@ const HTTP_TIMEOUT_MS: u64 = 1200;
 const ARTIFACT_DOWNLOAD_TIMEOUT_SECS: u64 = 900;
 const AI_SIDECAR_BINARY_NAME: &str = "shape-ai-sidecar";
 const AI_PROCESSOR_BINARY_NAME: &str = "shape-ai-processor";
+const AI_MODEL_ENDPOINT_BINARY_NAME: &str = "shape-model-endpoint";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -113,7 +114,18 @@ struct SidecarState {
 }
 
 #[derive(Default)]
+struct ModelEndpointState {
+    supervisor: Mutex<ModelEndpointSupervisor>,
+}
+
+#[derive(Default)]
 struct SidecarSupervisor {
+    child: Option<Child>,
+    last_exit: Option<String>,
+}
+
+#[derive(Default)]
+struct ModelEndpointSupervisor {
     child: Option<Child>,
     last_exit: Option<String>,
 }
@@ -304,6 +316,36 @@ fn stop_ai_sidecar(state: State<'_, SidecarState>) -> Result<AiSidecarRuntime, S
 }
 
 #[tauri::command]
+fn get_model_endpoint_runtime(state: State<'_, ModelEndpointState>) -> AiSidecarRuntime {
+    let mut supervisor = state
+        .supervisor
+        .lock()
+        .expect("model endpoint supervisor lock poisoned");
+    supervisor.runtime_status()
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct StartModelEndpointInput {
+    passthrough: Option<bool>,
+}
+
+#[tauri::command]
+fn start_model_endpoint(
+    state: State<'_, ModelEndpointState>,
+    input: Option<StartModelEndpointInput>,
+) -> Result<AiSidecarRuntime, String> {
+    let mut supervisor = state.supervisor.lock().map_err(|error| error.to_string())?;
+    supervisor.start(input.unwrap_or_default())
+}
+
+#[tauri::command]
+fn stop_model_endpoint(state: State<'_, ModelEndpointState>) -> Result<AiSidecarRuntime, String> {
+    let mut supervisor = state.supervisor.lock().map_err(|error| error.to_string())?;
+    supervisor.stop()
+}
+
+#[tauri::command]
 fn get_ai_runtime_env() -> Result<AiRuntimeEnvFile, String> {
     read_ai_runtime_env_file()
 }
@@ -426,6 +468,7 @@ pub fn run() {
 
     builder
         .manage(SidecarState::default())
+        .manage(ModelEndpointState::default())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_log::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
@@ -437,6 +480,9 @@ pub fn run() {
             get_ai_sidecar_runtime,
             start_ai_sidecar,
             stop_ai_sidecar,
+            get_model_endpoint_runtime,
+            start_model_endpoint,
+            stop_model_endpoint,
             get_ai_runtime_env,
             doctor_ai_runtime_env,
             save_ai_runtime_env,
@@ -1000,6 +1046,151 @@ impl SidecarSupervisor {
             Err(error) => {
                 self.last_exit = Some(format!("error consultando sidecar: {error}"));
                 let _ = append_sidecar_log(&format!("managed sidecar status error: {error}"));
+                self.child = None;
+            }
+        }
+    }
+}
+
+impl ModelEndpointSupervisor {
+    fn runtime_status(&mut self) -> AiSidecarRuntime {
+        self.reap_finished_child();
+
+        if let Some(child) = self.child.as_mut() {
+            return AiSidecarRuntime {
+                endpoint: model_endpoint_url(),
+                managed: true,
+                running: true,
+                pid: Some(child.id()),
+                command: Some(model_endpoint_command_description()),
+                log_path: model_endpoint_log_path().display().to_string(),
+                message: "Servidor de endpoints IA gestionado por Shape Meet.".to_string(),
+                last_exit: self.last_exit.clone(),
+            };
+        }
+
+        let online = model_endpoint_online();
+        AiSidecarRuntime {
+            endpoint: model_endpoint_url(),
+            managed: false,
+            running: online,
+            pid: None,
+            command: Some(model_endpoint_command_description()),
+            log_path: model_endpoint_log_path().display().to_string(),
+            message: if online {
+                "Servidor de endpoints IA externo detectado.".to_string()
+            } else {
+                "Servidor de endpoints IA detenido.".to_string()
+            },
+            last_exit: self.last_exit.clone(),
+        }
+    }
+
+    fn start(&mut self, input: StartModelEndpointInput) -> Result<AiSidecarRuntime, String> {
+        self.reap_finished_child();
+
+        if self.child.is_some() {
+            return Ok(self.runtime_status());
+        }
+
+        if model_endpoint_online() {
+            return Ok(AiSidecarRuntime {
+                endpoint: model_endpoint_url(),
+                managed: false,
+                running: true,
+                pid: None,
+                command: Some(model_endpoint_command_description()),
+                log_path: model_endpoint_log_path().display().to_string(),
+                message: "Servidor de endpoints IA externo ya está activo.".to_string(),
+                last_exit: self.last_exit.clone(),
+            });
+        }
+
+        let log_path = model_endpoint_log_path();
+        if let Some(parent) = log_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        append_model_endpoint_log("starting model endpoint server")?;
+
+        let (program, args, description) = model_endpoint_command()?;
+        let mut runtime_env = load_ai_runtime_env()?;
+        if input.passthrough.unwrap_or(false) {
+            upsert_env_value(&mut runtime_env, "SHAPE_MODEL_ENDPOINT_PASSTHROUGH", "true");
+        }
+        if !runtime_env.is_empty() {
+            append_model_endpoint_log(&format!(
+                "loading model endpoint env keys: {}",
+                runtime_env
+                    .iter()
+                    .map(|(key, _)| key.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))?;
+        }
+
+        let stdout_log = open_model_endpoint_log_file()?;
+        let stderr_log = stdout_log.try_clone().map_err(|error| error.to_string())?;
+        let mut command = Command::new(&program);
+        command
+            .args(&args)
+            .envs(runtime_env.iter().map(|(key, value)| (key, value)))
+            .stdout(Stdio::from(stdout_log))
+            .stderr(Stdio::from(stderr_log))
+            .stdin(Stdio::null());
+        let child = command.spawn().map_err(|error| {
+            format!("No se pudo iniciar servidor de endpoints IA con {description}: {error}")
+        })?;
+
+        self.child = Some(child);
+        self.last_exit = None;
+
+        for _ in 0..12 {
+            thread::sleep(Duration::from_millis(250));
+            self.reap_finished_child();
+            if model_endpoint_online() || self.child.is_none() {
+                break;
+            }
+        }
+
+        Ok(self.runtime_status())
+    }
+
+    fn stop(&mut self) -> Result<AiSidecarRuntime, String> {
+        self.reap_finished_child();
+
+        if let Some(mut child) = self.child.take() {
+            let pid = child.id();
+            child.kill().map_err(|error| error.to_string())?;
+            let status = child.wait().map_err(|error| error.to_string())?;
+            self.last_exit = Some(format!("pid {pid} detenido: {status}"));
+            append_model_endpoint_log(&format!(
+                "stopped managed model endpoint pid {pid}: {status}"
+            ))?;
+        }
+
+        Ok(self.runtime_status())
+    }
+
+    fn reap_finished_child(&mut self) {
+        let Some(child) = self.child.as_mut() else {
+            return;
+        };
+
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let pid = child.id();
+                self.last_exit = Some(format!("pid {pid} finalizó: {status}"));
+                let _ = append_model_endpoint_log(&format!(
+                    "managed model endpoint pid {pid} exited: {status}"
+                ));
+                self.child = None;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                self.last_exit = Some(format!("error consultando endpoint IA: {error}"));
+                let _ = append_model_endpoint_log(&format!(
+                    "managed model endpoint status error: {error}"
+                ));
                 self.child = None;
             }
         }
@@ -1905,6 +2096,18 @@ fn load_ai_runtime_env() -> Result<Vec<(String, String)>, String> {
     Ok(parsed.values)
 }
 
+fn upsert_env_value(values: &mut Vec<(String, String)>, key: &str, value: &str) {
+    if let Some((_, current_value)) = values
+        .iter_mut()
+        .find(|(current_key, _)| current_key == key)
+    {
+        *current_value = value.to_string();
+        return;
+    }
+
+    values.push((key.to_string(), value.to_string()));
+}
+
 struct ParsedAiRuntimeEnv {
     values: Vec<(String, String)>,
     keys: Vec<String>,
@@ -2593,6 +2796,16 @@ fn bundled_processor_binary_path() -> Option<PathBuf> {
     None
 }
 
+fn bundled_model_endpoint_binary_path() -> Option<PathBuf> {
+    for dir in bundled_binary_search_dirs() {
+        if let Some(path) = find_model_endpoint_binary_in(&dir) {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
 fn bundled_binary_search_dirs() -> Vec<PathBuf> {
     let mut search_dirs = Vec::new();
 
@@ -2630,6 +2843,10 @@ fn find_sidecar_binary_in(dir: &Path) -> Option<PathBuf> {
 
 fn find_processor_binary_in(dir: &Path) -> Option<PathBuf> {
     find_named_binary_in(dir, AI_PROCESSOR_BINARY_NAME)
+}
+
+fn find_model_endpoint_binary_in(dir: &Path) -> Option<PathBuf> {
+    find_named_binary_in(dir, AI_MODEL_ENDPOINT_BINARY_NAME)
 }
 
 fn find_named_binary_in(dir: &Path, base_name: &str) -> Option<PathBuf> {
@@ -2706,6 +2923,84 @@ fn processor_script_path() -> Option<PathBuf> {
             .join("ai-sidecar")
             .join("processors")
             .join("shape_processor_command.py");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn model_endpoint_command() -> Result<(String, Vec<String>, String), String> {
+    let (host, port) = model_endpoint_host_port();
+
+    if let Some(command) = env_non_empty("SHAPE_MODEL_ENDPOINT_COMMAND") {
+        let (program, args) = shell_command(command.clone());
+        return Ok((program, args, command));
+    }
+
+    if let Some(binary) = env_non_empty("SHAPE_MODEL_ENDPOINT_BIN") {
+        let args = vec![
+            "--host".to_string(),
+            host,
+            "--port".to_string(),
+            port.to_string(),
+        ];
+        return Ok((binary.clone(), args, binary));
+    }
+
+    if let Some(binary) = bundled_model_endpoint_binary_path() {
+        let args = vec![
+            "--host".to_string(),
+            host,
+            "--port".to_string(),
+            port.to_string(),
+        ];
+        let description = binary.display().to_string();
+        return Ok((description.clone(), args, description));
+    }
+
+    let script = model_endpoint_script_path().ok_or_else(|| {
+        "No se encontró servidor de endpoints IA. Ejecuta pnpm build:ai-sidecar o define SHAPE_MODEL_ENDPOINT_COMMAND/SHAPE_MODEL_ENDPOINT_BIN/SHAPE_MODEL_ENDPOINT_SCRIPT.".to_string()
+    })?;
+    let python = env_non_empty("SHAPE_MODEL_ENDPOINT_PYTHON")
+        .or_else(|| env_non_empty("SHAPE_AI_PYTHON"))
+        .unwrap_or_else(default_python_command);
+    let args = vec![
+        script.display().to_string(),
+        "--host".to_string(),
+        host,
+        "--port".to_string(),
+        port.to_string(),
+    ];
+
+    Ok((
+        python.clone(),
+        args,
+        format!("{python} {}", script.display()),
+    ))
+}
+
+fn model_endpoint_command_description() -> String {
+    model_endpoint_command()
+        .map(|(_, _, description)| description)
+        .unwrap_or_else(|error| error)
+}
+
+fn model_endpoint_script_path() -> Option<PathBuf> {
+    if let Some(path) = env_non_empty("SHAPE_MODEL_ENDPOINT_SCRIPT").map(PathBuf::from) {
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    let current_dir = env::current_dir().ok()?;
+    for ancestor in current_dir.ancestors() {
+        let candidate = ancestor
+            .join("apps")
+            .join("ai-sidecar")
+            .join("processors")
+            .join("shape_model_endpoint_server.py");
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -2840,6 +3135,64 @@ fn sidecar_host_port() -> (String, u16) {
         .unwrap_or_else(|_| ("127.0.0.1".to_string(), 7851))
 }
 
+fn model_endpoint_url() -> String {
+    let (host, port) = model_endpoint_host_port();
+    format!("http://{host}:{port}")
+}
+
+fn model_endpoint_health_url() -> String {
+    format!("{}/health", model_endpoint_url().trim_end_matches('/'))
+}
+
+fn model_endpoint_online() -> bool {
+    read_http_json(&model_endpoint_health_url())
+        .ok()
+        .and_then(|value| {
+            value
+                .get("status")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .map(|status| status == "ready")
+        .unwrap_or(false)
+}
+
+fn model_endpoint_host_port() -> (String, u16) {
+    let runtime_env = load_ai_runtime_env().unwrap_or_default();
+
+    if let (Some(host), Some(port)) = (
+        env_lookup(&runtime_env, "SHAPE_MODEL_ENDPOINT_HOST"),
+        env_lookup(&runtime_env, "SHAPE_MODEL_ENDPOINT_PORT"),
+    ) {
+        if let Ok(port) = port.parse::<u16>() {
+            return (host.to_string(), port);
+        }
+    }
+
+    for key in [
+        "SHAPE_FACE_ENDPOINT",
+        "SHAPE_BACKGROUND_ENDPOINT",
+        "SHAPE_VOICE_ENDPOINT",
+    ] {
+        if let Some(url) = env_lookup(&runtime_env, key) {
+            if let Ok((host, port, _)) = parse_http_url(url) {
+                return (host, port);
+            }
+        }
+    }
+
+    if let (Some(host), Some(port)) = (
+        env_non_empty("SHAPE_MODEL_ENDPOINT_HOST"),
+        env_non_empty("SHAPE_MODEL_ENDPOINT_PORT"),
+    ) {
+        if let Ok(port) = port.parse::<u16>() {
+            return (host, port);
+        }
+    }
+
+    ("127.0.0.1".to_string(), 9100)
+}
+
 fn sidecar_script_path() -> Option<PathBuf> {
     if let Some(path) = env_non_empty("SHAPE_AI_SIDECAR_SCRIPT").map(PathBuf::from) {
         if path.exists() {
@@ -2883,6 +3236,12 @@ fn sidecar_log_path() -> PathBuf {
         .join("ai-sidecar.log")
 }
 
+fn model_endpoint_log_path() -> PathBuf {
+    env::temp_dir()
+        .join("shape-meet-debug")
+        .join("model-endpoint.log")
+}
+
 fn open_sidecar_log_file() -> Result<File, String> {
     OpenOptions::new()
         .create(true)
@@ -2891,8 +3250,22 @@ fn open_sidecar_log_file() -> Result<File, String> {
         .map_err(|error| error.to_string())
 }
 
+fn open_model_endpoint_log_file() -> Result<File, String> {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(model_endpoint_log_path())
+        .map_err(|error| error.to_string())
+}
+
 fn append_sidecar_log(message: &str) -> Result<(), String> {
     let mut file = open_sidecar_log_file()?;
+    let timestamp = utc_timestamp().unwrap_or_else(|_| "unknown-time".to_string());
+    writeln!(file, "[{timestamp}] {message}").map_err(|error| error.to_string())
+}
+
+fn append_model_endpoint_log(message: &str) -> Result<(), String> {
+    let mut file = open_model_endpoint_log_file()?;
     let timestamp = utc_timestamp().unwrap_or_else(|_| "unknown-time".to_string());
     writeln!(file, "[{timestamp}] {message}").map_err(|error| error.to_string())
 }

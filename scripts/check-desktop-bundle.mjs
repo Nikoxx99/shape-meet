@@ -46,11 +46,19 @@ function checkMacBundle() {
   requireFile(join(macosDir, "shape-meet"), "app executable");
   requireFile(join(macosDir, "shape-ai-sidecar"), "bundled AI sidecar");
   requireFile(join(macosDir, "shape-ai-processor"), "bundled AI processor");
+  requireFile(
+    join(macosDir, "shape-model-endpoint"),
+    "bundled AI model endpoint",
+  );
   requireExecutable(join(macosDir, "shape-meet"), "app executable");
   requireExecutable(join(macosDir, "shape-ai-sidecar"), "bundled AI sidecar");
   requireExecutable(
     join(macosDir, "shape-ai-processor"),
     "bundled AI processor",
+  );
+  requireExecutable(
+    join(macosDir, "shape-model-endpoint"),
+    "bundled AI model endpoint",
   );
   requireBundledWrapperResources([
     join(appDir, "Contents", "Resources", "resources", "ai-wrappers"),
@@ -74,6 +82,10 @@ function checkWindowsBundle() {
   requireFile(
     join(releaseDir, "shape-ai-processor.exe"),
     "Windows AI processor",
+  );
+  requireFile(
+    join(releaseDir, "shape-model-endpoint.exe"),
+    "Windows AI model endpoint",
   );
   requireBundledWrapperResources([
     join(releaseDir, "resources", "ai-wrappers"),

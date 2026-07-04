@@ -21,6 +21,13 @@ const processorSource = join(
   "processors",
   "shape_processor_command.py",
 );
+const modelEndpointSource = join(
+  repoRoot,
+  "apps",
+  "ai-sidecar",
+  "processors",
+  "shape_model_endpoint_server.py",
+);
 const requirementsFile = join(
   repoRoot,
   "apps",
@@ -43,10 +50,13 @@ const venvDir = join(outputDir, "venv");
 const targetTriple = process.env.TAURI_TARGET_TRIPLE || readRustHostTriple();
 const binaryBaseName = "shape-ai-sidecar";
 const processorBaseName = "shape-ai-processor";
+const modelEndpointBaseName = "shape-model-endpoint";
 const targetBinaryName = `${binaryBaseName}-${targetTriple}${process.platform === "win32" ? ".exe" : ""}`;
 const targetProcessorName = `${processorBaseName}-${targetTriple}${process.platform === "win32" ? ".exe" : ""}`;
+const targetModelEndpointName = `${modelEndpointBaseName}-${targetTriple}${process.platform === "win32" ? ".exe" : ""}`;
 const targetBinaryPath = join(binariesDir, targetBinaryName);
 const targetProcessorPath = join(binariesDir, targetProcessorName);
+const targetModelEndpointPath = join(binariesDir, targetModelEndpointName);
 const configPath = join(desktopTauriDir, "tauri.sidecar.conf.json");
 const desktopRuntimeConfigSource =
   process.env.SHAPE_DESKTOP_RUNTIME_CONFIG_FILE ||
@@ -55,6 +65,7 @@ const desktopRuntimeConfigSource =
 
 ensureFile(sidecarSource);
 ensureFile(processorSource);
+ensureFile(modelEndpointSource);
 ensureFile(requirementsFile);
 for (const file of wrapperFiles) ensureFile(join(wrappersSourceDir, file));
 mkdirSync(binariesDir, { recursive: true });
@@ -77,12 +88,20 @@ buildPyInstallerBinary(
   targetProcessorPath,
   "construir procesador IA PyInstaller",
 );
+buildPyInstallerBinary(
+  python,
+  modelEndpointSource,
+  targetModelEndpointName,
+  targetModelEndpointPath,
+  "construir endpoint IA PyInstaller",
+);
 copyWrapperResources();
 prepareDesktopRuntimeConfigResource();
 writeTauriSidecarConfig();
 
 console.log(`AI sidecar listo: ${targetBinaryPath}`);
 console.log(`AI processor listo: ${targetProcessorPath}`);
+console.log(`AI model endpoint listo: ${targetModelEndpointPath}`);
 console.log(`Runtime desktop embebido: ${desktopRuntimeConfigResource}`);
 console.log(`Config Tauri temporal: ${configPath}`);
 
@@ -152,6 +171,7 @@ function writeTauriSidecarConfig() {
       externalBin: [
         `binaries/${binaryBaseName}`,
         `binaries/${processorBaseName}`,
+        `binaries/${modelEndpointBaseName}`,
       ],
       resources: ["resources/ai-wrappers", "resources/shape-meet.env"],
     },

@@ -102,12 +102,15 @@ import {
   getCachedDesktopRuntimeConfig,
   getDesktopRuntimeConfig,
   getGpuProfile,
+  getModelEndpointRuntime,
   getObservabilityStatus,
   prepareDemoAiRuntimeEnv,
   prepareModelAiRuntimeEnv,
   saveAiRuntimeEnv,
   startAiSidecar,
+  startModelEndpoint,
   stopAiSidecar,
+  stopModelEndpoint,
   type NativeAiRuntimeDoctorReport,
   type NativeAiRuntimeEnvFile,
   type NativeAiSidecarRuntime,
@@ -695,6 +698,32 @@ function modelRuntimeInputFromContent(
     processorTimeoutSecs:
       envContentValue(content, "SHAPE_PROCESSOR_TIMEOUT_SECS") ?? "",
   };
+}
+
+function runtimeContentUsesLocalEndpoints(content: string) {
+  return (
+    envContentValue(content, "SHAPE_MODEL_RUNTIME_PRESET") ===
+      "local-endpoints" ||
+    Boolean(
+      envContentValue(content, "SHAPE_FACE_ENDPOINT") ||
+      envContentValue(content, "SHAPE_BACKGROUND_ENDPOINT") ||
+      envContentValue(content, "SHAPE_VOICE_ENDPOINT"),
+    )
+  );
+}
+
+async function ensureModelEndpointRuntimeForEnv(
+  envFile: NativeAiRuntimeEnvFile | null,
+  passthrough = true,
+) {
+  if (!envFile?.exists || !runtimeContentUsesLocalEndpoints(envFile.content)) {
+    return null;
+  }
+
+  const currentRuntime = await getModelEndpointRuntime();
+  if (currentRuntime.running) return currentRuntime;
+
+  return startModelEndpoint({ passthrough });
 }
 
 function normalizeModelRuntimeInput(
@@ -1286,6 +1315,8 @@ export default function App() {
     useState<NativeAiServiceStatus | null>(null);
   const [aiSidecarRuntime, setAiSidecarRuntime] =
     useState<NativeAiSidecarRuntime | null>(null);
+  const [modelEndpointRuntime, setModelEndpointRuntime] =
+    useState<NativeAiSidecarRuntime | null>(null);
   const [observabilityStatus, setObservabilityStatus] =
     useState<NativeObservabilityStatus | null>(null);
   const [hostPreflight, setHostPreflight] = useState<AiPreflightResult | null>(
@@ -1319,6 +1350,7 @@ export default function App() {
     void getGpuProfile().then(setGpuProfile);
     void getAiServiceStatus().then(setAiServiceStatus);
     void getAiSidecarRuntime().then(setAiSidecarRuntime);
+    void getModelEndpointRuntime().then(setModelEndpointRuntime);
     void getObservabilityStatus().then(setObservabilityStatus);
   }, []);
 
@@ -1506,12 +1538,14 @@ export default function App() {
   }
 
   async function refreshAiRuntime() {
-    const [service, runtime] = await Promise.all([
+    const [service, runtime, endpointRuntime] = await Promise.all([
       getAiServiceStatus(),
       getAiSidecarRuntime(),
+      getModelEndpointRuntime(),
     ]);
     setAiServiceStatus(service);
     setAiSidecarRuntime(runtime);
+    setModelEndpointRuntime(endpointRuntime);
   }
 
   async function handleStartAiSidecar() {
@@ -1528,21 +1562,62 @@ export default function App() {
     setDebugMessage(runtime.message);
   }
 
+  async function handleStartModelEndpoint(passthrough?: boolean) {
+    const runtime = await startModelEndpoint({ passthrough });
+    setModelEndpointRuntime(runtime);
+    await refreshAiRuntime();
+    setDebugMessage(runtime.message);
+  }
+
+  async function handleStopModelEndpoint() {
+    const runtime = await stopModelEndpoint();
+    setModelEndpointRuntime(runtime);
+    await refreshAiRuntime();
+    setDebugMessage(runtime.message);
+  }
+
   async function ensureHostAiRuntimeForPreflight() {
     const currentRuntime = await getAiSidecarRuntime();
     setAiSidecarRuntime(currentRuntime);
 
+    let runtimeEnv = await getAiRuntimeEnv().catch(() => null);
+
     if (currentRuntime.running) {
+      const endpointRuntime = await ensureModelEndpointRuntimeForEnv(
+        runtimeEnv,
+        true,
+      );
+      if (endpointRuntime) {
+        setModelEndpointRuntime(endpointRuntime);
+        if (!endpointRuntime.running) {
+          throw new Error(
+            endpointRuntime.message || "No se pudo iniciar endpoints IA.",
+          );
+        }
+      }
       await refreshAiRuntime();
       return currentRuntime;
     }
 
-    const runtimeEnv = await getAiRuntimeEnv().catch(() => null);
     if (runtimeEnv && !runtimeEnv.exists) {
       const prepared = await prepareDemoAiRuntimeEnv();
+      runtimeEnv = prepared;
       if (!prepared.exists) {
         throw new Error(
           prepared.warnings[0] ?? "No se pudo preparar runtime IA demo.",
+        );
+      }
+    }
+
+    const endpointRuntime = await ensureModelEndpointRuntimeForEnv(
+      runtimeEnv,
+      true,
+    );
+    if (endpointRuntime) {
+      setModelEndpointRuntime(endpointRuntime);
+      if (!endpointRuntime.running) {
+        throw new Error(
+          endpointRuntime.message || "No se pudo iniciar endpoints IA.",
         );
       }
     }
@@ -2368,6 +2443,7 @@ export default function App() {
         <AiRuntimeScreen
           aiServiceStatus={aiServiceStatus}
           aiSidecarRuntime={aiSidecarRuntime}
+          modelEndpointRuntime={modelEndpointRuntime}
           backgroundCalibration={backgroundCalibration}
           backgroundEnabled={backgroundEnabled}
           cameraEnabled={cameraEnabled}
@@ -2385,6 +2461,8 @@ export default function App() {
           onRefresh={refreshAiRuntime}
           onStartSidecar={handleStartAiSidecar}
           onStopSidecar={handleStopAiSidecar}
+          onStartModelEndpoint={handleStartModelEndpoint}
+          onStopModelEndpoint={handleStopModelEndpoint}
         />
       )}
       {route === "background-calibration" && (
@@ -3497,6 +3575,7 @@ function HostSettingsScreen({
 function AiRuntimeScreen({
   aiServiceStatus,
   aiSidecarRuntime,
+  modelEndpointRuntime,
   backgroundCalibration,
   backgroundEnabled,
   cameraEnabled,
@@ -3513,10 +3592,13 @@ function AiRuntimeScreen({
   onNativeDebugEvent,
   onRefresh,
   onStartSidecar,
+  onStartModelEndpoint,
   onStopSidecar,
+  onStopModelEndpoint,
 }: {
   aiServiceStatus: NativeAiServiceStatus | null;
   aiSidecarRuntime: NativeAiSidecarRuntime | null;
+  modelEndpointRuntime: NativeAiSidecarRuntime | null;
   backgroundCalibration: BackgroundCalibration | null;
   backgroundEnabled: boolean;
   cameraEnabled: boolean;
@@ -3533,7 +3615,9 @@ function AiRuntimeScreen({
   onNativeDebugEvent: () => Promise<void> | void;
   onRefresh: () => Promise<void> | void;
   onStartSidecar: () => Promise<void> | void;
+  onStartModelEndpoint: (passthrough?: boolean) => Promise<void> | void;
   onStopSidecar: () => Promise<void> | void;
+  onStopModelEndpoint: () => Promise<void> | void;
 }) {
   const [envFile, setEnvFile] = useState<NativeAiRuntimeEnvFile | null>(null);
   const [content, setContent] = useState("");
@@ -3666,10 +3750,7 @@ function AiRuntimeScreen({
       const normalized = normalizeModelRuntimeInput({
         ...modelRuntimeInput,
         runtimePreset,
-        wrapperPassthrough:
-          runtimePreset === "local-endpoints"
-            ? false
-            : modelRuntimeInput.wrapperPassthrough,
+        wrapperPassthrough: modelRuntimeInput.wrapperPassthrough,
       });
       const prepared = await prepareModelAiRuntimeEnv(normalized);
       setEnvFile(prepared);
@@ -3678,6 +3759,11 @@ function AiRuntimeScreen({
       if (!prepared.exists) {
         await onRefresh();
         return;
+      }
+      if (runtimePreset === "local-endpoints") {
+        await startModelEndpoint({
+          passthrough: modelRuntimeInput.wrapperPassthrough,
+        });
       }
       await onStopSidecar();
       await onStartSidecar();
@@ -3720,6 +3806,18 @@ function AiRuntimeScreen({
   async function handleStop() {
     setRuntimeMessage(null);
     await onStopSidecar();
+    await loadRuntimeState();
+  }
+
+  async function handleStartEndpoint() {
+    setRuntimeMessage(null);
+    await onStartModelEndpoint(modelRuntimeInput.wrapperPassthrough);
+    await loadRuntimeState();
+  }
+
+  async function handleStopEndpoint() {
+    setRuntimeMessage(null);
+    await onStopModelEndpoint();
     await loadRuntimeState();
   }
 
@@ -3782,6 +3880,15 @@ function AiRuntimeScreen({
               tone={serviceTone(aiSidecarRuntime?.running)}
             />
             <StatusRow
+              label="Endpoints"
+              value={modelEndpointRuntime?.running ? "Activo" : "Detenido"}
+              tone={serviceTone(modelEndpointRuntime?.running)}
+            />
+            <DetailRow
+              label="Endpoint IA"
+              value={modelEndpointRuntime?.endpoint ?? "http://127.0.0.1:9100"}
+            />
+            <StatusRow
               label="Servicio"
               value={
                 aiServiceStatus
@@ -3814,10 +3921,6 @@ function AiRuntimeScreen({
                 setModelRuntimeInput((current) => ({
                   ...current,
                   runtimePreset: value,
-                  wrapperPassthrough:
-                    value === "local-endpoints"
-                      ? false
-                      : current.wrapperPassthrough,
                 }))
               }
             />
@@ -4096,7 +4199,7 @@ function AiRuntimeScreen({
               onClick={() => void handleStop()}
               disabled={loading}
             >
-              Detener
+              Detener sidecar
             </Button>
             <Button
               variant="outline"
@@ -4104,7 +4207,23 @@ function AiRuntimeScreen({
               onClick={() => void handleStart()}
               disabled={loading}
             >
-              Iniciar
+              Iniciar sidecar
+            </Button>
+            <Button
+              variant="outline"
+              icon={<LogOut />}
+              onClick={() => void handleStopEndpoint()}
+              disabled={loading}
+            >
+              Detener endpoints
+            </Button>
+            <Button
+              variant="outline"
+              icon={<Sparkles />}
+              onClick={() => void handleStartEndpoint()}
+              disabled={loading}
+            >
+              Iniciar endpoints
             </Button>
             <Button
               variant="outline"
@@ -5154,21 +5273,48 @@ function ActiveCallScreen({
     setAiRuntimeStartupMessage("Preparando runtime IA.");
 
     try {
+      let envFile = await getAiRuntimeEnv().catch(() => null);
       const currentRuntime = await getAiSidecarRuntime();
+
       if (currentRuntime.running) {
+        const endpointRuntime = await ensureModelEndpointRuntimeForEnv(
+          envFile,
+          true,
+        );
+        if (endpointRuntime) {
+          setAiRuntimeStartupMessage(endpointRuntime.message);
+          if (!endpointRuntime.running) {
+            throw new Error(
+              endpointRuntime.message || "No se pudo iniciar endpoints IA.",
+            );
+          }
+        }
         setAiRuntimeStartupState("ready");
         setAiRuntimeStartupMessage(currentRuntime.message);
         return currentRuntime;
       }
 
-      const envFile = await getAiRuntimeEnv().catch(() => null);
       if (envFile && !envFile.exists) {
         const prepared = await prepareDemoAiRuntimeEnv();
+        envFile = prepared;
         setAiRuntimeStartupMessage(
           prepared.exists
             ? "Runtime demo preparado."
             : (prepared.warnings[0] ?? "Runtime IA pendiente."),
         );
+      }
+
+      const endpointRuntime = await ensureModelEndpointRuntimeForEnv(
+        envFile,
+        true,
+      );
+      if (endpointRuntime) {
+        setAiRuntimeStartupMessage(endpointRuntime.message);
+        if (!endpointRuntime.running) {
+          throw new Error(
+            endpointRuntime.message || "No se pudo iniciar endpoints IA.",
+          );
+        }
       }
 
       const startedRuntime = await startAiSidecar();

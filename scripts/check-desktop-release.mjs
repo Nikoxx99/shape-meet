@@ -26,6 +26,13 @@ const processorSource = join(
   "processors",
   "shape_processor_command.py",
 );
+const modelEndpointSource = join(
+  repoRoot,
+  "apps",
+  "ai-sidecar",
+  "processors",
+  "shape_model_endpoint_server.py",
+);
 const wrapperSources = [
   "shape_wrapper_common.py",
   "facefusion_frame.py",
@@ -44,6 +51,10 @@ const expectedSidecar = join(
 const expectedProcessor = join(
   binariesDir,
   `shape-ai-processor-${targetTriple}${binarySuffix}`,
+);
+const expectedModelEndpoint = join(
+  binariesDir,
+  `shape-model-endpoint-${targetTriple}${binarySuffix}`,
 );
 
 main();
@@ -67,6 +78,7 @@ function checkRequiredFiles() {
     tauriConfig,
     sidecarSource,
     processorSource,
+    modelEndpointSource,
     join(repoRoot, "apps", "ai-sidecar", "requirements-packaging.txt"),
     ...wrapperSources,
   ]) {
@@ -115,7 +127,14 @@ function checkPythonSyntax() {
   const python = pythonCommand();
   const result = spawnSync(
     python,
-    ["-m", "py_compile", sidecarSource, processorSource, ...wrapperSources],
+    [
+      "-m",
+      "py_compile",
+      sidecarSource,
+      processorSource,
+      modelEndpointSource,
+      ...wrapperSources,
+    ],
     {
       cwd: repoRoot,
       encoding: "utf8",
@@ -169,6 +188,7 @@ function checkSidecarConfig() {
   for (const expected of [
     "binaries/shape-ai-sidecar",
     "binaries/shape-ai-processor",
+    "binaries/shape-model-endpoint",
   ]) {
     if (!externalBin.includes(expected)) {
       fail(`tauri.sidecar.conf.json no incluye ${expected}.`);
@@ -193,7 +213,9 @@ function checkSidecarConfig() {
     resources.includes("resources/ai-wrappers") &&
     resources.includes("resources/shape-meet.env")
   ) {
-    ok("tauri.sidecar.conf.json incluye sidecar, processor y runtime config");
+    ok(
+      "tauri.sidecar.conf.json incluye sidecar, processor, endpoint y runtime config",
+    );
     return;
   }
 }
@@ -248,6 +270,11 @@ function checkDesktopRuntimeConfigResource() {
 function checkBuiltSidecars() {
   checkBuiltBinary(expectedSidecar, sidecarSource, "sidecar");
   checkBuiltBinary(expectedProcessor, processorSource, "processor");
+  checkBuiltBinary(
+    expectedModelEndpoint,
+    modelEndpointSource,
+    "model endpoint",
+  );
 }
 
 function checkBuiltBinary(binaryPath, sourcePath, label) {

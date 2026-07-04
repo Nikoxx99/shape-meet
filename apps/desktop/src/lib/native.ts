@@ -249,6 +249,14 @@ export async function getAiSidecarRuntime(): Promise<NativeAiSidecarRuntime> {
   }
 }
 
+export async function getModelEndpointRuntime(): Promise<NativeAiSidecarRuntime> {
+  try {
+    return await invoke<NativeAiSidecarRuntime>("get_model_endpoint_runtime");
+  } catch {
+    return browserModelEndpointRuntime(false);
+  }
+}
+
 export async function startAiSidecar(): Promise<NativeAiSidecarRuntime> {
   try {
     return await invoke<NativeAiSidecarRuntime>("start_ai_sidecar");
@@ -263,6 +271,21 @@ export async function startAiSidecar(): Promise<NativeAiSidecarRuntime> {
   }
 }
 
+export async function startModelEndpoint(input?: {
+  passthrough?: boolean | null;
+}): Promise<NativeAiSidecarRuntime> {
+  try {
+    return await invoke<NativeAiSidecarRuntime>("start_model_endpoint", {
+      input: input ?? null,
+    });
+  } catch {
+    return {
+      ...browserModelEndpointRuntime(false),
+      message: "Servidor de endpoints disponible solo dentro de Tauri.",
+    };
+  }
+}
+
 export async function stopAiSidecar(): Promise<NativeAiSidecarRuntime> {
   try {
     return await invoke<NativeAiSidecarRuntime>("stop_ai_sidecar");
@@ -273,6 +296,17 @@ export async function stopAiSidecar(): Promise<NativeAiSidecarRuntime> {
       message: service.online
         ? "El navegador no puede detener el sidecar externo."
         : "Disponible solo dentro de Tauri.",
+    };
+  }
+}
+
+export async function stopModelEndpoint(): Promise<NativeAiSidecarRuntime> {
+  try {
+    return await invoke<NativeAiSidecarRuntime>("stop_model_endpoint");
+  } catch {
+    return {
+      ...browserModelEndpointRuntime(false),
+      message: "El navegador no puede detener endpoints locales.",
     };
   }
 }
@@ -602,6 +636,21 @@ function browserSidecarRuntime(
     command: null,
     logPath: "",
     message: service.online ? "Sidecar externo detectado." : service.message,
+    lastExit: null,
+  };
+}
+
+function browserModelEndpointRuntime(running: boolean): NativeAiSidecarRuntime {
+  return {
+    endpoint: "http://127.0.0.1:9100",
+    managed: false,
+    running,
+    pid: null,
+    command: null,
+    logPath: "",
+    message: running
+      ? "Servidor de endpoints externo detectado."
+      : "Endpoints locales disponibles dentro de Tauri.",
     lastExit: null,
   };
 }
