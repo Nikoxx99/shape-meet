@@ -75,6 +75,7 @@ mkdirSync(outputDir, { recursive: true });
 
 const runtimeConfigPath = join(outputDir, "shape-meet.env");
 const scriptPath = join(outputDir, "Build-ShapeMeetWindows.ps1");
+const diagnosticScriptPath = join(outputDir, "Test-ShapeMeetWindows.ps1");
 const readmePath = join(outputDir, "README.md");
 const manifestPath = join(outputDir, "manifest.json");
 const runtimeResult = writeRuntimeConfig(runtimeConfigPath);
@@ -84,6 +85,7 @@ const manifest = {
   outputDir,
   runtimeConfig: runtimeConfigPath,
   buildScript: scriptPath,
+  diagnosticScript: diagnosticScriptPath,
   readme: readmePath,
   manifest: manifestPath,
   config: {
@@ -106,6 +108,7 @@ const manifest = {
 };
 
 writeFileSync(scriptPath, windowsBuildScript());
+writeFileSync(diagnosticScriptPath, windowsDiagnosticScript());
 writeFileSync(readmePath, readme(manifest));
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
@@ -116,6 +119,7 @@ if (json) {
   console.log(`Output: ${outputDir}`);
   console.log(`Runtime config: ${runtimeConfigPath}`);
   console.log(`Build script: ${scriptPath}`);
+  console.log(`Diagnostic script: ${diagnosticScriptPath}`);
   console.log(`Manifest: ${manifestPath}`);
 }
 
@@ -231,6 +235,151 @@ Write-Host "Abre la app, entra a Prueba de equipo y usa Bundle debug / Evento Se
 `;
 }
 
+function windowsDiagnosticScript() {
+  return `param(
+  [string]$RuntimeConfig = (Join-Path $PSScriptRoot "shape-meet.env"),
+  [switch]$InstallRuntimeConfig,
+  [switch]$SkipSentryLive,
+  [switch]$SkipDemoPrepare
+)
+
+$ErrorActionPreference = "Stop"
+
+function Invoke-Step {
+  param(
+    [string]$Name,
+    [scriptblock]$Command
+  )
+  Write-Host ""
+  Write-Host "==> $Name"
+  & $Command
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Name fallo con codigo $LASTEXITCODE."
+  }
+}
+
+function Invoke-OptionalStep {
+  param(
+    [string]$Name,
+    [scriptblock]$Command
+  )
+  Write-Host ""
+  Write-Host "==> $Name"
+  & $Command
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "$Name fallo con codigo $LASTEXITCODE."
+  }
+}
+
+function Assert-Command {
+  param([string]$Name)
+  if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
+    throw "$Name no esta instalado o no esta en PATH."
+  }
+}
+
+function Import-DotEnv {
+  param([string]$Path)
+  if (-not (Test-Path $Path)) {
+    throw "No encontre runtime config: $Path"
+  }
+
+  Get-Content $Path | ForEach-Object {
+    $line = $_.Trim()
+    if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
+      $key, $value = $line.Split("=", 2)
+      $value = $value.Trim()
+      if (
+        ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+        ($value.StartsWith("'") -and $value.EndsWith("'"))
+      ) {
+        $value = $value.Substring(1, $value.Length - 2)
+      }
+      [Environment]::SetEnvironmentVariable($key.Trim(), $value, "Process")
+    }
+  }
+}
+
+function Copy-RuntimeConfig {
+  param([string]$Path)
+  $appData = Join-Path $env:LOCALAPPDATA "Shape Meet"
+  New-Item -ItemType Directory -Force -Path $appData | Out-Null
+  Copy-Item -Force $Path (Join-Path $appData "shape-meet.env")
+  Write-Host "Runtime config instalado en $appData\\shape-meet.env"
+}
+
+function Set-DemoEnvAliases {
+  if ($env:VITE_SHAPE_API_URL) {
+    $env:SHAPE_DEMO_API_URL = $env:VITE_SHAPE_API_URL
+    $env:SHAPE_SMOKE_API_URL = $env:VITE_SHAPE_API_URL
+  }
+  if ($env:VITE_SHAPE_MEETING_URL) {
+    $env:SHAPE_DEMO_APP_URL = $env:VITE_SHAPE_MEETING_URL
+  }
+  if ($env:VITE_SHAPE_AI_SERVICE_URL) {
+    $env:SHAPE_DEMO_AI_URL = $env:VITE_SHAPE_AI_SERVICE_URL
+  }
+  if ($env:VITE_SENTRY_DSN -and -not $env:SENTRY_DSN) {
+    $env:SENTRY_DSN = $env:VITE_SENTRY_DSN
+  }
+  if ($env:VITE_SENTRY_ENVIRONMENT -and -not $env:SENTRY_ENVIRONMENT) {
+    $env:SENTRY_ENVIRONMENT = $env:VITE_SENTRY_ENVIRONMENT
+  }
+  if ($env:VITE_SENTRY_RELEASE -and -not $env:SENTRY_RELEASE) {
+    $env:SENTRY_RELEASE = $env:VITE_SENTRY_RELEASE
+  }
+}
+
+function Mask-Dsn {
+  param([string]$Value)
+  if (-not $Value) {
+    return "sin configurar"
+  }
+  return ($Value -replace "https://([^@]{6})[^@]*([^@]{4})@", 'https://$1...$2@')
+}
+
+Write-Host "Shape Meet Windows demo diagnostics"
+Write-Host "Runtime config: $RuntimeConfig"
+
+Assert-Command "node"
+Assert-Command "pnpm"
+Assert-Command "cargo"
+Assert-Command "rustc"
+Assert-Command "python"
+
+Import-DotEnv $RuntimeConfig
+Set-DemoEnvAliases
+if ($InstallRuntimeConfig) {
+  Copy-RuntimeConfig $RuntimeConfig
+}
+
+Write-Host ""
+Write-Host "Runtime"
+Write-Host "- API/admin: $env:SHAPE_DEMO_API_URL"
+Write-Host "- Reuniones: $env:SHAPE_DEMO_APP_URL"
+Write-Host "- IA local: $env:SHAPE_DEMO_AI_URL"
+Write-Host "- Sentry: $(Mask-Dsn $env:SENTRY_DSN)"
+
+Invoke-Step "Sentry formato local" { pnpm check:sentry }
+if (-not $SkipSentryLive) {
+  Invoke-OptionalStep "Sentry live" { pnpm check:sentry:live }
+}
+Invoke-Step "Doctor desktop" { pnpm desktop:doctor -- --strict }
+Invoke-Step "Doctor demo endpoints" { pnpm demo:doctor -- --no-docker --strict }
+
+if (-not $SkipDemoPrepare) {
+  Invoke-Step "Datos demo" { pnpm demo:prepare }
+}
+
+Invoke-Step "Bundle debug" { pnpm demo:debug -- --output-dir output/windows-debug }
+
+Write-Host ""
+Write-Host "Diagnostico Windows listo."
+Write-Host "Si Sentry live falla con ProjectId, copia una DSN nueva desde Project Settings > Client Keys."
+Write-Host "Si Doctor demo endpoints falla, revisa que admin, meeting web, LiveKit e IA local esten accesibles desde este PC."
+`;
+}
+
 function readme(report) {
   return `# Shape Meet Windows Demo Handoff
 
@@ -242,6 +391,8 @@ sidecar debe construirse en Windows para producir el instalador Windows.
 
 - \`shape-meet.env\`: runtime desktop sin secretos de LiveKit/Postgres.
 - \`Build-ShapeMeetWindows.ps1\`: build local Windows + handoff.
+- \`Test-ShapeMeetWindows.ps1\`: diagnostico de entorno, endpoints, Sentry,
+  desktop doctor y bundle debug.
 - \`manifest.json\`: resumen de URLs y comandos.
 
 ## Runtime
@@ -277,6 +428,19 @@ Set-ExecutionPolicy -Scope Process Bypass
 El script instala \`shape-meet.env\` en \`%LOCALAPPDATA%\\Shape Meet\`, ejecuta
 \`pnpm build:desktop\`, valida el bundle y crea un handoff local con copia de
 instaladores.
+
+## Diagnostico rapido
+
+Antes o despues del build puedes validar la maquina Windows y generar un bundle
+debug:
+
+\`\`\`powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\\${relativePath(diagnosticScriptPath)} -InstallRuntimeConfig -SkipSentryLive
+\`\`\`
+
+Quita \`-SkipSentryLive\` cuando tengas una DSN que acepte ingesta. Si falla con
+\`ProjectId\`, la DSN no corresponde al proyecto/key correcto de Sentry.
 
 ## Debug esperado
 

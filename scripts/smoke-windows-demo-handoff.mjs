@@ -53,6 +53,7 @@ try {
     report.config.sentryConfigured === true,
     "sentry should be configured",
   );
+  assert(report.diagnosticScript, "diagnostic script missing from report");
 
   const runtime = read("shape-meet.env");
   assert(
@@ -83,10 +84,34 @@ try {
   );
   assert(script.includes("$env:LOCALAPPDATA"), "runtime install path missing");
 
+  const diagnosticScript = read("Test-ShapeMeetWindows.ps1");
+  assert(
+    diagnosticScript.includes("pnpm demo:doctor -- --no-docker --strict"),
+    "demo doctor command missing from diagnostic script",
+  );
+  assert(
+    diagnosticScript.includes("pnpm check:sentry:live"),
+    "sentry live command missing from diagnostic script",
+  );
+  assert(
+    diagnosticScript.includes("SHAPE_DEMO_API_URL"),
+    "demo env alias missing from diagnostic script",
+  );
+  assert(
+    diagnosticScript.includes(
+      "pnpm demo:debug -- --output-dir output/windows-debug",
+    ),
+    "debug bundle command missing from diagnostic script",
+  );
+
   const readme = read("README.md");
   assert(
     readme.includes("Shape Meet Windows Demo Handoff"),
     "readme title missing",
+  );
+  assert(
+    readme.includes("Test-ShapeMeetWindows.ps1"),
+    "diagnostic script missing from readme",
   );
   assert(readme.includes("Windows AMD Ryzen"), "limited Windows note missing");
   assert(existsSync(join(tempDir, "manifest.json")), "manifest missing");
