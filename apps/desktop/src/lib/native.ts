@@ -79,6 +79,14 @@ export interface NativeAiRuntimeEnvFile {
   warnings: string[];
 }
 
+export interface NativeModelAiRuntimeInput {
+  wrapperPassthrough: boolean;
+  facefusionDir?: string | null;
+  bmv2RepoDir?: string | null;
+  bmv2Checkpoint?: string | null;
+  vcclient000HttpEndpoint?: string | null;
+}
+
 export interface NativeIdentityArtifactCacheResult {
   identityId: string;
   cached: boolean;
@@ -235,9 +243,16 @@ export async function prepareDemoAiRuntimeEnv(): Promise<NativeAiRuntimeEnvFile>
   }
 }
 
-export async function prepareModelAiRuntimeEnv(): Promise<NativeAiRuntimeEnvFile> {
+export async function prepareModelAiRuntimeEnv(
+  input?: NativeModelAiRuntimeInput,
+): Promise<NativeAiRuntimeEnvFile> {
   try {
-    return await invoke<NativeAiRuntimeEnvFile>("prepare_model_ai_runtime_env");
+    return await invoke<NativeAiRuntimeEnvFile>(
+      "prepare_model_ai_runtime_env",
+      {
+        input: input ?? null,
+      },
+    );
   } catch (error) {
     return {
       path: "",

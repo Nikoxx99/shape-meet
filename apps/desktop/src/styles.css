@@ -673,6 +673,21 @@ svg {
   gap: 18px;
 }
 
+.runtime-model-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.runtime-model-form .toggle-row {
+  grid-column: 1 / -1;
+  min-height: 40px;
+  border: 1px solid #dde6f3;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #ffffff;
+}
+
 .runtime-side {
   align-self: start;
   max-height: calc(100vh - 136px);
@@ -1687,6 +1702,10 @@ svg {
   .call-side {
     width: auto;
     max-height: none;
+  }
+
+  .runtime-model-form {
+    grid-template-columns: 1fr;
   }
 
   .video-grid {

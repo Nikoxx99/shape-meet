@@ -110,6 +110,7 @@ import {
   type NativeIdentityArtifactCacheResult,
   type NativeAiServiceStatus,
   type NativeGpuProfile,
+  type NativeModelAiRuntimeInput,
   type NativeObservabilityStatus,
 } from "./lib/native";
 import {
@@ -499,6 +500,55 @@ function preflightMessage(result: AiPreflightResult) {
 function boolStatus(value?: boolean) {
   if (value === undefined) return "Detectando";
   return value ? "Activo" : "Inactivo";
+}
+
+function modelRuntimeInputFromContent(
+  content: string,
+): NativeModelAiRuntimeInput {
+  return {
+    wrapperPassthrough: !["0", "false", "no", "off"].includes(
+      (
+        envContentValue(content, "SHAPE_WRAPPER_PASSTHROUGH") ?? "true"
+      ).toLowerCase(),
+    ),
+    facefusionDir: envContentValue(content, "FACEFUSION_DIR") ?? "",
+    bmv2RepoDir: envContentValue(content, "BMV2_REPO_DIR") ?? "",
+    bmv2Checkpoint: envContentValue(content, "BMV2_MODEL_CHECKPOINT") ?? "",
+    vcclient000HttpEndpoint:
+      envContentValue(content, "VCCLIENT000_HTTP_ENDPOINT") ?? "",
+  };
+}
+
+function normalizeModelRuntimeInput(
+  input: NativeModelAiRuntimeInput,
+): NativeModelAiRuntimeInput {
+  return {
+    wrapperPassthrough: input.wrapperPassthrough,
+    facefusionDir: input.facefusionDir?.trim() || null,
+    bmv2RepoDir: input.bmv2RepoDir?.trim() || null,
+    bmv2Checkpoint: input.bmv2Checkpoint?.trim() || null,
+    vcclient000HttpEndpoint: input.vcclient000HttpEndpoint?.trim() || null,
+  };
+}
+
+function envContentValue(content: string, key: string) {
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const equalsIndex = line.indexOf("=");
+    if (equalsIndex === -1) continue;
+    if (line.slice(0, equalsIndex).trim() !== key) continue;
+    const rawValue = line.slice(equalsIndex + 1).trim();
+    if (
+      (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+      (rawValue.startsWith("'") && rawValue.endsWith("'"))
+    ) {
+      return rawValue.slice(1, -1);
+    }
+    return rawValue;
+  }
+
+  return null;
 }
 
 type AgendaFilter = "today" | "week" | "all";
@@ -2822,6 +2872,14 @@ function AiRuntimeScreen({
   const [saving, setSaving] = useState(false);
   const [runtimeMessage, setRuntimeMessage] = useState<string | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [modelRuntimeInput, setModelRuntimeInput] =
+    useState<NativeModelAiRuntimeInput>({
+      wrapperPassthrough: true,
+      facefusionDir: "",
+      bmv2RepoDir: "",
+      bmv2Checkpoint: "",
+      vcclient000HttpEndpoint: "",
+    });
 
   async function loadRuntimeState() {
     setLoading(true);
@@ -2832,6 +2890,7 @@ function AiRuntimeScreen({
       ]);
       setEnvFile(runtimeEnv);
       setContent(runtimeEnv.content);
+      setModelRuntimeInput(modelRuntimeInputFromContent(runtimeEnv.content));
       setDiagnostics(nextDiagnostics);
       setRuntimeError(null);
       await onRefresh();
@@ -2898,7 +2957,9 @@ function AiRuntimeScreen({
     setSaving(true);
     setRuntimeMessage(null);
     try {
-      const prepared = await prepareModelAiRuntimeEnv();
+      const prepared = await prepareModelAiRuntimeEnv(
+        normalizeModelRuntimeInput(modelRuntimeInput),
+      );
       setEnvFile(prepared);
       setContent(prepared.content);
       setRuntimeError(null);
@@ -3047,6 +3108,62 @@ function AiRuntimeScreen({
             {gpuCudaLabel(gpuProfile) ? (
               <DetailRow label="CUDA" value={gpuCudaLabel(gpuProfile)!} />
             ) : null}
+          </div>
+          <div className="runtime-model-form">
+            <ToggleRow
+              label="Usar passthrough"
+              checked={modelRuntimeInput.wrapperPassthrough}
+              onClick={() =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  wrapperPassthrough: !current.wrapperPassthrough,
+                }))
+              }
+            />
+            <TextField
+              label="Carpeta FaceFusion"
+              icon={<UserRound />}
+              value={modelRuntimeInput.facefusionDir ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  facefusionDir: value,
+                }))
+              }
+            />
+            <TextField
+              label="Repo BMV2"
+              icon={<Video />}
+              value={modelRuntimeInput.bmv2RepoDir ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  bmv2RepoDir: value,
+                }))
+              }
+            />
+            <TextField
+              label="Checkpoint BMV2"
+              icon={<Settings />}
+              value={modelRuntimeInput.bmv2Checkpoint ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  bmv2Checkpoint: value,
+                }))
+              }
+            />
+            <TextField
+              label="Endpoint vcclient000"
+              icon={<Mic />}
+              value={modelRuntimeInput.vcclient000HttpEndpoint ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  vcclient000HttpEndpoint: value,
+                }))
+              }
+            />
           </div>
           <label className="runtime-editor-field">
             <span>Variables</span>
@@ -4601,7 +4718,8 @@ function ActiveCallScreen({
                     }
                   />
                 ) : null}
-                {hostMode && (faceEnabled || backgroundEnabled || voiceEnabled) ? (
+                {hostMode &&
+                (faceEnabled || backgroundEnabled || voiceEnabled) ? (
                   <StatusRow
                     label="Runtime IA"
                     value={

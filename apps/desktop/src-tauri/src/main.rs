@@ -129,6 +129,16 @@ struct SaveAiRuntimeEnvInput {
     content: String,
 }
 
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PrepareModelAiRuntimeEnvInput {
+    wrapper_passthrough: Option<bool>,
+    facefusion_dir: Option<String>,
+    bmv2_repo_dir: Option<String>,
+    bmv2_checkpoint: Option<String>,
+    vcclient000_http_endpoint: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CacheIdentityArtifactInput {
@@ -238,8 +248,10 @@ fn prepare_demo_ai_runtime_env() -> Result<AiRuntimeEnvFile, String> {
 }
 
 #[tauri::command]
-fn prepare_model_ai_runtime_env() -> Result<AiRuntimeEnvFile, String> {
-    let content = model_ai_runtime_env_content(&processor_command_for_demo()?)?;
+fn prepare_model_ai_runtime_env(
+    input: Option<PrepareModelAiRuntimeEnvInput>,
+) -> Result<AiRuntimeEnvFile, String> {
+    let content = model_ai_runtime_env_content(&processor_command_for_demo()?, input.as_ref())?;
     write_ai_runtime_env_file(&content)?;
     read_ai_runtime_env_file()
 }
@@ -1442,7 +1454,10 @@ fn demo_ai_runtime_env_content(processor_command: &str) -> String {
     .join("\n")
 }
 
-fn model_ai_runtime_env_content(processor_command: &str) -> Result<String, String> {
+fn model_ai_runtime_env_content(
+    processor_command: &str,
+    input: Option<&PrepareModelAiRuntimeEnvInput>,
+) -> Result<String, String> {
     let python =
         shell_quote(&env_non_empty("SHAPE_AI_PYTHON").unwrap_or_else(default_python_command));
     let face_wrapper = wrapper_script_path("facefusion_frame.py").ok_or_else(|| {
@@ -1457,47 +1472,91 @@ fn model_ai_runtime_env_content(processor_command: &str) -> Result<String, Strin
         "No se encontró wrapper vcclient000. Define SHAPE_AI_WRAPPERS_DIR o ejecuta desde el repo."
             .to_string()
     })?;
+    let wrapper_passthrough = input
+        .and_then(|value| value.wrapper_passthrough)
+        .unwrap_or(true);
 
-    Ok([
-        "# Shape Meet model AI runtime",
-        "# Wrappers locales para validar FaceFusion, BackgroundMattingV2 y vcclient000.",
-        "SHAPE_AI_MODE=adapter-contract",
-        "SHAPE_FACE_ENGINE=facefusion",
-        "SHAPE_BACKGROUND_ENGINE=backgroundmattingv2",
-        "SHAPE_VOICE_ENGINE=vcclient000",
-        "SHAPE_PROCESSOR_TIMEOUT_SECS=10",
-        "SHAPE_MODEL_COMMAND_TIMEOUT_SECS=8",
-        &format!(
+    let mut lines = vec![
+        "# Shape Meet model AI runtime".to_string(),
+        "# Wrappers locales para FaceFusion, BackgroundMattingV2 y vcclient000.".to_string(),
+        "SHAPE_AI_MODE=adapter-contract".to_string(),
+        "SHAPE_FACE_ENGINE=facefusion".to_string(),
+        "SHAPE_BACKGROUND_ENGINE=backgroundmattingv2".to_string(),
+        "SHAPE_VOICE_ENGINE=vcclient000".to_string(),
+        "SHAPE_PROCESSOR_TIMEOUT_SECS=10".to_string(),
+        "SHAPE_MODEL_COMMAND_TIMEOUT_SECS=8".to_string(),
+        format!(
             "SHAPE_VIDEO_PROCESSOR_COMMAND={processor_command} --kind video --host 127.0.0.1 --port 7860"
         ),
-        "SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame",
-        "SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7860/health",
-        &format!(
+        "SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame".to_string(),
+        "SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7860/health".to_string(),
+        format!(
             "SHAPE_FACE_COMMAND={python} {} --input {{input}} --output {{output}} --identity {{identity}}",
             shell_quote_path(&face_wrapper)
         ),
-        &format!(
+        format!(
             "SHAPE_BACKGROUND_COMMAND={python} {} --input {{input}} --output {{output}} --clean-plate {{clean_plate}}",
             shell_quote_path(&background_wrapper)
         ),
-        &format!(
+        format!(
             "SHAPE_AUDIO_PROCESSOR_COMMAND={processor_command} --kind audio --host 127.0.0.1 --port 7861"
         ),
-        "SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio",
-        "SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health",
-        &format!(
+        "SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio".to_string(),
+        "SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health".to_string(),
+        format!(
             "SHAPE_VOICE_COMMAND={python} {} --input {{input}} --output {{output}} --sample-rate {{sample_rate}} --channels {{channels}} --format {{format}}",
             shell_quote_path(&voice_wrapper)
         ),
-        "SHAPE_WRAPPER_PASSTHROUGH=true",
-        "# Para activar modelos reales, configura estas variables y cambia SHAPE_WRAPPER_PASSTHROUGH=false.",
-        "# FACEFUSION_DIR=C:\\\\models\\\\FaceFusion",
-        "# BMV2_REPO_DIR=C:\\\\models\\\\BackgroundMattingV2",
-        "# BMV2_MODEL_CHECKPOINT=C:\\\\models\\\\BackgroundMattingV2\\\\pytorch_resnet50.pth",
-        "# VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/convert",
-        "",
-    ]
-    .join("\n"))
+        format!("SHAPE_WRAPPER_PASSTHROUGH={wrapper_passthrough}"),
+    ];
+
+    push_model_env_line(
+        &mut lines,
+        "FACEFUSION_DIR",
+        input.and_then(|value| value.facefusion_dir.as_deref()),
+        "C:\\\\models\\\\FaceFusion",
+    );
+    push_model_env_line(
+        &mut lines,
+        "BMV2_REPO_DIR",
+        input.and_then(|value| value.bmv2_repo_dir.as_deref()),
+        "C:\\\\models\\\\BackgroundMattingV2",
+    );
+    push_model_env_line(
+        &mut lines,
+        "BMV2_MODEL_CHECKPOINT",
+        input.and_then(|value| value.bmv2_checkpoint.as_deref()),
+        "C:\\\\models\\\\BackgroundMattingV2\\\\pytorch_resnet50.pth",
+    );
+    push_model_env_line(
+        &mut lines,
+        "VCCLIENT000_HTTP_ENDPOINT",
+        input.and_then(|value| value.vcclient000_http_endpoint.as_deref()),
+        "http://127.0.0.1:18888/convert",
+    );
+    lines.push(String::new());
+
+    Ok(lines.join("\n"))
+}
+
+fn push_model_env_line(lines: &mut Vec<String>, key: &str, value: Option<&str>, example: &str) {
+    let value = value.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(value) = value {
+        lines.push(format!("{key}={}", render_env_value(value)));
+    } else {
+        lines.push(format!("# {key}={example}"));
+    }
+}
+
+fn render_env_value(value: &str) -> String {
+    if value
+        .chars()
+        .any(|character| character.is_whitespace() || character == '#')
+    {
+        format!("\"{}\"", value.replace('"', "'"))
+    } else {
+        value.to_string()
+    }
 }
 
 fn identity_artifact_result(
@@ -2336,7 +2395,7 @@ mod tests {
 
     #[test]
     fn model_ai_runtime_env_is_parseable() {
-        let content = model_ai_runtime_env_content("python3 /tmp/shape_processor_command.py")
+        let content = model_ai_runtime_env_content("python3 /tmp/shape_processor_command.py", None)
             .expect("model runtime content should render from repo wrappers");
         let parsed = parse_ai_runtime_env(&content);
 
@@ -2355,5 +2414,40 @@ mod tests {
             .values
             .iter()
             .any(|(key, value)| key == "SHAPE_WRAPPER_PASSTHROUGH" && value == "true"));
+    }
+
+    #[test]
+    fn model_ai_runtime_env_accepts_real_paths() {
+        let input = PrepareModelAiRuntimeEnvInput {
+            wrapper_passthrough: Some(false),
+            facefusion_dir: Some(r"C:\models\FaceFusion".to_string()),
+            bmv2_repo_dir: Some(r"C:\models\BackgroundMattingV2".to_string()),
+            bmv2_checkpoint: Some(
+                r"C:\models\BackgroundMattingV2\pytorch_resnet50.pth".to_string(),
+            ),
+            vcclient000_http_endpoint: Some("http://127.0.0.1:18888/convert".to_string()),
+        };
+        let content =
+            model_ai_runtime_env_content("python3 /tmp/shape_processor_command.py", Some(&input))
+                .expect("model runtime content should render from repo wrappers");
+        let parsed = parse_ai_runtime_env(&content);
+
+        assert!(parsed.errors.is_empty());
+        assert!(parsed.warnings.is_empty());
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_WRAPPER_PASSTHROUGH" && value == "false"));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "FACEFUSION_DIR" && value == r"C:\models\FaceFusion"));
+        assert!(parsed.values.iter().any(|(key, value)| {
+            key == "BMV2_MODEL_CHECKPOINT"
+                && value == r"C:\models\BackgroundMattingV2\pytorch_resnet50.pth"
+        }));
+        assert!(parsed.values.iter().any(|(key, value)| {
+            key == "VCCLIENT000_HTTP_ENDPOINT" && value == "http://127.0.0.1:18888/convert"
+        }));
     }
 }
