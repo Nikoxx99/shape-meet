@@ -465,8 +465,10 @@ function commandStep(label, commandArgs, options = {}) {
   const startedAt = Date.now();
   const result = runPnpm(commandArgs, options);
   const parsed = options.parseJson ? parseJson(result.stdout) : null;
+  const ok = result.status === 0 && parsed?.ok !== false;
+
   return {
-    ok: result.status === 0,
+    ok,
     skipped: false,
     label,
     command: redactCommand(result.command),
