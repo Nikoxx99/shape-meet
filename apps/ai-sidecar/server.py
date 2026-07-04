@@ -77,6 +77,13 @@ MANAGED_PROCESSOR_CONFIGS = [
     },
 ]
 
+PREFLIGHT_BLOCKING_WARNINGS = {
+    "identity_artifact_missing",
+    "background_clean_plate_missing",
+    "video_processor_endpoint_missing",
+    "audio_processor_endpoint_missing",
+}
+
 SESSIONS = {}
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
@@ -554,6 +561,8 @@ def preflight_check_from_audio(audio):
 
 def preflight_status(checks, warnings):
     if any(check["status"] == "error" for check in checks):
+        return "failed"
+    if any(warning in PREFLIGHT_BLOCKING_WARNINGS for warning in warnings):
         return "failed"
     active_checks = [check for check in checks if check["status"] != "skipped"]
     if active_checks and all(check["status"] == "processed" for check in active_checks):

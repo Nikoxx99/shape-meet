@@ -227,6 +227,11 @@ identidad, clean plate y efectos activos. Si hay cámara disponible, envía un
 frame real de la cámara seleccionada; si no, el sidecar usa un JPEG mínimo para
 validar conectividad y comandos.
 
+El preflight falla cuando faltan recursos bloqueantes para los efectos activos:
+artefacto de identidad para face swap, clean plate para fondo o endpoints de
+procesador de video/audio. Los warnings no bloqueantes siguen devolviendo estado
+`warning`.
+
 Si `SENTRY_DSN` está configurado y `sentry-sdk` está instalado, el sidecar envía
 errores de adaptadores externos con tags de runtime. No envía frames, audio,
 imagenes fuente ni artefactos de modelos.

@@ -4,6 +4,12 @@ const DEFAULT_AI_SIDECAR_URL = "http://127.0.0.1:7851";
 const PREFLIGHT_TIMEOUT_MS = 150_000;
 const FRAME_PROCESS_TIMEOUT_MS = 80_000;
 const AUDIO_PROCESS_TIMEOUT_MS = 15_000;
+const PREFLIGHT_BLOCKING_WARNINGS = new Set([
+  "identity_artifact_missing",
+  "background_clean_plate_missing",
+  "video_processor_endpoint_missing",
+  "audio_processor_endpoint_missing",
+]);
 
 export interface AiSessionStartInput {
   meetingCode: string;
@@ -424,6 +430,9 @@ function preflightStatus(
   mode: string,
 ) {
   if (checks.some((check) => check.status === "error")) return "failed";
+  if (warnings.some((warning) => PREFLIGHT_BLOCKING_WARNINGS.has(warning))) {
+    return "failed";
+  }
   const activeChecks = checks.filter((check) => check.status !== "skipped");
   if (
     activeChecks.length > 0 &&

@@ -628,7 +628,9 @@ Ese comando arranca el sidecar en `adapter-contract`, levanta procesadores mock
 para video/audio y verifica que `SHAPE_VIDEO_PROCESSOR_ENDPOINT` y
 `SHAPE_AUDIO_PROCESSOR_ENDPOINT` reciban los payloads completos y devuelvan
 frames/audio inyectables para la desktop. El payload de video incluye la
-calibracion de fondo limpia que requiere BackgroundMattingV2.
+calibracion de fondo limpia que requiere BackgroundMattingV2. También valida que
+el preflight falle si se activa face swap sin artefacto de identidad local o
+descargable.
 
 El cliente desktop publica tracks `shape-processed-video` y
 `shape-processed-audio` en LiveKit. Si LiveKit todavía no está configurado o la

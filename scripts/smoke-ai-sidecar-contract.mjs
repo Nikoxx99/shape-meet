@@ -148,6 +148,48 @@ try {
   );
   console.log("health ok: adapter-contract");
 
+  const missingIdentityPreflight = await request("/preflight", {
+    method: "POST",
+    body: {
+      meetingCode: "SM-123-456",
+      participantId: "host_smoke_preflight",
+      identityId: "identity_smoke",
+      identityKind: "PHOTO_IDENTITY",
+      identityVersion: "v1",
+      identityArtifactUri: "",
+      identityCachedArtifactUri: "",
+      identityLocalArtifactPath: "",
+      faceEnabled: true,
+      backgroundEnabled: true,
+      backgroundCleanPlateDataUrl: "data:image/jpeg;base64,BBBB",
+      backgroundCleanPlateCapturedAt: new Date().toISOString(),
+      backgroundCleanPlateWidth: 1280,
+      backgroundCleanPlateHeight: 720,
+      backgroundCleanPlateCameraDeviceId: "camera_smoke",
+      voiceEnabled: false,
+      targetWidth: 1280,
+      targetHeight: 720,
+      targetFps: 30,
+      frameDataUrl: "data:image/jpeg;base64,AAAA",
+    },
+  });
+  assert(
+    missingIdentityPreflight.status === 200,
+    `preflight returned ${missingIdentityPreflight.status}`,
+  );
+  assert(
+    missingIdentityPreflight.data.preflight?.status === "failed",
+    "preflight without identity artifact should fail",
+  );
+  assert(
+    missingIdentityPreflight.data.preflight?.warnings?.includes(
+      "identity_artifact_missing",
+    ),
+    "preflight did not expose identity_artifact_missing",
+  );
+  const videoRequestsBeforeSession = requests.video.length;
+  console.log("preflight gate ok: identity artifact required");
+
   const session = await request("/sessions", {
     method: "POST",
     body: {
@@ -245,8 +287,8 @@ try {
     "session did not expose last audio processor",
   );
   assert(
-    requests.video.length === 1,
-    "video mock processor was not called exactly once",
+    requests.video.length === videoRequestsBeforeSession + 1,
+    "video mock processor was not called once for the session frame",
   );
   assert(
     requests.audio.length === 1,
