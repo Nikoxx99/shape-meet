@@ -358,12 +358,16 @@ fuera del servidor para validar DNS, health del admin, signaling LiveKit y
 puertos TURN/RTC:
 
 ```bash
-pnpm demo:remote:check -- --env-file infra/shape-meet.production.env --strict
+pnpm demo:remote:check -- \
+  --env-file infra/shape-meet.production.env \
+  --strict \
+  --output output/remote-demo/shape-remote-demo.json
 ```
 
 Si tienes `turnutils_uclient` instalado, el comando también valida credenciales
 TURN REST generadas desde `LIVEKIT_TURN_SHARED_SECRET`. Sin esa herramienta,
-mantiene el check de STUN UDP y deja un aviso operativo.
+mantiene el check de STUN UDP y deja un aviso operativo. El JSON de `--output`
+sirve para soporte sin exponer secretos.
 
 Para preparar una desktop instalada contra ese mismo entorno, deriva un
 `shape-meet.env` sin copiar secretos del servidor:

@@ -1,9 +1,9 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createSocket } from "node:dgram";
 import { Socket } from "node:net";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
@@ -13,6 +13,7 @@ const skipNetwork = args.includes("--skip-network");
 const skipTurnutils = args.includes("--skip-turnutils");
 const timeoutMs = Number(argValue("--timeout-ms") ?? "5000");
 const envFile = argValue("--env-file");
+const outputPath = argValue("--output");
 const env = {
   ...(envFile ? readEnvFile(resolve(envFile)) : {}),
   ...process.env,
@@ -80,6 +81,8 @@ async function main() {
     issues,
   };
 
+  if (outputPath) writeReport(outputPath, report);
+
   if (json) {
     console.log(JSON.stringify(report, null, 2));
   } else {
@@ -89,6 +92,20 @@ async function main() {
   if (issues.length > 0 || (strict && warnings.length > 0)) {
     process.exit(1);
   }
+}
+
+function writeReport(path, report) {
+  const absolutePath = resolve(path);
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  checks.push(
+    check(
+      "report.output",
+      "ok",
+      `Reporte remoto escrito: ${absolutePath}`,
+      null,
+    ),
+  );
+  writeFileSync(absolutePath, `${JSON.stringify(report, null, 2)}\n`);
 }
 
 function checkRequiredConfig() {

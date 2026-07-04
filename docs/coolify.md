@@ -148,14 +148,18 @@ Antes de invitar a otra persona al demo, corre también el doctor remoto desde
 una máquina fuera del servidor:
 
 ```bash
-pnpm demo:remote:check -- --env-file infra/shape-meet.production.env --strict
+pnpm demo:remote:check -- \
+  --env-file infra/shape-meet.production.env \
+  --strict \
+  --output output/remote-demo/shape-remote-demo.json
 ```
 
 Este check valida `/api/health`, signaling LiveKit, DNS de TURN, puertos TCP de
 RTC/TURN, configuración LiveKit del admin y una petición STUN UDP contra coturn.
 Si la máquina tiene
 `turnutils_uclient`, además prueba la autenticación TURN REST con el
-`LIVEKIT_TURN_SHARED_SECRET`.
+`LIVEKIT_TURN_SHARED_SECRET`. El archivo `--output` es seguro para soporte:
+incluye checks, latencias, dominios y puertos, pero no imprime secretos.
 
 Durante las primeras pruebas deja `SHAPE_DEBUG_ERRORS=true` para que las APIs
 devuelvan `requestId`, `code` y detalle técnico controlado cuando fallen. Antes

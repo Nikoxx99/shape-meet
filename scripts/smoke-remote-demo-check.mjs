@@ -1,5 +1,11 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createSocket } from "node:dgram";
 import { createServer as createTcpServer } from "node:net";
@@ -39,6 +45,7 @@ try {
   const turnTls = await listenTcp();
   const turnUdp = await listenStunUdp(turnTcp.port);
   const envPath = join(tempDir, "remote.env");
+  const reportPath = join(tempDir, "remote-report.json");
 
   writeFileSync(
     envPath,
@@ -56,7 +63,7 @@ try {
     ].join("\n"),
   );
 
-  const result = await runRemoteCheck(envPath);
+  const result = await runRemoteCheck(envPath, reportPath);
 
   if (result.code !== 0) {
     if (result.stdout) process.stdout.write(result.stdout);
@@ -66,6 +73,10 @@ try {
 
   const report = JSON.parse(result.stdout);
   assert(report.status === "passed", `expected passed, got ${report.status}`);
+  assert(existsSync(reportPath), "expected output report to be written");
+  const outputReport = JSON.parse(readFileSync(reportPath, "utf8"));
+  assert(outputReport.status === "passed", "expected output report passed");
+  assertCheck(outputReport, "report.output", "ok");
   assertCheck(report, "network.admin-health", "ok");
   assertCheck(report, "network.admin-livekit-config", "ok");
   assertCheck(report, "network.livekit-http", "ok");
@@ -95,7 +106,8 @@ try {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
-function runRemoteCheck(envPath) {
+function runRemoteCheck(envPath, outputPath = null) {
+  const outputArgs = outputPath ? ["--output", outputPath] : [];
   return runNode([
     "scripts/check-remote-demo.mjs",
     "--env-file",
@@ -104,6 +116,7 @@ function runRemoteCheck(envPath) {
     "--skip-turnutils",
     "--timeout-ms",
     "2000",
+    ...outputArgs,
     "--json",
   ]);
 }
