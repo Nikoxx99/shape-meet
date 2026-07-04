@@ -29,6 +29,7 @@ const verifyUi =
   args.includes("--verify-ui") || args.includes("--full-ui-verify");
 const skipVerifyUi = args.includes("--skip-verify-ui");
 const skipDesktop = args.includes("--skip-desktop");
+const skipWindowsHandoff = args.includes("--skip-windows-handoff");
 const skipCoolify = args.includes("--skip-coolify");
 const skipModelBootstrap = args.includes("--skip-model-bootstrap");
 const skipModelRuntime =
@@ -149,6 +150,7 @@ const report = {
     localPreviewTimeoutMs,
     verifyUi,
     verifyUiTimeoutMs,
+    windowsHandoff: !skipWindowsHandoff,
     remoteApiFlow: remoteApiFlowEnabled(),
     remoteIdentityFlow: remoteIdentityFlowEnabled(),
     identityArtifactFile,
@@ -209,6 +211,10 @@ function main() {
     skipDesktop || desktopMode === "skip"
       ? skipped("Desktop handoff", "omitido por --skip-desktop")
       : runDesktopStep();
+
+  report.steps.windowsHandoff = skipWindowsHandoff
+    ? skipped("Windows handoff", "omitido por --skip-windows-handoff")
+    : runWindowsHandoffStep();
 
   report.steps.modelBootstrap = skipModelBootstrap
     ? skipped("Bootstrap modelos", "omitido por --skip-model-bootstrap")
@@ -494,6 +500,64 @@ function runDesktopStep() {
   return step;
 }
 
+function runWindowsHandoffStep() {
+  const out = join(outputDir, "windows-handoff");
+  const commandArgs = ["desktop:windows-handoff", "--", "--json", "--out", out];
+  const handoffEnvFile = remoteEnvFile ?? coolifyEnvFile;
+
+  if (handoffEnvFile) commandArgs.push("--env-file", handoffEnvFile);
+  forwardValue(commandArgs, "--api-url");
+  forwardValue(commandArgs, "--app-url");
+  forwardValue(commandArgs, "--meeting-url");
+  forwardValue(commandArgs, "--ai-url");
+  forwardValue(commandArgs, "--admin-domain");
+  forwardValue(commandArgs, "--meeting-domain");
+  forwardValue(commandArgs, "--host-identifier");
+  forwardValue(commandArgs, "--sentry-dsn");
+  forwardValue(commandArgs, "--sentry-environment");
+  forwardValue(commandArgs, "--release");
+  forwardValue(commandArgs, "--sentry-traces-sample-rate");
+  forwardValue(commandArgs, "--sentry-debug");
+  forwardFlag(commandArgs, "--skip-windows-model-runtime");
+
+  commandArgs.push(
+    "--model-profile",
+    profile,
+    "--model-runtime-preset",
+    runtimePreset,
+    "--model-endpoint-host",
+    modelEndpointHost,
+    "--model-endpoint-port",
+    modelEndpointPort,
+  );
+
+  pushOptional(
+    commandArgs,
+    "--video-frame-endpoint",
+    resolvedVideoFrameEndpoint,
+  );
+  pushOptional(commandArgs, "--face-endpoint", resolvedFaceEndpoint);
+  pushOptional(
+    commandArgs,
+    "--background-endpoint",
+    resolvedBackgroundEndpoint,
+  );
+  pushOptional(
+    commandArgs,
+    "--audio-chunk-endpoint",
+    resolvedAudioChunkEndpoint,
+  );
+  pushOptional(commandArgs, "--voice-endpoint", resolvedVoiceEndpoint);
+
+  const step = commandStep("Windows handoff", commandArgs, {
+    parseJson: true,
+    timeout: 60_000,
+  });
+  step.outputDir = out;
+  report.artifacts.windowsHandoff = out;
+  return step;
+}
+
 function runModelBootstrapStep() {
   const modelDir = join(outputDir, "model-workstation");
   const checklistPath = join(modelDir, `shape-model-workstation-${profile}.md`);
@@ -728,6 +792,23 @@ function collectSummary() {
     };
   }
 
+  const windowsReport = report.steps.windowsHandoff?.report;
+  if (windowsReport) {
+    report.demo.windows = {
+      ok: windowsReport.ok,
+      apiUrl: windowsReport.config?.apiUrl ?? null,
+      meetingUrl: windowsReport.config?.meetingUrl ?? null,
+      sentryConfigured: windowsReport.config?.sentryConfigured ?? false,
+      runtimeConfig: windowsReport.runtimeConfig
+        ? relativePath(windowsReport.runtimeConfig)
+        : null,
+      aiRuntimeConfig: windowsReport.aiRuntimeConfig
+        ? relativePath(windowsReport.aiRuntimeConfig)
+        : null,
+      modelEndpoint: windowsReport.config?.modelEndpointBaseUrl ?? null,
+    };
+  }
+
   const modelReport = report.steps.modelBootstrap?.report;
   if (modelReport) {
     report.demo.models = {
@@ -866,6 +947,13 @@ function renderReadme(currentReport) {
     currentReport.demo.desktop?.artifacts?.length
       ? `- Desktop artifacts: ${currentReport.demo.desktop.artifacts.join(", ")}`
       : null,
+    currentReport.demo.windows
+      ? `- Windows handoff: ${
+          currentReport.demo.windows.ok ? "ok" : "revisar"
+        } · ${currentReport.demo.windows.meetingUrl ?? "reunion pendiente"} · ${
+          currentReport.demo.windows.modelEndpoint ?? "modelos pendientes"
+        }`
+      : null,
     currentReport.demo.models?.runtimeEnv
       ? `- Runtime modelos: ${currentReport.demo.models.runtimeEnv}`
       : null,
@@ -917,6 +1005,7 @@ pnpm demo:handoff
 pnpm demo:handoff -- --verify-ui
 pnpm demo:handoff -- --admin-domain admin.tudominio.com --meeting-domain meet.tudominio.com --livekit-domain livekit.tudominio.com --turn-domain turn.tudominio.com --public-ip 203.0.113.10
 pnpm demo:handoff -- --coolify-env-file infra/shape-meet.production.env --remote-env-file infra/shape-meet.production.env --identity-artifact-file /ruta/rostro-o-modelo.bin
+pnpm desktop:windows-handoff -- --env-file infra/shape-meet.production.env
 pnpm demo:real:check -- --include-desktop --require-real-models --strict
 pnpm models:bootstrap -- --profile ${currentReport.options.profile} --runtime-preset ${currentReport.options.runtimePreset} --write-runtime --strict --write-checklist
 pnpm models:endpoint -- --host ${currentReport.options.modelEndpoint?.host ?? "127.0.0.1"} --port ${currentReport.options.modelEndpoint?.port ?? "9100"}

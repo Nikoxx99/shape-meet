@@ -79,6 +79,10 @@ try {
   );
   assert(report.steps.desktop.ok === true, "desktop step did not pass");
   assert(report.steps.desktop.mode === "github", "desktop mode mismatch");
+  assert(
+    report.steps.windowsHandoff.ok === true,
+    "windows handoff step did not pass",
+  );
   assert(report.steps.coolify.ok === true, "coolify step did not pass");
   assert(
     report.demo.coolify.firewallRules >= 7,
@@ -87,6 +91,13 @@ try {
   assert(
     report.demo.desktop.artifacts.includes("shape-meet-windows-x64"),
     "desktop artifacts were not summarized",
+  );
+  assert(report.demo.windows?.ok === true, "windows handoff not summarized");
+  assert(
+    report.demo.windows.runtimeConfig?.endsWith(
+      "windows-handoff/shape-meet.env",
+    ),
+    "windows runtime config was not summarized",
   );
 
   const manifestPath = join(tempDir, "manifest.json");
@@ -105,6 +116,10 @@ try {
     manifest.artifacts.coolifyHandoff.endsWith("coolify-handoff"),
     "coolify handoff output missing",
   );
+  assert(
+    manifest.artifacts.windowsHandoff.endsWith("windows-handoff"),
+    "windows handoff output missing",
+  );
 
   const readme = readFileSync(readmePath, "utf8");
   assert(readme.includes("Shape Meet Demo Handoff"), "README title missing");
@@ -119,6 +134,10 @@ try {
     "README full UI verify status missing",
   );
   assert(readme.includes("Desktop handoff: ok"), "README status missing");
+  assert(
+    readme.includes("Windows handoff: ok"),
+    "README windows handoff missing",
+  );
   assert(readme.includes("shape-meet-windows-x64"), "README artifact missing");
 
   smokeRemoteFlowInference();
@@ -139,6 +158,7 @@ function smokeRemoteFlowInference() {
     remoteEnvPath,
     [
       "NEXT_PUBLIC_APP_URL=https://admin.example.test",
+      "VITE_SHAPE_MEETING_URL=https://meet.example.test",
       "LIVEKIT_URL=wss://livekit.example.test",
       "LIVEKIT_TURN_DOMAIN=turn.example.test",
       "HOST_BOOTSTRAP_EMAIL=host@example.test",
@@ -190,6 +210,31 @@ function smokeRemoteFlowInference() {
     report.options.remoteIdentityFlow === true,
     "remote identity flow was not inferred from identity artifact",
   );
+  assert(
+    report.steps.windowsHandoff.ok === true,
+    "remote windows handoff did not pass",
+  );
+  assert(
+    report.demo.windows.apiUrl === "https://admin.example.test",
+    "remote windows api URL was not inferred from env file",
+  );
+  assert(
+    report.demo.windows.meetingUrl === "https://meet.example.test",
+    "remote windows meeting URL was not inferred from env file",
+  );
+
+  const runtime = readFileSync(
+    join(tempDir, "remote-inference", "windows-handoff", "shape-meet.env"),
+    "utf8",
+  );
+  assert(
+    runtime.includes("VITE_SHAPE_API_URL=https://admin.example.test"),
+    "remote windows runtime api URL missing",
+  );
+  assert(
+    runtime.includes("VITE_SHAPE_MEETING_URL=https://meet.example.test"),
+    "remote windows runtime meeting URL missing",
+  );
 }
 
 function smokeCoolifyEnvFile() {
@@ -207,6 +252,7 @@ function smokeCoolifyEnvFile() {
       "--skip-verify-ui",
       "--skip-identity-push",
       "--skip-desktop",
+      "--skip-windows-handoff",
       "--skip-model-bootstrap",
       "--coolify-env-file",
       "infra/env.coolify.example",
@@ -250,6 +296,7 @@ function smokeCoolifySecretRedaction() {
       "--skip-verify-ui",
       "--skip-identity-push",
       "--skip-desktop",
+      "--skip-windows-handoff",
       "--skip-model-bootstrap",
       "--admin-domain",
       "admin.shape-demo.test",
@@ -354,6 +401,14 @@ function smokeModelEndpointBootstrap() {
     "model runtime step did not pass",
   );
   assert(
+    report.steps.windowsHandoff.ok === true,
+    "model endpoint windows handoff step did not pass",
+  );
+  assert(
+    report.demo.windows?.modelEndpoint === "http://127.0.0.1:9292",
+    "windows handoff did not inherit model endpoint",
+  );
+  assert(
     report.steps.modelBootstrap.command.includes(
       "--runtime-preset local-endpoints",
     ),
@@ -386,6 +441,23 @@ function smokeModelEndpointBootstrap() {
       "SHAPE_AUDIO_CHUNK_ENDPOINT=http://127.0.0.1:9292/voice",
     ),
     "runtime env did not include audio endpoint",
+  );
+
+  const windowsAiRuntime = readFileSync(
+    join(outputDir, "windows-handoff", "shape-ai-runtime.env"),
+    "utf8",
+  );
+  assert(
+    windowsAiRuntime.includes(
+      "SHAPE_VIDEO_FRAME_ENDPOINT=http://127.0.0.1:9292/video-frame",
+    ),
+    "windows AI runtime did not include model endpoint video URL",
+  );
+  assert(
+    windowsAiRuntime.includes(
+      "SHAPE_AUDIO_CHUNK_ENDPOINT=http://127.0.0.1:9292/voice",
+    ),
+    "windows AI runtime did not include model endpoint audio URL",
   );
 
   for (const artifactKey of [
@@ -462,6 +534,7 @@ function smokeVerifyUiSkip() {
       "--skip-verify-ui",
       "--skip-identity-push",
       "--skip-desktop",
+      "--skip-windows-handoff",
       "--skip-model-bootstrap",
     ],
     {

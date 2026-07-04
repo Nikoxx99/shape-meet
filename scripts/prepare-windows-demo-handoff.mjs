@@ -4,21 +4,30 @@ import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
-const skipModelRuntime = args.includes("--skip-model-runtime");
+const skipModelRuntime =
+  args.includes("--skip-model-runtime") ||
+  args.includes("--skip-windows-model-runtime");
+const envFile = argValue("--env-file") ?? argValue("--remote-env-file");
 const outputDir = resolve(
   argValue("--out") ??
     join("output", "windows-demo-handoff", safeTimestamp(new Date())),
 );
+const fileEnv = readEnvFile(envFile);
 const env = {
   ...readEnvFile(".env.local"),
   ...readEnvFile("apps/admin/.env.local"),
   ...readEnvFile("apps/desktop/.env.local"),
   ...process.env,
+  ...fileEnv,
 };
 
 const config = {
   apiUrl: trimTrailingSlash(
     argValue("--api-url") ??
+      urlFromDomainArg("--admin-domain") ??
+      fileEnv.VITE_SHAPE_API_URL ??
+      fileEnv.SHAPE_API_URL ??
+      fileEnv.NEXT_PUBLIC_APP_URL ??
       env.VITE_SHAPE_API_URL ??
       env.SHAPE_API_URL ??
       env.NEXT_PUBLIC_APP_URL ??
@@ -26,6 +35,12 @@ const config = {
   ),
   meetingUrl: trimTrailingSlash(
     argValue("--meeting-url") ??
+      argValue("--app-url") ??
+      urlFromDomainArg("--meeting-domain") ??
+      fileEnv.VITE_SHAPE_MEETING_URL ??
+      fileEnv.SHAPE_MEETING_URL ??
+      fileEnv.VITE_SHAPE_APP_URL ??
+      fileEnv.SHAPE_APP_URL ??
       env.VITE_SHAPE_MEETING_URL ??
       env.SHAPE_MEETING_URL ??
       env.VITE_SHAPE_APP_URL ??
@@ -34,39 +49,55 @@ const config = {
   ),
   aiUrl: trimTrailingSlash(
     argValue("--ai-url") ??
+      fileEnv.VITE_SHAPE_AI_SERVICE_URL ??
+      fileEnv.SHAPE_AI_SERVICE_URL ??
       env.VITE_SHAPE_AI_SERVICE_URL ??
       env.SHAPE_AI_SERVICE_URL ??
       "http://127.0.0.1:7851",
   ),
   hostIdentifier:
     argValue("--host-identifier") ??
+    fileEnv.VITE_SHAPE_HOST_IDENTIFIER ??
+    fileEnv.SHAPE_HOST_IDENTIFIER ??
+    fileEnv.HOST_BOOTSTRAP_EMAIL ??
     env.VITE_SHAPE_HOST_IDENTIFIER ??
     env.SHAPE_HOST_IDENTIFIER ??
     env.HOST_BOOTSTRAP_EMAIL ??
     "",
   sentryDsn:
     argValue("--sentry-dsn") ??
+    fileEnv.VITE_SENTRY_DSN ??
+    fileEnv.SENTRY_DSN ??
+    fileEnv.NEXT_PUBLIC_SENTRY_DSN ??
     env.VITE_SENTRY_DSN ??
     env.SENTRY_DSN ??
     env.NEXT_PUBLIC_SENTRY_DSN ??
     "",
   sentryEnvironment:
     argValue("--sentry-environment") ??
+    fileEnv.VITE_SENTRY_ENVIRONMENT ??
+    fileEnv.SENTRY_ENVIRONMENT ??
     env.VITE_SENTRY_ENVIRONMENT ??
     env.SENTRY_ENVIRONMENT ??
     "internal-debug",
   sentryRelease:
     argValue("--release") ??
+    fileEnv.VITE_SENTRY_RELEASE ??
+    fileEnv.SENTRY_RELEASE ??
     env.VITE_SENTRY_RELEASE ??
     env.SENTRY_RELEASE ??
     "shape-meet-desktop@0.1.0",
   sentryTracesSampleRate:
     argValue("--sentry-traces-sample-rate") ??
+    fileEnv.VITE_SENTRY_TRACES_SAMPLE_RATE ??
+    fileEnv.SENTRY_TRACES_SAMPLE_RATE ??
     env.VITE_SENTRY_TRACES_SAMPLE_RATE ??
     env.SENTRY_TRACES_SAMPLE_RATE ??
     "1.0",
   sentryDebug:
     argValue("--sentry-debug") ??
+    fileEnv.VITE_SENTRY_DEBUG ??
+    fileEnv.SENTRY_DEBUG ??
     env.VITE_SENTRY_DEBUG ??
     env.SENTRY_DEBUG ??
     "true",
@@ -88,6 +119,14 @@ const config = {
     argValue("--model-endpoint-port") ??
     env.SHAPE_MODEL_ENDPOINT_PORT ??
     "9100",
+  videoFrameEndpoint:
+    argValue("--video-frame-endpoint") ?? env.SHAPE_VIDEO_FRAME_ENDPOINT ?? "",
+  faceEndpoint: argValue("--face-endpoint") ?? env.SHAPE_FACE_ENDPOINT ?? "",
+  backgroundEndpoint:
+    argValue("--background-endpoint") ?? env.SHAPE_BACKGROUND_ENDPOINT ?? "",
+  audioChunkEndpoint:
+    argValue("--audio-chunk-endpoint") ?? env.SHAPE_AUDIO_CHUNK_ENDPOINT ?? "",
+  voiceEndpoint: argValue("--voice-endpoint") ?? env.SHAPE_VOICE_ENDPOINT ?? "",
 };
 config.modelEndpointBaseUrl = `http://${config.modelEndpointHost}:${config.modelEndpointPort}`;
 
@@ -141,6 +180,13 @@ const manifest = {
     modelProfile: config.modelProfile,
     modelRuntimePreset: config.modelRuntimePreset,
     modelEndpointBaseUrl: config.modelEndpointBaseUrl,
+    modelEndpoints: {
+      videoFrame: config.videoFrameEndpoint || null,
+      face: config.faceEndpoint || null,
+      background: config.backgroundEndpoint || null,
+      audioChunk: config.audioChunkEndpoint || null,
+      voice: config.voiceEndpoint || null,
+    },
   },
   runtimeConfigCommand: runtimeResult,
   aiRuntimeConfigCommand: aiRuntimeResult,
@@ -231,6 +277,20 @@ function writeAiRuntimeConfig(outPath) {
     "--model-endpoint-port",
     config.modelEndpointPort,
   ];
+
+  pushOptional(
+    commandArgs,
+    "--video-frame-endpoint",
+    config.videoFrameEndpoint,
+  );
+  pushOptional(commandArgs, "--face-endpoint", config.faceEndpoint);
+  pushOptional(commandArgs, "--background-endpoint", config.backgroundEndpoint);
+  pushOptional(
+    commandArgs,
+    "--audio-chunk-endpoint",
+    config.audioChunkEndpoint,
+  );
+  pushOptional(commandArgs, "--voice-endpoint", config.voiceEndpoint);
 
   const result = spawnSync(process.execPath, commandArgs, {
     cwd: process.cwd(),
@@ -663,7 +723,17 @@ function argValue(name) {
   return index >= 0 ? (args[index + 1] ?? null) : null;
 }
 
+function pushOptional(target, name, value) {
+  if (value) target.push(name, value);
+}
+
+function urlFromDomainArg(name) {
+  const domain = argValue(name);
+  return domain ? `https://${domain}` : null;
+}
+
 function readEnvFile(path) {
+  if (!path) return {};
   try {
     const values = {};
     for (const rawLine of readFileSync(path, "utf8").split(/\r?\n/)) {
