@@ -4072,6 +4072,7 @@ function AiRuntimeScreen({
 
   const engines = diagnostics?.engines ?? [];
   const managedProcessors = diagnostics?.managedProcessors ?? [];
+  const modelEndpointDiagnostics = diagnostics?.modelEndpoint;
   const pipelineStatuses = aiServiceStatus?.pipelines ?? [];
 
   return (
@@ -4563,6 +4564,51 @@ function AiRuntimeScreen({
                 tone={diagnostics ? "warning" : "idle"}
               />
             )}
+          </Panel>
+          <Panel title="Endpoint modelos">
+            <StatusRow
+              label="Estado"
+              value={
+                modelEndpointDiagnostics
+                  ? modelEndpointDiagnostics.status
+                  : "Sin diagnóstico"
+              }
+              tone={statusTone(modelEndpointDiagnostics?.status)}
+            />
+            <DetailRow
+              label="URL"
+              value={modelEndpointDiagnostics?.url ?? "No configurado"}
+            />
+            <StatusRow
+              label="Modo"
+              value={modelEndpointDiagnostics?.mode ?? "No disponible"}
+              tone={statusTone(modelEndpointDiagnostics?.mode)}
+            />
+            {modelEndpointDiagnostics?.stages?.length ? (
+              modelEndpointDiagnostics.stages.map((stage) => (
+                <StatusRow
+                  key={stage.id}
+                  label={stage.label}
+                  value={stage.status}
+                  tone={statusTone(stage.status)}
+                />
+              ))
+            ) : (
+              <StatusRow
+                label="Stages"
+                value={
+                  modelEndpointDiagnostics?.configured
+                    ? "Sin stages"
+                    : "No configurado"
+                }
+                tone={modelEndpointDiagnostics?.configured ? "warning" : "idle"}
+              />
+            )}
+            {modelEndpointDiagnostics?.message ? (
+              <InlineNotice icon={<ShieldAlert />}>
+                {modelEndpointDiagnostics.message}
+              </InlineNotice>
+            ) : null}
           </Panel>
           <Panel title="Operación">
             <StatusRow

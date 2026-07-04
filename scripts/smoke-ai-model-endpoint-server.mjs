@@ -136,6 +136,21 @@ try {
     "managed model endpoint URL mismatch",
   );
   assert(
+    managedReport.health?.diagnostics?.modelEndpoint?.status === "ready",
+    "sidecar diagnostics did not report managed model endpoint ready",
+  );
+  assert(
+    managedReport.health?.diagnostics?.modelEndpoint?.url ===
+      `http://127.0.0.1:${managedEndpointPort}/diagnostics`,
+    "sidecar diagnostics model endpoint URL mismatch",
+  );
+  assert(
+    managedReport.health?.diagnostics?.modelEndpoint?.stageStatus?.[
+      "video-frame"
+    ] === "ready",
+    "sidecar diagnostics did not include video-frame endpoint stage",
+  );
+  assert(
     managedReport.preflight?.status === "passed",
     "managed endpoint preflight did not pass",
   );

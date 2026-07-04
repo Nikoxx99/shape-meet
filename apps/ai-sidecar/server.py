@@ -895,6 +895,7 @@ def diagnostics_payload():
             "timeoutSeconds": external_processor_timeout(),
         },
         "managedProcessors": managed_processors_payload(),
+        "modelEndpoint": model_endpoint_diagnostics(),
         "sentry": SENTRY_STATUS,
         "limits": {
             "maxFrameBytes": MAX_FRAME_BYTES,
@@ -913,6 +914,7 @@ def diagnostics_summary():
         "engines": diagnostics["engines"],
         "externalProcessors": diagnostics["externalProcessors"],
         "managedProcessors": diagnostics["managedProcessors"],
+        "modelEndpoint": diagnostics["modelEndpoint"],
         "sentry": diagnostics["sentry"],
     }
 
@@ -1005,6 +1007,99 @@ def managed_processor_state(processor_id):
 
 def managed_processors_payload():
     return [managed_processor_payload(config) for config in MANAGED_PROCESSOR_CONFIGS]
+
+
+def model_endpoint_diagnostics():
+    url = model_endpoint_diagnostics_url()
+    if not url:
+        return {
+            "configured": False,
+            "status": "not-configured",
+            "ready": False,
+            "url": None,
+            "mode": None,
+            "stageStatus": {},
+            "stages": [],
+            "message": "Endpoint persistente de modelos no configurado.",
+        }
+
+    try:
+        request = urllib_request.Request(url, headers={"accept": "application/json"}, method="GET")
+        with urllib_request.urlopen(request, timeout=0.75) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception as error:
+        return {
+            "configured": True,
+            "status": "offline",
+            "ready": False,
+            "url": url,
+            "mode": None,
+            "stageStatus": {},
+            "stages": [],
+            "message": str(error)[:240],
+        }
+
+    diagnostics = data.get("diagnostics") if isinstance(data, dict) else None
+    if not isinstance(diagnostics, dict):
+        return {
+            "configured": True,
+            "status": "error",
+            "ready": False,
+            "url": url,
+            "mode": None,
+            "stageStatus": {},
+            "stages": [],
+            "message": "El endpoint no devolvió diagnostics válidos.",
+        }
+
+    ready = bool(diagnostics.get("ready"))
+    return {
+        "configured": True,
+        "status": "ready" if ready else "limited",
+        "ready": ready,
+        "url": url,
+        "mode": diagnostics.get("mode"),
+        "stageStatus": diagnostics.get("stageStatus") if isinstance(diagnostics.get("stageStatus"), dict) else {},
+        "stages": diagnostics.get("stages") if isinstance(diagnostics.get("stages"), list) else [],
+        "message": diagnostics.get("lastWarning") or None,
+    }
+
+
+def model_endpoint_diagnostics_url():
+    explicit_base = env_non_empty("SHAPE_MODEL_ENDPOINT_URL")
+    if explicit_base:
+        parsed = urllib_parse.urlparse(explicit_base)
+        path = parsed.path.rstrip("/")
+        diagnostics_path = path if path.endswith("/diagnostics") else f"{path}/diagnostics"
+        return urllib_parse.urlunparse(
+            parsed._replace(path=diagnostics_path, params="", query="", fragment="")
+        )
+
+    host = env_non_empty("SHAPE_MODEL_ENDPOINT_HOST")
+    port = env_non_empty("SHAPE_MODEL_ENDPOINT_PORT")
+    if host and port:
+        return f"http://{host}:{port}/diagnostics"
+
+    for key in (
+        "SHAPE_VIDEO_FRAME_ENDPOINT",
+        "SHAPE_FACE_ENDPOINT",
+        "SHAPE_BACKGROUND_ENDPOINT",
+        "SHAPE_AUDIO_CHUNK_ENDPOINT",
+        "SHAPE_VOICE_ENDPOINT",
+    ):
+        value = env_non_empty(key)
+        if not value:
+            continue
+        try:
+            parsed = urllib_parse.urlparse(value)
+        except Exception:
+            continue
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            continue
+        if parsed.path.rstrip("/") in {"/video-frame", "/face", "/background", "/voice"}:
+            return urllib_parse.urlunparse(parsed._replace(path="/diagnostics", params="", query="", fragment=""))
+
+    return None
 
 
 def managed_processor_payload(config):

@@ -221,6 +221,25 @@ export interface AiDiagnostics {
     startedAt: string | null;
     lastLogLine: string | null;
   }>;
+  modelEndpoint: {
+    configured: boolean;
+    status: "ready" | "limited" | "offline" | "error" | "not-configured" | string;
+    ready: boolean;
+    url: string | null;
+    mode: string | null;
+    stageStatus: Record<string, string>;
+    stages: Array<{
+      id: string;
+      label: string;
+      kind: string;
+      ready: boolean;
+      status: string;
+      mode: string;
+      issues?: string[];
+      warnings?: string[];
+    }>;
+    message: string | null;
+  };
   sentry: {
     configured: boolean;
     enabled: boolean;
