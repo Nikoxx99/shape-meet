@@ -20,6 +20,7 @@ try {
   smokeWindowsReport();
   await smokeVcclientPostReport();
   smokeAppleWorkspaceReport();
+  smokeDemoAssetsWrite();
   console.log("model workstation bootstrap smoke ok");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
@@ -203,6 +204,29 @@ function smokeAppleWorkspaceReport() {
   assertNoCheck(report, "BackgroundMattingV2", "error");
 }
 
+function smokeDemoAssetsWrite() {
+  const workspace = join(tempDir, "asset-workspace");
+  const report = runBootstrap([
+    "--json",
+    "--skip-hardware",
+    "--skip-vcclient",
+    "--profile",
+    "apple-silicon",
+    "--workspace",
+    workspace,
+    "--write-demo-assets",
+  ]);
+
+  assertEqual(report.demoAssetsWritten, true, "demoAssetsWritten");
+  assertFileNonEmpty(report.demoAssets.frame, "demo frame");
+  assertFileNonEmpty(report.demoAssets.identity, "demo identity");
+  assertFileNonEmpty(report.demoAssets.cleanPlate, "demo clean plate");
+  assertFileNonEmpty(report.demoAssets.audio, "demo audio");
+  assertHasCheck(report, "asset-frame", "ok");
+  assertHasCheck(report, "asset-identity", "ok");
+  assertNextStep(report, "identities/host.jpg");
+}
+
 function runBootstrapAsync(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(
@@ -310,5 +334,15 @@ function assertFileIncludes(filePath, value) {
   const content = readFileSync(filePath, "utf8");
   if (!content.includes(value)) {
     throw new Error(`expected ${filePath} to include ${value}`);
+  }
+}
+
+function assertFileNonEmpty(filePath, label) {
+  if (!existsSync(filePath)) {
+    throw new Error(`expected ${label} to exist: ${filePath}`);
+  }
+  const content = readFileSync(filePath);
+  if (content.byteLength <= 0) {
+    throw new Error(`expected ${label} to be non-empty: ${filePath}`);
   }
 }

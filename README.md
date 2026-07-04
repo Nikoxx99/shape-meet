@@ -218,10 +218,11 @@ pnpm models:bootstrap -- --profile windows-nvidia --dry-run --write-checklist --
 ```
 
 Cuando las rutas, entornos Python, checkpoint, GPU y VCClient estén listos,
-escribe el runtime de Tauri con:
+escribe el runtime de Tauri y genera assets técnicos persistentes de preflight
+con:
 
 ```bash
-pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict --write-checklist
+pnpm models:bootstrap -- --profile windows-nvidia --write-demo-assets --write-runtime --strict --write-checklist
 ```
 
 Puedes agregar `--init-dirs --clone` para crear el workspace y clonar
@@ -231,10 +232,13 @@ por defecto en `output/model-workstation/` e incluye checks, rutas y siguientes
 pasos para preparar o auditar la máquina del demo. También incluye
 `realModelReadiness` por etapa, rutas de assets reales esperadas y comandos
 finales con `--require-real-models` para bloquear demos que sigan en
-passthrough. Con `--write-setup-script` también genera un PowerShell/Bash base
-para clonar repos y crear venvs en la workstation. Si configuras
-`VCCLIENT000_HTTP_ENDPOINT`, el bootstrap hace una prueba `POST /test`
-compatible con w-okada/VCClient.
+passthrough. `--write-demo-assets` crea `samples/frame.jpg`,
+`samples/clean-plate.jpg`, `samples/audio.f32le` e `identities/host.jpg` como
+muestras técnicas; reemplaza `identities/host.jpg` por una foto/modelo real
+autorizado antes de enseñar calidad visual. Con `--write-setup-script` también
+genera un PowerShell/Bash base para clonar repos y crear venvs en la
+workstation. Si configuras `VCCLIENT000_HTTP_ENDPOINT`, el bootstrap hace una
+prueba `POST /test` compatible con w-okada/VCClient.
 
 `pnpm models:preflight` levanta un sidecar temporal con el runtime generado y
 ejecuta una prueba real de frame/audio antes de abrir la app:
@@ -668,7 +672,7 @@ usa el perfil de estación:
 
 ```bash
 pnpm models:bootstrap -- --profile windows-nvidia --dry-run --write-checklist --write-setup-script
-pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict --write-checklist
+pnpm models:bootstrap -- --profile windows-nvidia --write-demo-assets --write-runtime --strict --write-checklist
 ```
 
 Ese perfil asume `C:\models\FaceFusion`,

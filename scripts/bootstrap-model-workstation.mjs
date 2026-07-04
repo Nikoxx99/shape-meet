@@ -22,6 +22,8 @@ const dryRun = args.includes("--dry-run");
 const initDirs = args.includes("--init-dirs");
 const cloneRepos = args.includes("--clone");
 const writeRuntime = args.includes("--write-runtime") && !dryRun;
+const writeDemoAssets = args.includes("--write-demo-assets") && !dryRun;
+const forceDemoAssets = args.includes("--force-demo-assets");
 const writeChecklist = args.includes("--write-checklist");
 const writeSetupScript = args.includes("--write-setup-script");
 const skipHardware = args.includes("--skip-hardware");
@@ -68,6 +70,7 @@ let tempDir = null;
 let doctorReport = null;
 let checklistWritten = false;
 let setupScriptWritten = false;
+let demoAssetsWritten = false;
 
 try {
   main();
@@ -84,6 +87,14 @@ function main() {
 
   runtimeEnvContent = renderRuntimeEnv(modelPaths);
   runtimeEnv = parseEnv(runtimeEnvContent);
+
+  if (writeDemoAssets) {
+    writeDemoAssetFiles(modelPaths);
+  } else {
+    nextStep(
+      `Genera assets técnicos de preflight: pnpm models:bootstrap -- --profile ${profile} --write-demo-assets`,
+    );
+  }
 
   if (writeRuntime) {
     runPrepareRuntime(modelPaths, false);
@@ -663,6 +674,7 @@ function buildReport(modelPaths) {
     checklistWritten,
     setupScriptPath,
     setupScriptWritten,
+    demoAssetsWritten,
     dryRun,
     modelPaths,
     demoAssets: buildDemoAssets(modelPaths),
@@ -679,6 +691,69 @@ function buildReport(modelPaths) {
     checks,
     nextSteps,
   };
+}
+
+function writeDemoAssetFiles(modelPaths) {
+  const assets = buildDemoAssets(modelPaths);
+  const files = [
+    {
+      id: "frame",
+      label: "Frame cámara",
+      path: assets.frame,
+      bytes: tinyJpeg(),
+    },
+    {
+      id: "identity",
+      label: "Identidad host técnica",
+      path: assets.identity,
+      bytes: tinyJpeg(),
+    },
+    {
+      id: "clean-plate",
+      label: "Clean plate fondo",
+      path: assets.cleanPlate,
+      bytes: tinyJpeg(),
+    },
+    {
+      id: "audio",
+      label: "Audio voz",
+      path: assets.audio,
+      bytes: Buffer.alloc(48_000 * 4),
+    },
+  ];
+  let written = 0;
+
+  for (const file of files) {
+    const target = fsPath(file.path);
+    if (!target) {
+      warn(
+        `asset-${file.id}`,
+        `Ruta de asset no verificable en ${platform()}: ${file.path}`,
+      );
+      continue;
+    }
+
+    mkdirSync(dirname(target), { recursive: true });
+    if (existsSync(target) && !forceDemoAssets) {
+      const stats = statSync(target);
+      if (stats.size > 0) {
+        ok(`asset-${file.id}`, `${file.label} ya existe: ${file.path}`);
+        written += 1;
+        continue;
+      }
+    }
+
+    writeFileSync(target, file.bytes);
+    ok(`asset-${file.id}`, `${file.label} escrito: ${file.path}`);
+    written += 1;
+  }
+
+  demoAssetsWritten = written === files.length;
+  if (demoAssetsWritten) {
+    nextStep(
+      "Reemplaza identities/host.jpg por la foto/modelo real autorizado antes de una demo comercial.",
+    );
+  }
 }
 
 function buildDemoAssets(modelPaths) {
@@ -806,6 +881,7 @@ Dry-run: ${report.dryRun ? "si" : "no"}
 - VCClient: ${report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT || "no configurado"}
 - VCClient mode: ${report.runtimeEnv.VCCLIENT000_HTTP_MODE || "auto"}
 - Setup script: ${report.setupScriptWritten ? report.setupScriptPath : "pendiente"}
+- Assets técnicos escritos: ${report.demoAssetsWritten ? "si" : "no"}
 
 ## Checks
 
@@ -831,7 +907,7 @@ ${readinessSection}
 \`\`\`bash
 pnpm models:bootstrap -- --profile ${report.profile} --dry-run --write-checklist
 pnpm models:bootstrap -- --profile ${report.profile} --write-setup-script
-pnpm models:bootstrap -- --profile ${report.profile} --write-runtime --strict --write-checklist
+pnpm models:bootstrap -- --profile ${report.profile} --write-demo-assets --write-runtime --strict --write-checklist
 pnpm models:preflight -- --env-file "${report.runtimeEnvPath}" --frame "${report.demoAssets.frame}" --identity "${report.demoAssets.identity}" --clean-plate "${report.demoAssets.cleanPlate}" --audio "${report.demoAssets.audio}" --strict
 pnpm demo:real:check -- --env-file "${report.runtimeEnvPath}" --include-desktop --require-real-models --frame "${report.demoAssets.frame}" --identity "${report.demoAssets.identity}" --clean-plate "${report.demoAssets.cleanPlate}" --audio "${report.demoAssets.audio}" --strict
 \`\`\`
@@ -961,7 +1037,7 @@ Write-Host "  $CleanPlatePath"
 Write-Host "  $AudioPath"
 Write-Host ""
 Write-Host "Validacion:"
-Write-Host "pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict --write-checklist"
+Write-Host "pnpm models:bootstrap -- --profile windows-nvidia --write-demo-assets --write-runtime --strict --write-checklist"
 Write-Host ('pnpm models:preflight -- --env-file "{0}" --frame "{1}" --identity "{2}" --clean-plate "{3}" --audio "{4}" --strict' -f $RuntimeEnvPath, $FramePath, $IdentityPath, $CleanPlatePath, $AudioPath)
 Write-Host ('pnpm demo:real:check -- --env-file "{0}" --include-desktop --require-real-models --frame "{1}" --identity "{2}" --clean-plate "{3}" --audio "{4}" --strict' -f $RuntimeEnvPath, $FramePath, $IdentityPath, $CleanPlatePath, $AudioPath)
 `;
@@ -1029,7 +1105,7 @@ Manual pendiente:
   $AUDIO_PATH
 
 Validacion:
-pnpm models:bootstrap -- --profile apple-silicon --write-runtime --strict --write-checklist
+pnpm models:bootstrap -- --profile apple-silicon --write-demo-assets --write-runtime --strict --write-checklist
 pnpm models:preflight -- --env-file "$RUNTIME_ENV_PATH" --frame "$FRAME_PATH" --identity "$IDENTITY_PATH" --clean-plate "$CLEAN_PLATE_PATH" --audio "$AUDIO_PATH" --strict
 pnpm demo:real:check -- --env-file "$RUNTIME_ENV_PATH" --include-desktop --require-real-models --frame "$FRAME_PATH" --identity "$IDENTITY_PATH" --clean-plate "$CLEAN_PLATE_PATH" --audio "$AUDIO_PATH" --strict
 NEXT
@@ -1090,6 +1166,13 @@ function defaultProfile() {
   return process.platform === "darwin" && process.arch === "arm64"
     ? "apple-silicon"
     : "windows-nvidia";
+}
+
+function tinyJpeg() {
+  return Buffer.from(
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QH//Z",
+    "base64",
+  );
 }
 
 function defaultWorkspaceRoot(selectedProfile) {
