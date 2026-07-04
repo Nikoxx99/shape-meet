@@ -65,8 +65,10 @@ export async function getCurrentHost(
     }
     return data.user;
   } catch (error) {
-    clearHostToken();
-    if (error instanceof ShapeApiError && error.status === 401) return null;
+    if (error instanceof ShapeApiError && error.status === 401) {
+      clearHostToken();
+      return null;
+    }
     throw error;
   }
 }

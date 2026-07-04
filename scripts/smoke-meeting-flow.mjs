@@ -15,7 +15,8 @@ const password =
   readEnvFileValue("apps/admin/.env.local", "HOST_BOOTSTRAP_PASSWORD") ??
   "ChangeMe123!";
 const guestName = process.env.SHAPE_SMOKE_GUEST_NAME ?? "Invitada Smoke";
-const guestEmail = process.env.SHAPE_SMOKE_GUEST_EMAIL ?? "smoke.guest@example.com";
+const guestEmail =
+  process.env.SHAPE_SMOKE_GUEST_EMAIL ?? "smoke.guest@example.com";
 
 await main();
 
@@ -23,99 +24,207 @@ async function main() {
   const login = await request("/api/auth/host/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ identifier, password })
+    body: JSON.stringify({ identifier, password }),
   });
   assertOk("host login", login);
   const token = login.data.session?.token;
   if (!token) fail("host login", login, "No session token returned.");
-  console.log(`login ok: ${login.data.session.user.email} rank=${login.data.session.user.rank}`);
+  console.log(
+    `login ok: ${login.data.session.user.email} rank=${login.data.session.user.rank}`,
+  );
+
+  const publicCreated = await request("/api/meetings", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      title: `Smoke public direct ${new Date().toISOString()}`,
+      startsAt: new Date(Date.now() + 3 * 60_000).toISOString(),
+      maxParticipants: 4,
+      invitedEmails: [guestEmail],
+    }),
+  });
+  assertOk("create public meeting", publicCreated, 201);
+  const publicMeeting = publicCreated.data.meeting;
+  if (!publicMeeting?.code)
+    fail("create public meeting", publicCreated, "No meeting code returned.");
+  if (publicMeeting.access !== "PUBLIC_LINK") {
+    fail(
+      "create public meeting",
+      publicCreated,
+      `Expected PUBLIC_LINK, received ${publicMeeting.access}.`,
+    );
+  }
+  console.log(`public meeting created: ${publicMeeting.code}`);
+
+  const publicGuestJoin = await request(
+    `/api/meetings/${encodeURIComponent(publicMeeting.code)}/join-token`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        displayName: guestName,
+        camera: true,
+        microphone: false,
+      }),
+    },
+  );
+  assertOk("public guest direct join", publicGuestJoin);
+  if (!publicGuestJoin.data.livekit?.token) {
+    fail(
+      "public guest direct join",
+      publicGuestJoin,
+      "No LiveKit token returned for public guest.",
+    );
+  }
+  assertParticipantMedia(
+    "public guest direct join",
+    publicGuestJoin.data.meeting,
+    publicGuestJoin.data.livekit.identity,
+    { camera: "on", mic: "muted" },
+    publicGuestJoin,
+  );
+  console.log(
+    `public guest direct join ok: identity=${publicGuestJoin.data.livekit.identity}`,
+  );
+
+  const endedPublic = await request(
+    `/api/meetings/${encodeURIComponent(publicMeeting.code)}/end`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    },
+  );
+  assertOk("end public meeting", endedPublic);
+  console.log("public end ok");
 
   const created = await request("/api/meetings", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${token}`
+      authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
       title: `Smoke flow ${new Date().toISOString()}`,
       startsAt: new Date(Date.now() + 5 * 60_000).toISOString(),
       access: "INVITE_ONLY",
       maxParticipants: 4,
-      invitedEmails: [guestEmail]
-    })
+      invitedEmails: [guestEmail],
+    }),
   });
   assertOk("create meeting", created, 201);
   const meeting = created.data.meeting;
-  if (!meeting?.code) fail("create meeting", created, "No meeting code returned.");
+  if (!meeting?.code)
+    fail("create meeting", created, "No meeting code returned.");
   console.log(`meeting created: ${meeting.code}`);
 
-  const missingEmailAccess = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/waiting-room`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      displayName: guestName,
-      camera: false,
-      microphone: false
-    })
-  });
-  assertStatus("waiting room invite email guard", missingEmailAccess, 403, "INVITE_EMAIL_REQUIRED");
+  const missingEmailAccess = await request(
+    `/api/meetings/${encodeURIComponent(meeting.code)}/waiting-room`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        displayName: guestName,
+        camera: false,
+        microphone: false,
+      }),
+    },
+  );
+  assertStatus(
+    "waiting room invite email guard",
+    missingEmailAccess,
+    403,
+    "INVITE_EMAIL_REQUIRED",
+  );
   console.log("invite email guard ok: INVITE_EMAIL_REQUIRED");
 
-  const uninvitedAccess = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/waiting-room`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      displayName: guestName,
-      email: "not.invited@example.com",
-      camera: false,
-      microphone: false
-    })
-  });
-  assertStatus("waiting room invited email guard", uninvitedAccess, 403, "INVITE_REQUIRED");
+  const uninvitedAccess = await request(
+    `/api/meetings/${encodeURIComponent(meeting.code)}/waiting-room`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        displayName: guestName,
+        email: "not.invited@example.com",
+        camera: false,
+        microphone: false,
+      }),
+    },
+  );
+  assertStatus(
+    "waiting room invited email guard",
+    uninvitedAccess,
+    403,
+    "INVITE_REQUIRED",
+  );
   console.log("invite list guard ok: INVITE_REQUIRED");
 
-  const access = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/waiting-room`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      displayName: guestName,
-      email: guestEmail,
-      camera: false,
-      microphone: false
-    })
-  });
+  const access = await request(
+    `/api/meetings/${encodeURIComponent(meeting.code)}/waiting-room`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        displayName: guestName,
+        email: guestEmail,
+        camera: false,
+        microphone: false,
+      }),
+    },
+  );
   assertOk("waiting room", access);
   const participantId = access.data.participantId;
-  if (!participantId) fail("waiting room", access, "No participant id returned.");
+  if (!participantId)
+    fail("waiting room", access, "No participant id returned.");
   const participantToken = access.data.participantToken;
-  if (!participantToken) fail("waiting room", access, "No participant token returned.");
-  assertParticipantMedia("waiting room", access.data.meeting, participantId, { camera: "off", mic: "muted" }, access);
+  if (!participantToken)
+    fail("waiting room", access, "No participant token returned.");
+  assertParticipantMedia(
+    "waiting room",
+    access.data.meeting,
+    participantId,
+    { camera: "off", mic: "muted" },
+    access,
+  );
   console.log(`waiting room ok: ${participantId}`);
 
-  const missingParticipantTokenJoin = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/join-token`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      displayName: guestName,
-      camera: false,
-      microphone: false,
-      participantId
-    })
-  });
-  assertStatus("guest join token guard", missingParticipantTokenJoin, 401, "PARTICIPANT_TOKEN_REQUIRED");
+  const missingParticipantTokenJoin = await request(
+    `/api/meetings/${encodeURIComponent(meeting.code)}/join-token`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        displayName: guestName,
+        camera: false,
+        microphone: false,
+        participantId,
+      }),
+    },
+  );
+  assertStatus(
+    "guest join token guard",
+    missingParticipantTokenJoin,
+    401,
+    "PARTICIPANT_TOKEN_REQUIRED",
+  );
   console.log("guest join token guard ok: PARTICIPANT_TOKEN_REQUIRED");
 
-  const earlyJoin = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/join-token`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      displayName: guestName,
-      camera: false,
-      microphone: false,
-      participantId,
-      participantToken
-    })
-  });
+  const earlyJoin = await request(
+    `/api/meetings/${encodeURIComponent(meeting.code)}/join-token`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        displayName: guestName,
+        camera: false,
+        microphone: false,
+        participantId,
+        participantToken,
+      }),
+    },
+  );
   assertStatus("guest join before admit", earlyJoin, 409, "WAITING_FOR_HOST");
   console.log("pre-admit guard ok: WAITING_FOR_HOST");
 
@@ -123,26 +232,36 @@ async function main() {
     `/api/meetings/${encodeURIComponent(meeting.code)}/participants/${encodeURIComponent(participantId)}/admit`,
     {
       method: "POST",
-      headers: { authorization: `Bearer ${token}` }
-    }
+      headers: { authorization: `Bearer ${token}` },
+    },
   );
   assertOk("admit participant", admitted);
   console.log("admit ok");
 
-  const guestJoin = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/join-token`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      displayName: guestName,
-      camera: false,
-      microphone: true,
-      participantId,
-      participantToken
-    })
-  });
+  const guestJoin = await request(
+    `/api/meetings/${encodeURIComponent(meeting.code)}/join-token`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        displayName: guestName,
+        camera: false,
+        microphone: true,
+        participantId,
+        participantToken,
+      }),
+    },
+  );
   assertOk("guest join", guestJoin);
-  if (!guestJoin.data.livekit?.token) fail("guest join", guestJoin, "No LiveKit token returned for guest.");
-  assertParticipantMedia("guest join", guestJoin.data.meeting, participantId, { camera: "off", mic: "on" }, guestJoin);
+  if (!guestJoin.data.livekit?.token)
+    fail("guest join", guestJoin, "No LiveKit token returned for guest.");
+  assertParticipantMedia(
+    "guest join",
+    guestJoin.data.meeting,
+    participantId,
+    { camera: "off", mic: "on" },
+    guestJoin,
+  );
   console.log(`guest join ok: room=${guestJoin.data.livekit.room}`);
 
   const guestMediaUpdateWithoutToken = await request(
@@ -152,9 +271,9 @@ async function main() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         camera: true,
-        microphone: false
-      })
-    }
+        microphone: false,
+      }),
+    },
   );
   assertStatus("guest media token guard", guestMediaUpdateWithoutToken, 403);
   console.log("guest media token guard ok");
@@ -167,29 +286,45 @@ async function main() {
       body: JSON.stringify({
         camera: true,
         microphone: false,
-        participantToken
-      })
-    }
+        participantToken,
+      }),
+    },
   );
   assertOk("guest media update", guestMediaUpdate);
-  assertParticipantMedia("guest media update", guestMediaUpdate.data.meeting, participantId, { camera: "on", mic: "muted" }, guestMediaUpdate);
+  assertParticipantMedia(
+    "guest media update",
+    guestMediaUpdate.data.meeting,
+    participantId,
+    { camera: "on", mic: "muted" },
+    guestMediaUpdate,
+  );
   console.log("guest media update ok");
 
-  const hostJoin = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/join-token`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${token}`
+  const hostJoin = await request(
+    `/api/meetings/${encodeURIComponent(meeting.code)}/join-token`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        displayName: login.data.session.user.username,
+        camera: true,
+        microphone: true,
+      }),
     },
-    body: JSON.stringify({
-      displayName: login.data.session.user.username,
-      camera: true,
-      microphone: true
-    })
-  });
+  );
   assertOk("host join", hostJoin);
-  if (!hostJoin.data.livekit?.token) fail("host join", hostJoin, "No LiveKit token returned for host.");
-  assertParticipantMedia("host join", hostJoin.data.meeting, hostJoin.data.livekit.identity, { camera: "on", mic: "on" }, hostJoin);
+  if (!hostJoin.data.livekit?.token)
+    fail("host join", hostJoin, "No LiveKit token returned for host.");
+  assertParticipantMedia(
+    "host join",
+    hostJoin.data.meeting,
+    hostJoin.data.livekit.identity,
+    { camera: "on", mic: "on" },
+    hostJoin,
+  );
   console.log(`host join ok: identity=${hostJoin.data.livekit.identity}`);
 
   const hostMediaUpdate = await request(
@@ -198,24 +333,34 @@ async function main() {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${token}`
+        authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         camera: false,
-        microphone: false
-      })
-    }
+        microphone: false,
+      }),
+    },
   );
   assertOk("host media update", hostMediaUpdate);
-  assertParticipantMedia("host media update", hostMediaUpdate.data.meeting, hostJoin.data.livekit.identity, { camera: "off", mic: "muted" }, hostMediaUpdate);
+  assertParticipantMedia(
+    "host media update",
+    hostMediaUpdate.data.meeting,
+    hostJoin.data.livekit.identity,
+    { camera: "off", mic: "muted" },
+    hostMediaUpdate,
+  );
   console.log("host media update ok");
 
-  const ended = await request(`/api/meetings/${encodeURIComponent(meeting.code)}/end`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}` }
-  });
+  const ended = await request(
+    `/api/meetings/${encodeURIComponent(meeting.code)}/end`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    },
+  );
   assertOk("end meeting", ended);
-  if (ended.data.meeting?.status !== "ENDED") fail("end meeting", ended, "Meeting status is not ENDED.");
+  if (ended.data.meeting?.status !== "ENDED")
+    fail("end meeting", ended, "Meeting status is not ENDED.");
   console.log("end ok");
 }
 
@@ -243,20 +388,33 @@ function assertOk(label, result, expectedStatus = null) {
 }
 
 function assertStatus(label, result, expectedStatus, expectedCode = null) {
-  if (result.response.status !== expectedStatus) fail(label, result, `Expected HTTP ${expectedStatus}.`);
+  if (result.response.status !== expectedStatus)
+    fail(label, result, `Expected HTTP ${expectedStatus}.`);
   if (expectedCode && result.data.code !== expectedCode) {
     fail(label, result, `Expected code ${expectedCode}.`);
   }
 }
 
-function assertParticipantMedia(label, meeting, participantId, expected, result) {
-  const participant = meeting?.participants?.find((item) => item.id === participantId);
-  if (!participant) fail(label, result, `Participant ${participantId} not returned.`);
-  if (participant.camera !== expected.camera || participant.mic !== expected.mic) {
+function assertParticipantMedia(
+  label,
+  meeting,
+  participantId,
+  expected,
+  result,
+) {
+  const participant = meeting?.participants?.find(
+    (item) => item.id === participantId,
+  );
+  if (!participant)
+    fail(label, result, `Participant ${participantId} not returned.`);
+  if (
+    participant.camera !== expected.camera ||
+    participant.mic !== expected.mic
+  ) {
     fail(
       label,
       result,
-      `Expected participant media camera=${expected.camera}, mic=${expected.mic}; got camera=${participant.camera}, mic=${participant.mic}.`
+      `Expected participant media camera=${expected.camera}, mic=${expected.mic}; got camera=${participant.camera}, mic=${participant.mic}.`,
     );
   }
 }
@@ -277,7 +435,10 @@ function readEnvFileValue(file, key) {
 
   if (!line) return null;
 
-  return line.slice(key.length + 1).trim().replace(/^['"]|['"]$/g, "");
+  return line
+    .slice(key.length + 1)
+    .trim()
+    .replace(/^['"]|['"]$/g, "");
 }
 
 function redact(value) {
@@ -287,7 +448,7 @@ function redact(value) {
   return Object.fromEntries(
     Object.entries(value).map(([key, entry]) => [
       key,
-      /token|password|secret|dsn|key/i.test(key) ? "<redacted>" : redact(entry)
-    ])
+      /token|password|secret|dsn|key/i.test(key) ? "<redacted>" : redact(entry),
+    ]),
   );
 }

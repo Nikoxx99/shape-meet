@@ -19,7 +19,7 @@ const STORAGE_KEY = "shape-meet-device-selection";
 const EMPTY_SELECTION: DeviceSelection = {
   cameraId: "",
   microphoneId: "",
-  speakerId: ""
+  speakerId: "",
 };
 
 export function readStoredDeviceSelection(): DeviceSelection {
@@ -32,8 +32,9 @@ export function readStoredDeviceSelection(): DeviceSelection {
 
     return {
       cameraId: typeof parsed.cameraId === "string" ? parsed.cameraId : "",
-      microphoneId: typeof parsed.microphoneId === "string" ? parsed.microphoneId : "",
-      speakerId: typeof parsed.speakerId === "string" ? parsed.speakerId : ""
+      microphoneId:
+        typeof parsed.microphoneId === "string" ? parsed.microphoneId : "",
+      speakerId: typeof parsed.speakerId === "string" ? parsed.speakerId : "",
     };
   } catch {
     return EMPTY_SELECTION;
@@ -65,7 +66,11 @@ export function useMediaDevices() {
       setDevices(nextDevices);
       setError(null);
     } catch (deviceError) {
-      setError(deviceError instanceof Error ? deviceError.message : "No se pudieron leer los dispositivos.");
+      setError(
+        deviceError instanceof Error
+          ? deviceError.message
+          : "No se pudieron leer los dispositivos.",
+      );
     } finally {
       setRefreshing(false);
     }
@@ -80,11 +85,34 @@ export function useMediaDevices() {
     setPermissionRequested(true);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-      stream.getTracks().forEach((track) => track.stop());
+      const results = await Promise.allSettled([
+        navigator.mediaDevices.getUserMedia({ audio: true, video: false }),
+        navigator.mediaDevices.getUserMedia({ audio: false, video: true }),
+      ]);
+      const streams = results
+        .filter(
+          (result): result is PromiseFulfilledResult<MediaStream> =>
+            result.status === "fulfilled",
+        )
+        .map((result) => result.value);
+      streams.forEach((stream) =>
+        stream.getTracks().forEach((track) => track.stop()),
+      );
+      if (results.every((result) => result.status === "rejected")) {
+        const firstRejected = results.find(
+          (result): result is PromiseRejectedResult =>
+            result.status === "rejected",
+        );
+        throw firstRejected?.reason;
+      }
+      setError(null);
       await refresh();
     } catch (deviceError) {
-      setError(deviceError instanceof Error ? deviceError.message : "No se pudo abrir cámara o micrófono.");
+      setError(
+        deviceError instanceof Error
+          ? deviceError.message
+          : "No se pudo abrir cámara o micrófono.",
+      );
       await refresh();
     }
   }, [refresh]);
@@ -98,8 +126,15 @@ export function useMediaDevices() {
       void refresh();
     };
 
-    navigator.mediaDevices.addEventListener?.("devicechange", handleDeviceChange);
-    return () => navigator.mediaDevices.removeEventListener?.("devicechange", handleDeviceChange);
+    navigator.mediaDevices.addEventListener?.(
+      "devicechange",
+      handleDeviceChange,
+    );
+    return () =>
+      navigator.mediaDevices.removeEventListener?.(
+        "devicechange",
+        handleDeviceChange,
+      );
   }, [refresh]);
 
   const choices = useMemo(() => buildDeviceChoices(devices), [devices]);
@@ -111,38 +146,81 @@ export function useMediaDevices() {
     permissionRequested,
     refreshing,
     refresh,
-    requestDeviceAccess
+    requestDeviceAccess,
   };
 }
 
-export function normalizeDeviceSelection(selection: DeviceSelection, choices: Record<MediaDeviceKind, MediaDeviceChoice[]>): DeviceSelection {
+export function normalizeDeviceSelection(
+  selection: DeviceSelection,
+  choices: Record<MediaDeviceKind, MediaDeviceChoice[]>,
+): DeviceSelection {
   return {
-    cameraId: hasDevice(choices.videoinput, selection.cameraId) ? selection.cameraId : choices.videoinput[0]?.id ?? "",
-    microphoneId: hasDevice(choices.audioinput, selection.microphoneId) ? selection.microphoneId : choices.audioinput[0]?.id ?? "",
-    speakerId: hasDevice(choices.audiooutput, selection.speakerId) ? selection.speakerId : choices.audiooutput[0]?.id ?? ""
+    cameraId: hasDevice(choices.videoinput, selection.cameraId)
+      ? selection.cameraId
+      : (choices.videoinput[0]?.id ?? ""),
+    microphoneId: hasDevice(choices.audioinput, selection.microphoneId)
+      ? selection.microphoneId
+      : (choices.audioinput[0]?.id ?? ""),
+    speakerId: hasDevice(choices.audiooutput, selection.speakerId)
+      ? selection.speakerId
+      : (choices.audiooutput[0]?.id ?? ""),
   };
 }
 
-export function deviceLabel(choices: MediaDeviceChoice[], id: string, fallback: string) {
-  return choices.find((choice) => choice.id === id)?.label ?? choices[0]?.label ?? fallback;
+export function deviceLabel(
+  choices: MediaDeviceChoice[],
+  id: string,
+  fallback: string,
+) {
+  return (
+    choices.find((choice) => choice.id === id)?.label ??
+    choices[0]?.label ??
+    fallback
+  );
 }
 
-function buildDeviceChoices(devices: MediaDeviceInfo[]): Record<MediaDeviceKind, MediaDeviceChoice[]> {
+function buildDeviceChoices(
+  devices: MediaDeviceInfo[],
+): Record<MediaDeviceKind, MediaDeviceChoice[]> {
   return {
     videoinput: mapDevices(devices, "videoinput", "Cámara"),
     audioinput: mapDevices(devices, "audioinput", "Micrófono"),
-    audiooutput: mapDevices(devices, "audiooutput", "Salida")
+    audiooutput: mapDevices(devices, "audiooutput", "Salida"),
   };
 }
 
-function mapDevices(devices: MediaDeviceInfo[], kind: MediaDeviceKind, fallbackPrefix: string): MediaDeviceChoice[] {
+function mapDevices(
+  devices: MediaDeviceInfo[],
+  kind: MediaDeviceKind,
+  fallbackPrefix: string,
+): MediaDeviceChoice[] {
+  const seen = new Set<string>();
+
   return devices
     .filter((device) => device.kind === kind && device.deviceId)
+    .filter((device) => {
+      const normalizedLabel = normalizeDeviceLabel(device.label);
+      const key = normalizedLabel
+        ? `${kind}:${device.groupId || "label"}:${normalizedLabel}`
+        : `${kind}:${device.deviceId}`;
+
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map((device, index) => ({
       id: device.deviceId,
       label: device.label || `${fallbackPrefix} ${index + 1}`,
-      kind
+      kind,
     }));
+}
+
+function normalizeDeviceLabel(label: string) {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/^(default|communications)\s*[-:]\s*/i, "")
+    .replace(/\s+/g, " ");
 }
 
 function hasDevice(devices: MediaDeviceChoice[], id: string) {

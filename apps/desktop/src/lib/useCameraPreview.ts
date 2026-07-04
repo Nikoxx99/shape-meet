@@ -30,14 +30,11 @@ export function useCameraPreview(options: CameraPreviewOptions) {
       }
 
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width,
-            height,
-            frameRate,
-            ...(deviceId ? { deviceId: { exact: deviceId } } : {})
-          },
-          audio: false
+        stream = await openCameraStream({
+          deviceId,
+          width,
+          height,
+          frameRate,
         });
 
         if (cancelled) {
@@ -66,6 +63,39 @@ export function useCameraPreview(options: CameraPreviewOptions) {
   }, [deviceId, enabled, frameRate, height, width]);
 
   return { videoRef, error, active };
+}
+
+async function openCameraStream({
+  deviceId,
+  width,
+  height,
+  frameRate,
+}: {
+  deviceId?: string;
+  width: number;
+  height: number;
+  frameRate: number;
+}) {
+  const constraints = {
+    width,
+    height,
+    frameRate,
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+  };
+
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: constraints,
+      audio: false,
+    });
+  } catch (error) {
+    if (!deviceId) throw error;
+
+    return navigator.mediaDevices.getUserMedia({
+      video: { width, height, frameRate },
+      audio: false,
+    });
+  }
 }
 
 function cameraPreviewErrorMessage(error: unknown) {

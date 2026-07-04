@@ -8,9 +8,9 @@ import { apiErrorResponse } from "../../../lib/api-errors";
 const createMeetingSchema = z.object({
   title: z.string().min(3).max(120),
   startsAt: z.string().datetime(),
-  access: z.enum(["INVITE_ONLY", "PUBLIC_LINK"]).default("INVITE_ONLY"),
+  access: z.enum(["INVITE_ONLY", "PUBLIC_LINK"]).default("PUBLIC_LINK"),
   maxParticipants: z.number().int().min(2).max(4).default(4),
-  invitedEmails: z.array(z.string().email()).default([])
+  invitedEmails: z.array(z.string().email()).default([]),
 });
 
 export async function GET(request: Request) {
@@ -22,14 +22,19 @@ export async function GET(request: Request) {
     }
 
     const meetings = await prisma.meeting.findMany({
-      where: session.user.rank === "ADMIN" ? undefined : { hostId: session.user.id },
+      where:
+        session.user.rank === "ADMIN" ? undefined : { hostId: session.user.id },
       include: { participants: true, invites: true },
-      orderBy: [{ startsAt: "asc" }, { createdAt: "desc" }]
+      orderBy: [{ startsAt: "asc" }, { createdAt: "desc" }],
     });
 
-    return NextResponse.json({ meetings: meetings.map((meeting) => serializeMeeting(meeting)) });
+    return NextResponse.json({
+      meetings: meetings.map((meeting) => serializeMeeting(meeting)),
+    });
   } catch (error) {
-    return apiErrorResponse(error, { fallbackMessage: "No se pudieron cargar las reuniones." });
+    return apiErrorResponse(error, {
+      fallbackMessage: "No se pudieron cargar las reuniones.",
+    });
   }
 }
 
@@ -58,14 +63,14 @@ export async function POST(request: Request) {
             userId: session.user.id,
             role: "host",
             cameraEnabled: true,
-            microphoneEnabled: true
-          }
+            microphoneEnabled: true,
+          },
         },
         invites: {
-          create: invitedEmails.map((email) => ({ email }))
-        }
+          create: invitedEmails.map((email) => ({ email })),
+        },
       },
-      include: { participants: true, invites: true }
+      include: { participants: true, invites: true },
     });
 
     await prisma.auditLog.create({
@@ -73,13 +78,18 @@ export async function POST(request: Request) {
         actorId: session.user.id,
         action: "MEETING_CREATED",
         targetId: meeting.id,
-        metadata: { code: meeting.code, access: meeting.access, invitedEmails }
-      }
+        metadata: { code: meeting.code, access: meeting.access, invitedEmails },
+      },
     });
 
-    return NextResponse.json({ meeting: serializeMeeting(meeting) }, { status: 201 });
+    return NextResponse.json(
+      { meeting: serializeMeeting(meeting) },
+      { status: 201 },
+    );
   } catch (error) {
-    return apiErrorResponse(error, { fallbackMessage: "No se pudo crear la reunión." });
+    return apiErrorResponse(error, {
+      fallbackMessage: "No se pudo crear la reunión.",
+    });
   }
 }
 
@@ -98,5 +108,7 @@ function randomDigits(length: number) {
 }
 
 function normalizeEmails(emails: string[]) {
-  return Array.from(new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean)));
+  return Array.from(
+    new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean)),
+  );
 }

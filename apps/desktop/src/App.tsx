@@ -17,7 +17,6 @@ import {
   MicOff,
   Phone,
   PhoneOff,
-  Plus,
   RefreshCw,
   ScreenShare,
   Send,
@@ -425,6 +424,40 @@ function meetingGuestNames(meeting: Meeting) {
     .filter((participant) => participant.role !== "host")
     .map((participant) => participant.displayName);
   return guests.length > 0 ? guests.join(", ") : "Sin invitados";
+}
+
+function meetingEmailSuggestions(
+  meetings: Meeting[],
+  selectedEmails: string[],
+) {
+  const selected = new Set(
+    selectedEmails.map((email) => email.trim().toLowerCase()),
+  );
+  const suggestions = new Set<string>();
+
+  for (const meeting of meetings) {
+    for (const email of meeting.invitedEmails) {
+      const normalized = email.trim().toLowerCase();
+      if (isLikelyEmail(normalized) && !selected.has(normalized)) {
+        suggestions.add(normalized);
+      }
+    }
+
+    for (const participant of meeting.participants) {
+      const normalized = participant.email?.trim().toLowerCase();
+      if (
+        normalized &&
+        isLikelyEmail(normalized) &&
+        !selected.has(normalized)
+      ) {
+        suggestions.add(normalized);
+      }
+    }
+  }
+
+  return Array.from(suggestions).sort((left, right) =>
+    left.localeCompare(right),
+  );
 }
 
 function gpuProfileLabel(profile: NativeGpuProfile | null) {
@@ -995,16 +1028,6 @@ const bogotaDayFormatter = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
-const bogotaDateTimeFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/Bogota",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-
 function parseMeetingDate(value: string | Date) {
   if (value instanceof Date) {
     return Number.isFinite(value.getTime()) ? value : null;
@@ -1031,25 +1054,11 @@ function meetingDayKey(value: string | Date) {
   return date ? bogotaDayFormatter.format(date) : "sin-fecha";
 }
 
-function bogotaDateTimeInputValue(value: Date) {
-  const parts = Object.fromEntries(
-    bogotaDateTimeFormatter
-      .formatToParts(value)
-      .map((part) => [part.type, part.value]),
-  );
-  const hour = parts.hour === "24" ? "00" : parts.hour;
-  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`;
-}
-
 function bogotaDateTimeInputToIso(value: string) {
   const parsed = new Date(`${value}:00-05:00`);
   return Number.isFinite(parsed.getTime())
     ? parsed.toISOString()
     : new Date().toISOString();
-}
-
-function defaultMeetingStartInput() {
-  return bogotaDateTimeInputValue(new Date(Date.now() + 30 * 60 * 1000));
 }
 
 function meetingStatusLabel(status: Meeting["status"]) {
@@ -1436,7 +1445,7 @@ export default function App() {
   const [faceEnabled, setFaceEnabled] = useState(
     Boolean(defaultFaceIdentityFor(initialIdentities)),
   );
-  const [backgroundEnabled, setBackgroundEnabled] = useState(true);
+  const [backgroundEnabled, setBackgroundEnabled] = useState(false);
   const [backgroundCalibration, setBackgroundCalibration] =
     useState<BackgroundCalibration | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
@@ -1577,13 +1586,7 @@ export default function App() {
         setHost(user);
         void refreshHostData(session);
       })
-      .catch((error) =>
-        setApiMessage(
-          error instanceof Error
-            ? error.message
-            : "No se pudo restaurar la sesión.",
-        ),
-      );
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -1635,8 +1638,32 @@ export default function App() {
     setRoute(nextRoute);
   }
 
-  function startHostLogin() {
+  async function startHostLogin() {
     setIsHostFlow(true);
+    setApiMessage(null);
+
+    if (hostSession) {
+      navigate("scheduled");
+      return;
+    }
+
+    const token = getStoredHostToken();
+    if (token) {
+      try {
+        const user = await getCurrentHost(token);
+        if (user) {
+          const session = { token, user };
+          setHostSession(session);
+          setHost(user);
+          await refreshHostData(session);
+          navigate("scheduled");
+          return;
+        }
+      } catch {
+        // Network errors are already captured by the API layer.
+      }
+    }
+
     navigate("login");
   }
 
@@ -1792,7 +1819,7 @@ export default function App() {
     );
   }
 
-  async function runHostPreflightGate(navigateOnFailure = false) {
+  async function runHostPreflightGate() {
     if (!hostAiEffectsEnabled) {
       setHostPreflight(null);
       setHostPreflightError(null);
@@ -1800,10 +1827,9 @@ export default function App() {
     }
 
     if (backgroundEnabled && !backgroundCalibration) {
-      const message = "Captura el fondo limpio antes de probar IA.";
+      const message = "Configura el fondo personalizado antes de activarlo.";
       setHostPreflightError(message);
       setApiMessage(message);
-      if (navigateOnFailure) navigate("background-calibration");
       return false;
     }
 
@@ -1839,7 +1865,6 @@ export default function App() {
 
       if (!accepted) {
         setHostPreflightError(message);
-        if (navigateOnFailure) navigate("ai-runtime");
         return false;
       }
 
@@ -1852,7 +1877,6 @@ export default function App() {
       setHostPreflightError(message);
       setApiMessage(message);
       setDebugMessage(message);
-      if (navigateOnFailure) navigate("ai-runtime");
       return false;
     } finally {
       setHostPreflightRunning(false);
@@ -2083,12 +2107,7 @@ export default function App() {
   }
 
   async function enterHostCallFromSettings() {
-    if (backgroundEnabled && !backgroundCalibration) {
-      navigate("background-calibration");
-      return;
-    }
-
-    const preflightReady = await runHostPreflightGate(true);
+    const preflightReady = await runHostPreflightGate();
     if (!preflightReady) return;
 
     await handleEnterCall();
@@ -2130,6 +2149,11 @@ export default function App() {
       if (!guestName.trim()) {
         setApiMessage("Ingresa tu nombre visible.");
         navigate("join");
+        return;
+      }
+
+      if (currentMeeting.access === "PUBLIC_LINK") {
+        await handleEnterCall(null);
         return;
       }
 
@@ -2198,7 +2222,11 @@ export default function App() {
 
       const displayName = isHostFlow ? (host?.username ?? "Host") : guestName;
 
-      if (!isHostFlow && !participantId) {
+      if (
+        !isHostFlow &&
+        !participantId &&
+        currentMeeting.access === "INVITE_ONLY"
+      ) {
         await handleRequestMeetingAccess();
         return;
       }
@@ -2427,7 +2455,10 @@ export default function App() {
   return (
     <main className="app-shell">
       {route === "home" && (
-        <HomeScreen onJoin={() => navigate("join")} onHost={startHostLogin} />
+        <HomeScreen
+          onJoin={() => navigate("join")}
+          onHost={() => void startHostLogin()}
+        />
       )}
       {route === "join" && (
         <JoinScreen
@@ -2506,6 +2537,7 @@ export default function App() {
       {route === "create" && (
         <CreateMeetingScreen
           error={apiMessage}
+          meetings={meetings}
           onBack={() => navigate("scheduled")}
           onCreate={handleCreateMeeting}
         />
@@ -2522,7 +2554,10 @@ export default function App() {
                 meetingShareUrl(currentMeeting.code, desktopRuntimeConfig),
               )
             }
-            onContinue={() => navigate("device-test")}
+            onContinue={() => {
+              setIsHostFlow(true);
+              navigate("device-test");
+            }}
           />
         ) : (
           <MissingMeetingScreen onBack={() => navigate("scheduled")} />
@@ -2568,9 +2603,9 @@ export default function App() {
           onToggleFace={() => setFaceEnabled((value) => !value)}
           onToggleBackground={() => setBackgroundEnabled((value) => !value)}
           onToggleVoice={() => setVoiceEnabled((value) => !value)}
-          onTestAi={() => void runHostPreflightGate(false)}
+          onTestAi={() => void runHostPreflightGate()}
           onOpenAiRuntime={() => navigate("ai-runtime")}
-          onOpenBackgroundCalibration={() => navigate("background-calibration")}
+          onCaptureBackgroundCalibration={setBackgroundCalibration}
           onBack={() => navigate("device-test")}
           onSkip={skipHostEffectsAndEnter}
           onContinue={enterHostCallFromSettings}
@@ -2770,7 +2805,10 @@ function MeetingFoundScreen({
         </p>
         <div className="detail-list">
           <DetailRow label="Organizador" value={meetingHostName(meeting)} />
-          <DetailRow label="Acceso" value="Sala de espera" />
+          <DetailRow
+            label="Acceso"
+            value={inviteOnly ? "Solo invitados" : "Entrada directa"}
+          />
           <DetailRow label="Código" value={meeting.code} />
         </div>
         <TextField
@@ -2798,7 +2836,7 @@ function MeetingFoundScreen({
           onClick={onContinue}
           disabled={!canContinue}
         >
-          Probar equipo
+          Continuar
         </Button>
       </CenteredPanel>
     </ScreenFrame>
@@ -3065,7 +3103,7 @@ function MeetingDetailScreen({
               onClick={onContinue}
               disabled={meetingEnded}
             >
-              Probar equipo
+              Continuar
             </Button>
             <Button
               variant="outline"
@@ -3093,44 +3131,40 @@ function MeetingDetailScreen({
 
 function CreateMeetingScreen({
   error,
+  meetings,
   onBack,
   onCreate,
 }: {
   error: string | null;
+  meetings: Meeting[];
   onBack: () => void;
   onCreate: (input: MeetingCreateInput) => Promise<void>;
 }) {
   const [title, setTitle] = useState(
     DEMO_DATA_ENABLED ? "Revisión con Luxora" : "",
   );
-  const [startsAt] = useState(defaultMeetingStartInput);
-  const [access, setAccess] =
-    useState<MeetingCreateInput["access"]>("INVITE_ONLY");
-  const [invitedEmails, setInvitedEmails] = useState(
-    DEMO_DATA_ENABLED ? "maria@luxora.co" : "",
+  const [startsAt, setStartsAt] = useState("");
+  const [invitedEmails, setInvitedEmails] = useState<string[]>(
+    DEMO_DATA_ENABLED ? ["maria@luxora.co"] : [],
   );
-  const [waitingRoomEnabled, setWaitingRoomEnabled] = useState(true);
-  const [chatEnabled, setChatEnabled] = useState(true);
-  const [internalRecordingEnabled, setInternalRecordingEnabled] =
-    useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const emailSuggestions = useMemo(
+    () => meetingEmailSuggestions(meetings, invitedEmails),
+    [invitedEmails, meetings],
+  );
 
   async function submit() {
     setSubmitting(true);
 
     try {
       await onCreate({
-        title,
-        startsAt: bogotaDateTimeInputToIso(startsAt),
-        access,
+        title: title.trim(),
+        startsAt: startsAt.trim()
+          ? bogotaDateTimeInputToIso(startsAt)
+          : new Date().toISOString(),
+        access: "PUBLIC_LINK",
         maxParticipants: 4,
-        invitedEmails:
-          access === "INVITE_ONLY"
-            ? invitedEmails
-                .split(",")
-                .map((email) => email.trim())
-                .filter(Boolean)
-            : [],
+        invitedEmails,
       });
     } finally {
       setSubmitting(false);
@@ -3151,40 +3185,19 @@ function CreateMeetingScreen({
             value={title}
             onChange={setTitle}
           />
-          <SelectField
-            label="Acceso"
-            value={access}
-            onChange={(value) =>
-              setAccess(value as MeetingCreateInput["access"])
-            }
-            options={[
-              { value: "INVITE_ONLY", label: "Solo invitados" },
-              { value: "PUBLIC_LINK", label: "Enlace público" },
-            ]}
-          />
           <TextField
+            label="Fecha y hora (opcional)"
+            icon={<Calendar />}
+            value={startsAt}
+            onChange={setStartsAt}
+            type="datetime-local"
+          />
+          <EmailChipInput
             label="Invitados"
-            icon={<Users />}
             value={invitedEmails}
+            suggestions={emailSuggestions}
             onChange={setInvitedEmails}
           />
-          <div className="create-options">
-            <ToggleRow
-              label="Sala de espera"
-              checked={waitingRoomEnabled}
-              onClick={() => setWaitingRoomEnabled((current) => !current)}
-            />
-            <ToggleRow
-              label="Permitir chat"
-              checked={chatEnabled}
-              onClick={() => setChatEnabled((current) => !current)}
-            />
-            <ToggleRow
-              label="Grabar en modo interno"
-              checked={internalRecordingEnabled}
-              onClick={() => setInternalRecordingEnabled((current) => !current)}
-            />
-          </div>
           {error ? (
             <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice>
           ) : null}
@@ -3192,7 +3205,7 @@ function CreateMeetingScreen({
             <Button
               icon={<Check />}
               onClick={() => void submit()}
-              disabled={submitting || title.length < 3}
+              disabled={submitting || title.trim().length < 3}
             >
               {submitting ? "Creando" : "Crear reunión"}
             </Button>
@@ -3226,7 +3239,7 @@ function MeetingCreatedScreen({
             Copiar enlace
           </Button>
           <Button icon={<ArrowRight />} onClick={onContinue}>
-            Probar equipo
+            Continuar
           </Button>
         </div>
       </CenteredPanel>
@@ -3271,7 +3284,7 @@ function DeviceTestScreen({
 
   return (
     <ScreenFrame
-      title="Prueba de equipo"
+      title="Cámara y micrófono"
       right={<StepDots active={1} />}
       onBack={onBack}
     >
@@ -3286,6 +3299,10 @@ function DeviceTestScreen({
             enabled={cameraEnabled}
             label="Vista previa"
             cameraDeviceId={deviceSelection.cameraId}
+          />
+          <AudioLevelMeter
+            enabled={micEnabled}
+            microphoneDeviceId={deviceSelection.microphoneId}
           />
           <div className="control-row">
             <ControlButton
@@ -3303,7 +3320,7 @@ function DeviceTestScreen({
             <ControlButton icon={<Volume2 />} label="Altavoz" />
             <ControlButton
               icon={<Settings />}
-              label={devicesRefreshing ? "Buscando" : "Ajustes"}
+              label={devicesRefreshing ? "Buscando" : "Actualizar"}
               onClick={onRefreshDevices}
             />
           </div>
@@ -3397,7 +3414,7 @@ function DeviceTestScreen({
               icon={hostMode ? <UserRound /> : <LogIn />}
               onClick={onContinue}
             >
-              {hostMode ? "Configurar como host" : "Entrar como invitado"}
+              {hostMode ? "Continuar" : "Entrar"}
             </Button>
             {!hostMode ? (
               <Button variant="outline" icon={<ArrowLeft />} onClick={onBack}>
@@ -3434,7 +3451,7 @@ function HostSettingsScreen({
   onToggleVoice,
   onTestAi,
   onOpenAiRuntime,
-  onOpenBackgroundCalibration,
+  onCaptureBackgroundCalibration,
   onBack,
   onSkip,
   onContinue,
@@ -3461,7 +3478,7 @@ function HostSettingsScreen({
   onToggleVoice: () => void;
   onTestAi: () => void;
   onOpenAiRuntime: () => void;
-  onOpenBackgroundCalibration: () => void;
+  onCaptureBackgroundCalibration: (calibration: BackgroundCalibration) => void;
   onBack: () => void;
   onSkip: () => void;
   onContinue: () => Promise<void> | void;
@@ -3476,7 +3493,7 @@ function HostSettingsScreen({
     identityOptions.find((identity) => identity.id === selectedIdentityId) ??
     identityOptions[0] ??
     null;
-  const [lightingEnhanced, setLightingEnhanced] = useState(true);
+  const [backgroundWizardOpen, setBackgroundWizardOpen] = useState(false);
 
   function handleIdentitySelect(identityId: string) {
     onIdentityChange(identityId || null);
@@ -3484,146 +3501,207 @@ function HostSettingsScreen({
     if (!identityId && faceEnabled) onToggleFace();
   }
 
+  function handleVoiceSelect(identityId: string) {
+    onIdentityChange(identityId || null);
+    if (identityId && !voiceEnabled) onToggleVoice();
+    if (!identityId && voiceEnabled) onToggleVoice();
+  }
+
+  function handleBackgroundToggle() {
+    if (!backgroundCalibration && !backgroundEnabled) {
+      setBackgroundWizardOpen(true);
+      return;
+    }
+    onToggleBackground();
+  }
+
+  function handleBackgroundCapture(calibration: BackgroundCalibration) {
+    onCaptureBackgroundCalibration(calibration);
+    if (!backgroundEnabled) onToggleBackground();
+  }
+
   return (
-    <ScreenFrame
-      title="Ajustes del host"
-      right={
-        <Button variant="outline" icon={<LogIn />} onClick={onSkip}>
-          Entrar sin identidad
-        </Button>
-      }
-    >
-      <div className="workbench">
-        <section className="preview-column host-preview-column">
-          <div className="section-header compact">
-            <h1>Ajustes de cámara e identidad</h1>
-          </div>
-          <VideoPreview
-            enabled={cameraEnabled}
-            label="Vista del host"
-            cameraDeviceId={deviceSelection.cameraId}
-            darkFooter
-            footerText={hostIdentity?.name ?? host?.username ?? "Host"}
-            footerMeta={backgroundEnabled ? "Fondo activo" : "Cámara lista"}
-          />
-        </section>
-        <aside className="settings-column">
-          <Panel title="Cámara">
-            <SelectField
-              label="Dispositivo"
-              value={deviceSelection.cameraId}
-              onChange={(value) => onDeviceChange("cameraId", value)}
-              options={deviceOptions(deviceChoices.videoinput, "Sin cámara")}
-              disabled={deviceChoices.videoinput.length === 0}
-            />
-            <ToggleRow
-              label="Fondo limpio listo"
-              checked={Boolean(backgroundCalibration)}
-              onClick={onOpenBackgroundCalibration}
-            />
-            <ToggleRow
-              label="Mejorar iluminación"
-              checked={lightingEnhanced}
-              onClick={() => setLightingEnhanced((current) => !current)}
-            />
-          </Panel>
-          <Panel title="Identidad">
-            <SelectField
-              label="Identidad"
-              value={faceEnabled && hostIdentity ? hostIdentity.id : ""}
-              onChange={handleIdentitySelect}
-              options={[
-                { value: "", label: "Sin cambio de rostro" },
-                ...identityOptions.map((identity) => ({
-                  value: identity.id,
-                  label: identity.name,
-                })),
-              ]}
-            />
-            <ToggleRow
-              label="Activar cambio de rostro"
-              checked={faceEnabled}
-              onClick={onToggleFace}
-            />
-            <ToggleRow
-              label="Activar fondo personalizado"
-              checked={backgroundEnabled}
-              onClick={onToggleBackground}
-            />
-            <ToggleRow
-              label="Activar voz configurada"
-              checked={voiceEnabled}
-              onClick={onToggleVoice}
-            />
-          </Panel>
-          <details
-            className="panel debug-details setup-diagnostics"
-            data-testid="host-setup-diagnostics"
-          >
-            <summary>Diagnóstico</summary>
-            <div className="debug-details-body">
-              <StatusRow
-                label="Sidecar"
-                value={
-                  aiServiceStatus
-                    ? `${boolStatus(aiServiceStatus.online)} · ${aiServiceStatus.mode}`
-                    : "Detectando"
-                }
-                tone={serviceTone(aiServiceStatus?.online)}
-              />
-              <StatusRow
-                label="Prueba de identidad"
-                testId="host-ai-preflight-status"
-                value={
-                  preflightRunning
-                    ? "Ejecutando"
-                    : (preflight?.status ??
-                      (aiEffectsEnabled ? "Pendiente" : "Sin efectos"))
-                }
-                tone={preflightTone(
-                  preflightRunning ? "running" : preflight?.status,
-                )}
-              />
-              {preflightError ? (
-                <InlineNotice icon={<ShieldAlert />}>
-                  {preflightError}
-                </InlineNotice>
-              ) : null}
-              <div className="stacked-actions compact">
-                <Button
-                  variant="outline"
-                  icon={<ShieldCheck />}
-                  onClick={onTestAi}
-                  disabled={!aiEffectsEnabled || preflightRunning}
-                >
-                  {preflightRunning ? "Probando" : "Probar identidad"}
-                </Button>
-                <Button
-                  variant="outline"
-                  icon={<Settings />}
-                  onClick={onOpenAiRuntime}
-                >
-                  Runtime IA local
-                </Button>
-              </div>
+    <>
+      <ScreenFrame
+        title="Ajustes del host"
+        right={
+          <Button variant="outline" icon={<LogIn />} onClick={onSkip}>
+            Entrar sin identidad
+          </Button>
+        }
+      >
+        <div className="workbench">
+          <section className="preview-column host-preview-column">
+            <div className="section-header compact">
+              <h1>Ajustes de cámara e identidad</h1>
             </div>
-          </details>
-          <div className="stacked-actions host-actions">
-            <Button
-              data-testid="host-enter-meeting"
-              icon={<LogIn />}
-              onClick={() => void onContinue()}
-              disabled={preflightRunning}
+            <VideoPreview
+              enabled={cameraEnabled}
+              label="Vista del host"
+              cameraDeviceId={deviceSelection.cameraId}
+              darkFooter
+              footerText={hostIdentity?.name ?? host?.username ?? "Host"}
+              footerMeta={backgroundEnabled ? "Fondo activo" : "Cámara lista"}
+            />
+          </section>
+          <aside className="settings-column">
+            <Panel title="Cámara">
+              <SelectField
+                label="Dispositivo"
+                value={deviceSelection.cameraId}
+                onChange={(value) => onDeviceChange("cameraId", value)}
+                options={deviceOptions(deviceChoices.videoinput, "Sin cámara")}
+                disabled={deviceChoices.videoinput.length === 0}
+              />
+              <StatusRow
+                label="Fondo personalizado"
+                value={
+                  backgroundCalibration
+                    ? backgroundEnabled
+                      ? "Activo"
+                      : "Configurado"
+                    : "Sin configurar"
+                }
+                tone={
+                  backgroundCalibration
+                    ? backgroundEnabled
+                      ? "ok"
+                      : "idle"
+                    : "warning"
+                }
+              />
+              <Button
+                variant="outline"
+                icon={<Camera />}
+                onClick={() => setBackgroundWizardOpen(true)}
+              >
+                {backgroundCalibration ? "Cambiar fondo" : "Configurar fondo"}
+              </Button>
+              <ToggleRow
+                label="Usar fondo personalizado"
+                checked={backgroundEnabled}
+                onClick={handleBackgroundToggle}
+              />
+            </Panel>
+            <Panel title="Identidad">
+              <SelectField
+                label="Rostro"
+                value={faceEnabled && hostIdentity ? hostIdentity.id : ""}
+                onChange={handleIdentitySelect}
+                options={[
+                  { value: "", label: "Sin cambio de rostro" },
+                  ...identityOptions.map((identity) => ({
+                    value: identity.id,
+                    label: identity.name,
+                  })),
+                ]}
+              />
+              <SelectField
+                label="Voz"
+                value={voiceEnabled && hostIdentity ? hostIdentity.id : ""}
+                onChange={handleVoiceSelect}
+                options={[
+                  { value: "", label: "Sin cambio de voz" },
+                  ...identityOptions.map((identity) => ({
+                    value: identity.id,
+                    label: identity.name,
+                  })),
+                ]}
+              />
+              <ToggleRow
+                label="Activar cambio de rostro"
+                checked={faceEnabled}
+                onClick={onToggleFace}
+              />
+              <ToggleRow
+                label="Activar voz configurada"
+                checked={voiceEnabled}
+                onClick={onToggleVoice}
+              />
+            </Panel>
+            {preflightError ? (
+              <InlineNotice icon={<ShieldAlert />}>
+                {preflightError}
+              </InlineNotice>
+            ) : null}
+            <details
+              className="panel debug-details setup-diagnostics"
+              data-testid="host-setup-diagnostics"
             >
-              {preflightRunning ? "Probando IA" : "Entrar a la reunión"}
-            </Button>
-            <Button variant="outline" icon={<ArrowLeft />} onClick={onBack}>
-              Volver a prueba de equipo
-            </Button>
-          </div>
-        </aside>
-      </div>
-    </ScreenFrame>
+              <summary>Diagnóstico</summary>
+              <div className="debug-details-body">
+                <StatusRow
+                  label="Sidecar"
+                  value={
+                    aiServiceStatus
+                      ? `${boolStatus(aiServiceStatus.online)} · ${aiServiceStatus.mode}`
+                      : "Detectando"
+                  }
+                  tone={serviceTone(aiServiceStatus?.online)}
+                />
+                <StatusRow
+                  label="Prueba de identidad"
+                  testId="host-ai-preflight-status"
+                  value={
+                    preflightRunning
+                      ? "Ejecutando"
+                      : (preflight?.status ??
+                        (aiEffectsEnabled ? "Pendiente" : "Sin efectos"))
+                  }
+                  tone={preflightTone(
+                    preflightRunning ? "running" : preflight?.status,
+                  )}
+                />
+                {preflightError ? (
+                  <InlineNotice icon={<ShieldAlert />}>
+                    {preflightError}
+                  </InlineNotice>
+                ) : null}
+                <div className="stacked-actions compact">
+                  <Button
+                    variant="outline"
+                    icon={<ShieldCheck />}
+                    onClick={onTestAi}
+                    disabled={!aiEffectsEnabled || preflightRunning}
+                  >
+                    {preflightRunning ? "Probando" : "Probar identidad"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    icon={<Settings />}
+                    onClick={onOpenAiRuntime}
+                  >
+                    Runtime IA local
+                  </Button>
+                </div>
+              </div>
+            </details>
+            <div className="stacked-actions host-actions">
+              <Button
+                data-testid="host-enter-meeting"
+                icon={<LogIn />}
+                onClick={() => void onContinue()}
+                disabled={preflightRunning}
+              >
+                {preflightRunning ? "Probando IA" : "Entrar a la reunión"}
+              </Button>
+              <Button variant="outline" icon={<ArrowLeft />} onClick={onBack}>
+                Volver a prueba de equipo
+              </Button>
+            </div>
+          </aside>
+        </div>
+      </ScreenFrame>
+      {backgroundWizardOpen ? (
+        <BackgroundSetupModal
+          cameraEnabled={cameraEnabled}
+          cameraDeviceId={deviceSelection.cameraId}
+          calibration={backgroundCalibration}
+          onCapture={handleBackgroundCapture}
+          onClose={() => setBackgroundWizardOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -4819,6 +4897,131 @@ function BackgroundCalibrationScreen({
   );
 }
 
+function BackgroundSetupModal({
+  cameraEnabled,
+  cameraDeviceId,
+  calibration,
+  onCapture,
+  onClose,
+}: {
+  cameraEnabled: boolean;
+  cameraDeviceId: string;
+  calibration: BackgroundCalibration | null;
+  onCapture: (calibration: BackgroundCalibration) => void;
+  onClose: () => void;
+}) {
+  const { videoRef, active, error } = useCameraPreview({
+    enabled: cameraEnabled,
+    deviceId: cameraDeviceId,
+  });
+  const [captureError, setCaptureError] = useState<string | null>(null);
+
+  function captureCleanPlate() {
+    const video = videoRef.current;
+
+    if (!video || !active) {
+      setCaptureError("La cámara no está lista.");
+      return;
+    }
+
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      setCaptureError("No se pudo capturar el fondo.");
+      return;
+    }
+
+    context.drawImage(video, 0, 0, width, height);
+    onCapture({
+      cleanPlateDataUrl: canvas.toDataURL("image/jpeg", 0.88),
+      capturedAt: new Date().toISOString(),
+      width,
+      height,
+      cameraDeviceId,
+    });
+    setCaptureError(null);
+  }
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <section className="background-modal">
+        <div className="modal-header">
+          <div>
+            <h2>Fondo personalizado</h2>
+            <p>Captura una referencia del espacio sin personas en cámara.</p>
+          </div>
+          <Button variant="ghost" icon={<ArrowLeft />} onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
+        <div className="background-modal-grid">
+          <div className="video-preview modal-video-preview">
+            {cameraEnabled && active ? (
+              <video ref={videoRef} muted playsInline />
+            ) : null}
+            {!active ? (
+              <div className="avatar-preview">
+                <Camera />
+              </div>
+            ) : null}
+            <span className="video-badge">
+              <Camera />
+              Fondo
+            </span>
+            {error ? <span className="video-error">{error}</span> : null}
+          </div>
+          <div className="background-steps">
+            <div className="background-step">
+              <strong>1</strong>
+              <span>Deja visible el fondo que quieres usar.</span>
+            </div>
+            <div className="background-step">
+              <strong>2</strong>
+              <span>Sal del cuadro o deja la silla vacía.</span>
+            </div>
+            <div className="background-step">
+              <strong>3</strong>
+              <span>Captura y vuelve a la reunión.</span>
+            </div>
+            {calibration ? (
+              <img
+                className="clean-plate-thumb"
+                src={calibration.cleanPlateDataUrl}
+                alt="Fondo capturado"
+              />
+            ) : null}
+            {captureError ? (
+              <InlineNotice icon={<ShieldAlert />}>{captureError}</InlineNotice>
+            ) : null}
+            <div className="button-row background-modal-actions">
+              <Button
+                icon={<Camera />}
+                onClick={captureCleanPlate}
+                disabled={!active}
+              >
+                Capturar fondo
+              </Button>
+              <Button
+                variant="outline"
+                icon={<ArrowRight />}
+                onClick={onClose}
+                disabled={!calibration}
+              >
+                Continuar
+              </Button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function WaitingRoomScreen({
   meeting,
   cameraEnabled,
@@ -5890,11 +6093,7 @@ function ActiveCallScreen({
   );
   const visibleTiles = liveKitTiles.length > 0 ? liveKitTiles : fallbackTiles;
   const [primaryTile, ...secondaryTiles] = visibleTiles;
-  const secondaryPlaceholderCount = hostMode
-    ? Math.max(0, 2 - secondaryTiles.length)
-    : 0;
-  const hasSecondaryColumn =
-    secondaryTiles.length > 0 || secondaryPlaceholderCount > 0;
+  const hasSecondaryColumn = secondaryTiles.length > 0;
   const visibleParticipantCount = Math.max(activeParticipants.length, 1);
   const liveKitDiagnosticDetail =
     liveKitState === "error" || liveKitState === "offline" || liveKitWarning
@@ -5949,11 +6148,6 @@ function ActiveCallScreen({
                 {secondaryTiles.map((participant) => (
                   <VideoTile key={participant.id} tile={participant} />
                 ))}
-                {Array.from({ length: secondaryPlaceholderCount }).map(
-                  (_, index) => (
-                    <EmptyVideoSlot key={`empty-slot-${index}`} />
-                  ),
-                )}
               </div>
             ) : null}
           </div>
@@ -6016,53 +6210,56 @@ function ActiveCallScreen({
               Chat
             </button>
           </div>
-          <Panel title="Participantes">
-            {activeParticipants.map((participant) => (
-              <ParticipantLine
-                key={participant.id}
-                name={participant.displayName}
-                meta={participant.role === "host" ? "Host" : "Invitada"}
-              />
-            ))}
-            {hostMode &&
-              waitingParticipants.map((participant) => (
-                <WaitingParticipantLine
+          {sideTab === "participants" ? (
+            <Panel title="Participantes">
+              {activeParticipants.map((participant) => (
+                <ParticipantLine
                   key={participant.id}
-                  participant={participant}
-                  onAdmit={() => onAdmitParticipant(participant.id)}
+                  name={participant.displayName}
+                  meta={participant.role === "host" ? "Host" : "Invitada"}
                 />
               ))}
-          </Panel>
-          <Panel title="Chat de reunión">
-            <div className="chat-list">
-              {chatMessages.length > 0 ? (
-                chatMessages.map((message) => (
-                  <ChatBubble key={message.id} message={message} />
-                ))
-              ) : (
-                <div className="chat-empty">Sin mensajes.</div>
-              )}
-            </div>
-            {chatError ? (
-              <InlineNotice icon={<ShieldAlert />}>{chatError}</InlineNotice>
-            ) : null}
-            <form
-              className="chat-compose"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleSendChatMessage();
-              }}
-            >
-              <input
-                value={chatDraft}
-                onChange={(event) => setChatDraft(event.target.value)}
-                placeholder="Mensaje"
-              />
-              <button disabled={!chatDraft.trim()} type="submit">
-                <Send />
-              </button>
-            </form>
-          </Panel>
+              {hostMode &&
+                waitingParticipants.map((participant) => (
+                  <WaitingParticipantLine
+                    key={participant.id}
+                    participant={participant}
+                    onAdmit={() => onAdmitParticipant(participant.id)}
+                  />
+                ))}
+            </Panel>
+          ) : (
+            <Panel title="Chat de reunión">
+              <div className="chat-list">
+                {chatMessages.length > 0 ? (
+                  chatMessages.map((message) => (
+                    <ChatBubble key={message.id} message={message} />
+                  ))
+                ) : (
+                  <div className="chat-empty">Sin mensajes.</div>
+                )}
+              </div>
+              {chatError ? (
+                <InlineNotice icon={<ShieldAlert />}>{chatError}</InlineNotice>
+              ) : null}
+              <form
+                className="chat-compose"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleSendChatMessage();
+                }}
+              >
+                <input
+                  value={chatDraft}
+                  onChange={(event) => setChatDraft(event.target.value)}
+                  placeholder="Mensaje"
+                />
+                <button disabled={!chatDraft.trim()} type="submit">
+                  <Send />
+                </button>
+              </form>
+            </Panel>
+          )}
           {callDiagnosticsOpen ? (
             <details
               className="panel debug-details call-diagnostics"
@@ -6604,6 +6801,7 @@ function TextField({
   onChange,
   type = "text",
   autoComplete,
+  placeholder,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -6611,6 +6809,7 @@ function TextField({
   onChange?: (value: string) => void;
   type?: string;
   autoComplete?: string;
+  placeholder?: string;
 }) {
   return (
     <label className="field">
@@ -6623,8 +6822,124 @@ function TextField({
           onChange={(event) => onChange?.(event.target.value)}
           type={type}
           autoComplete={autoComplete}
+          placeholder={placeholder}
         />
       </div>
+    </label>
+  );
+}
+
+function EmailChipInput({
+  label,
+  value,
+  suggestions,
+  onChange,
+}: {
+  label: string;
+  value: string[];
+  suggestions: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const normalizedValue = useMemo(
+    () => value.map((email) => email.trim().toLowerCase()),
+    [value],
+  );
+  const visibleSuggestions = useMemo(() => {
+    const query = draft.trim().toLowerCase();
+    return suggestions
+      .filter((email) => !normalizedValue.includes(email))
+      .filter((email) => !query || email.includes(query))
+      .slice(0, 5);
+  }, [draft, normalizedValue, suggestions]);
+
+  function addEmail(rawEmail: string) {
+    const email = rawEmail.trim().replace(/,$/, "").toLowerCase();
+    if (!email) return;
+    if (!isLikelyEmail(email)) {
+      setDraft(email);
+      return;
+    }
+    if (!normalizedValue.includes(email)) {
+      onChange([...normalizedValue, email]);
+    }
+    setDraft("");
+  }
+
+  function removeEmail(email: string) {
+    onChange(normalizedValue.filter((item) => item !== email));
+  }
+
+  function commitDraftOrSuggestion() {
+    addEmail(draft || visibleSuggestions[0] || "");
+  }
+
+  return (
+    <label className="field email-chip-field">
+      <span>{label}</span>
+      <div className="email-chip-shell">
+        <Mail />
+        <div className="email-chip-list">
+          {normalizedValue.map((email) => (
+            <button
+              className="email-chip"
+              key={email}
+              type="button"
+              onClick={() => removeEmail(email)}
+              title="Quitar invitado"
+            >
+              {email}
+            </button>
+          ))}
+          <input
+            value={draft}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              if (nextValue.includes(",")) {
+                const [first, ...rest] = nextValue.split(",");
+                addEmail(first ?? "");
+                setDraft(rest.join(",").trimStart());
+                return;
+              }
+              setDraft(nextValue);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === "Tab") {
+                if (draft.trim() || visibleSuggestions.length > 0) {
+                  event.preventDefault();
+                  commitDraftOrSuggestion();
+                }
+              }
+              if (event.key === "," && draft.trim()) {
+                event.preventDefault();
+                addEmail(draft);
+              }
+              if (
+                event.key === "Backspace" &&
+                !draft &&
+                normalizedValue.length > 0
+              ) {
+                onChange(normalizedValue.slice(0, -1));
+              }
+            }}
+            placeholder={
+              normalizedValue.length > 0
+                ? "Agregar otro correo"
+                : "correo@empresa.com"
+            }
+            type="email"
+          />
+        </div>
+      </div>
+      {visibleSuggestions.length > 0 ? (
+        <div className="email-suggestions">
+          {visibleSuggestions.map((email) => (
+            <button key={email} type="button" onClick={() => addEmail(email)}>
+              {email}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </label>
   );
 }
@@ -6755,6 +7070,151 @@ function VideoPreview({
   );
 }
 
+function AudioLevelMeter({
+  enabled,
+  microphoneDeviceId,
+}: {
+  enabled: boolean;
+  microphoneDeviceId?: string;
+}) {
+  const { active, error, level } = useAudioLevelPreview({
+    enabled,
+    deviceId: microphoneDeviceId,
+  });
+  const bars = Array.from({ length: 18 }, (_, index) => {
+    const threshold = (index + 1) / 18;
+    return threshold <= level;
+  });
+
+  return (
+    <div className="audio-meter">
+      <div>
+        <Mic />
+        <span>
+          {enabled
+            ? active
+              ? "Micrófono activo"
+              : "Abriendo micrófono"
+            : "Micrófono apagado"}
+        </span>
+      </div>
+      <div className="audio-meter-bars" aria-hidden="true">
+        {bars.map((lit, index) => (
+          <span className={lit ? "active" : ""} key={index} />
+        ))}
+      </div>
+      {error ? <small>{error}</small> : null}
+    </div>
+  );
+}
+
+function useAudioLevelPreview({
+  enabled,
+  deviceId,
+}: {
+  enabled: boolean;
+  deviceId?: string;
+}) {
+  const [level, setLevel] = useState(0);
+  const [active, setActive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+    let audioContext: AudioContext | null = null;
+    let animationFrame = 0;
+
+    async function openAudioStream() {
+      const constraints = mediaTrackAudioConstraints(deviceId ?? "");
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: constraints,
+        });
+      } catch (audioError) {
+        if (!deviceId) throw audioError;
+        return navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: mediaTrackAudioConstraints(""),
+        });
+      }
+    }
+
+    async function start() {
+      if (!enabled) {
+        setLevel(0);
+        setActive(false);
+        setError(null);
+        return;
+      }
+
+      const AudioContextCtor =
+        window.AudioContext ??
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+
+      if (!navigator.mediaDevices?.getUserMedia || !AudioContextCtor) {
+        setLevel(0);
+        setActive(false);
+        setError("No se puede medir el micrófono en este runtime.");
+        return;
+      }
+
+      try {
+        stream = await openAudioStream();
+        audioContext = new AudioContextCtor();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        const samples = new Uint8Array(analyser.fftSize);
+
+        const tick = () => {
+          if (cancelled) return;
+          analyser.getByteTimeDomainData(samples);
+          let sum = 0;
+          for (const sample of samples) {
+            const normalized = (sample - 128) / 128;
+            sum += normalized * normalized;
+          }
+          const rms = Math.sqrt(sum / samples.length);
+          setLevel(Math.min(1, rms * 5));
+          animationFrame = window.requestAnimationFrame(tick);
+        };
+
+        if (cancelled) return;
+        await audioContext.resume();
+        setActive(true);
+        setError(null);
+        tick();
+      } catch (audioError) {
+        if (cancelled) return;
+        setLevel(0);
+        setActive(false);
+        setError(
+          audioError instanceof DOMException &&
+            (audioError.name === "NotAllowedError" ||
+              audioError.name === "SecurityError")
+            ? "Permiso de micrófono bloqueado."
+            : "No se pudo abrir el micrófono.",
+        );
+      }
+    }
+
+    void start();
+
+    return () => {
+      cancelled = true;
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      stream?.getTracks().forEach((track) => track.stop());
+      void audioContext?.close().catch(() => undefined);
+    };
+  }, [deviceId, enabled]);
+
+  return { active, error, level };
+}
+
 function ControlButton({
   icon,
   label,
@@ -6871,20 +7331,6 @@ function VideoTile({ tile, primary }: { tile: CallTile; primary?: boolean }) {
             <span className={tile.effects.voiceEnabled ? "on" : ""} />
           </div>
         ) : null}
-      </div>
-    </div>
-  );
-}
-
-function EmptyVideoSlot() {
-  return (
-    <div className="video-tile empty-video-slot">
-      <div className="empty-slot-icon">
-        <Plus />
-      </div>
-      <div className="empty-slot-copy">
-        <strong>Espacio disponible</strong>
-        <span>Invitado pendiente</span>
       </div>
     </div>
   );
