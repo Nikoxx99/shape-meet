@@ -170,6 +170,24 @@ inicial para validar el flujo real del demo. El archivo `--output` es seguro
 para soporte: incluye checks, latencias, dominios y puertos, pero no imprime
 secretos.
 
+Para cargar el rostro/modelo real del host antes del demo:
+
+```bash
+pnpm demo:identity:push -- \
+  --api-url https://admin.tudominio.com \
+  --admin-identifier admin@tudominio.com \
+  --admin-password "$ADMIN_PASSWORD" \
+  --host-identifier host@tudominio.com \
+  --host-password "$HOST_PASSWORD" \
+  --artifact-file /ruta/rostro-o-modelo.bin \
+  --name "Rostro host demo"
+```
+
+Ese comando crea la identidad `AVAILABLE`, sube el artefacto, la deja `PUSHED`
+y verifica que el host pueda descargar el archivo publicado. Si el admin
+bootstrap también será el host de la demo, omite `--host-identifier` y
+`--host-password`.
+
 La compuerta completa puede reenviar el mismo flujo remoto:
 
 ```bash

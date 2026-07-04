@@ -538,6 +538,23 @@ cuando están definidos. `demo:prepare` usa este flujo con un artefacto subido a
 admin. Los artefactos `shape://demo/...` se conservan solo como referencias de
 desarrollo sin descarga.
 
+Para cargar una identidad real desde terminal, sin entrar al panel:
+
+```bash
+pnpm demo:identity:push -- \
+  --api-url https://admin.tudominio.com \
+  --admin-identifier admin@tudominio.com \
+  --admin-password "$ADMIN_PASSWORD" \
+  --host-identifier host@tudominio.com \
+  --host-password "$HOST_PASSWORD" \
+  --artifact-file /ruta/rostro-o-modelo.bin \
+  --name "Rostro host demo"
+```
+
+El comando sube el artefacto, valida SHA-256/tamaño, lo publica y prueba que el
+host pueda listar y descargar la identidad. Si admin y host son el mismo usuario,
+puedes omitir `--host-identifier` y `--host-password`.
+
 La desktop consulta `SHAPE_AI_SERVICE_URL` desde Tauri para detectar el sidecar
 local de IA. En desarrollo el sidecar liviano responde en `http://127.0.0.1:7851`
 y expone el contrato de sesiones y frames que luego usarán FaceFusion/DFM,
