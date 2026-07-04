@@ -141,6 +141,29 @@ struct AiRuntimeEnvFile {
     warnings: Vec<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiRuntimeDoctorReport {
+    ok: bool,
+    status: String,
+    profile: String,
+    runtime_path: String,
+    runtime_exists: bool,
+    passthrough_enabled: bool,
+    real_models_configured: bool,
+    checks: Vec<AiRuntimeDoctorCheck>,
+    next_steps: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiRuntimeDoctorCheck {
+    id: String,
+    label: String,
+    status: String,
+    message: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SaveAiRuntimeEnvInput {
@@ -278,6 +301,19 @@ fn get_ai_runtime_env() -> Result<AiRuntimeEnvFile, String> {
 }
 
 #[tauri::command]
+fn doctor_ai_runtime_env() -> Result<AiRuntimeDoctorReport, String> {
+    let path = ai_runtime_env_path()?;
+    let exists = path.exists();
+    let content = if exists {
+        fs::read_to_string(&path).map_err(|error| error.to_string())?
+    } else {
+        default_ai_runtime_env_template()
+    };
+
+    Ok(doctor_ai_runtime_env_report(&path, exists, &content))
+}
+
+#[tauri::command]
 fn save_ai_runtime_env(input: SaveAiRuntimeEnvInput) -> Result<AiRuntimeEnvFile, String> {
     write_ai_runtime_env_file(&input.content)?;
     read_ai_runtime_env_file()
@@ -393,6 +429,7 @@ pub fn run() {
             start_ai_sidecar,
             stop_ai_sidecar,
             get_ai_runtime_env,
+            doctor_ai_runtime_env,
             save_ai_runtime_env,
             prepare_demo_ai_runtime_env,
             prepare_model_ai_runtime_env,
@@ -1344,6 +1381,504 @@ fn write_ai_runtime_env_file(content: &str) -> Result<(), String> {
     }
 
     fs::write(path, content).map_err(|error| error.to_string())
+}
+
+fn doctor_ai_runtime_env_report(path: &Path, exists: bool, content: &str) -> AiRuntimeDoctorReport {
+    let parsed = parse_ai_runtime_env(content);
+    let profile = env_lookup(&parsed.values, "SHAPE_MODEL_WORKSTATION_PROFILE")
+        .unwrap_or("manual")
+        .to_string();
+    let passthrough_enabled = env_bool(&parsed.values, "SHAPE_WRAPPER_PASSTHROUGH")
+        .unwrap_or(false)
+        || env_bool(&parsed.values, "SHAPE_PROCESSOR_DEMO_EFFECTS").unwrap_or(false);
+    let mut checks = Vec::new();
+    let mut next_steps = Vec::new();
+
+    if exists {
+        push_doctor_check(
+            &mut checks,
+            "runtime-file",
+            "Runtime",
+            "ok",
+            format!("Archivo cargado: {}", path.display()),
+        );
+    } else {
+        push_doctor_check(
+            &mut checks,
+            "runtime-file",
+            "Runtime",
+            "warn",
+            "No existe archivo runtime IA; se está usando plantilla.".to_string(),
+        );
+        push_next_step(&mut next_steps, "Carga demo o wrappers antes de probar IA.");
+    }
+
+    for warning in &parsed.warnings {
+        push_doctor_check(
+            &mut checks,
+            "runtime-warning",
+            "Variables",
+            "warn",
+            warning.clone(),
+        );
+    }
+    for error in &parsed.errors {
+        push_doctor_check(
+            &mut checks,
+            "runtime-error",
+            "Variables",
+            "error",
+            error.clone(),
+        );
+    }
+
+    let video_pipeline_ready = check_command_or_endpoint(
+        &mut checks,
+        &mut next_steps,
+        &parsed.values,
+        CommandOrEndpointSpec {
+            id: "video-pipeline",
+            label: "Pipeline video",
+            command_key: "SHAPE_VIDEO_PROCESSOR_COMMAND",
+            endpoint_key: "SHAPE_VIDEO_PROCESSOR_ENDPOINT",
+            next_step: "Configura SHAPE_VIDEO_PROCESSOR_COMMAND y SHAPE_VIDEO_PROCESSOR_ENDPOINT.",
+        },
+    );
+    let audio_pipeline_ready = check_command_or_endpoint(
+        &mut checks,
+        &mut next_steps,
+        &parsed.values,
+        CommandOrEndpointSpec {
+            id: "audio-pipeline",
+            label: "Pipeline voz",
+            command_key: "SHAPE_AUDIO_PROCESSOR_COMMAND",
+            endpoint_key: "SHAPE_AUDIO_PROCESSOR_ENDPOINT",
+            next_step: "Configura SHAPE_AUDIO_PROCESSOR_COMMAND y SHAPE_AUDIO_PROCESSOR_ENDPOINT.",
+        },
+    );
+
+    if passthrough_enabled {
+        push_doctor_check(
+            &mut checks,
+            "passthrough",
+            "Passthrough",
+            "warn",
+            "Passthrough activo; el preflight valida transporte, no modelos reales.".to_string(),
+        );
+        push_next_step(
+            &mut next_steps,
+            "Desactiva SHAPE_WRAPPER_PASSTHROUGH cuando FaceFusion, BMV2 y vcclient000 estén instalados.",
+        );
+    } else {
+        push_doctor_check(
+            &mut checks,
+            "passthrough",
+            "Passthrough",
+            "ok",
+            "Passthrough desactivado para validar modelos reales.".to_string(),
+        );
+    }
+
+    let face_ready = check_facefusion_runtime(&mut checks, &mut next_steps, &parsed.values);
+    let background_ready = check_bmv2_runtime(&mut checks, &mut next_steps, &parsed.values);
+    let voice_ready = check_vcclient_runtime(&mut checks, &mut next_steps, &parsed.values);
+    let error_count = checks
+        .iter()
+        .filter(|check| check.status == "error")
+        .count();
+    let real_models_configured = !passthrough_enabled
+        && video_pipeline_ready
+        && audio_pipeline_ready
+        && face_ready
+        && background_ready
+        && voice_ready
+        && error_count == 0;
+    let status = if error_count > 0 {
+        "error"
+    } else if real_models_configured {
+        "ready"
+    } else {
+        "warning"
+    };
+
+    AiRuntimeDoctorReport {
+        ok: error_count == 0,
+        status: status.to_string(),
+        profile,
+        runtime_path: path.display().to_string(),
+        runtime_exists: exists,
+        passthrough_enabled,
+        real_models_configured,
+        checks,
+        next_steps,
+    }
+}
+
+struct CommandOrEndpointSpec<'a> {
+    id: &'a str,
+    label: &'a str,
+    command_key: &'a str,
+    endpoint_key: &'a str,
+    next_step: &'a str,
+}
+
+fn check_command_or_endpoint(
+    checks: &mut Vec<AiRuntimeDoctorCheck>,
+    next_steps: &mut Vec<String>,
+    values: &[(String, String)],
+    spec: CommandOrEndpointSpec,
+) -> bool {
+    let command = env_lookup(values, spec.command_key);
+    let endpoint = env_lookup(values, spec.endpoint_key);
+    if command.is_some() && endpoint.is_some() {
+        push_doctor_check(
+            checks,
+            spec.id,
+            spec.label,
+            "ok",
+            format!("{} y {} configurados.", spec.command_key, spec.endpoint_key),
+        );
+        true
+    } else {
+        push_doctor_check(
+            checks,
+            spec.id,
+            spec.label,
+            "error",
+            format!("Falta {} o {}.", spec.command_key, spec.endpoint_key),
+        );
+        push_next_step(next_steps, spec.next_step);
+        false
+    }
+}
+
+fn check_facefusion_runtime(
+    checks: &mut Vec<AiRuntimeDoctorCheck>,
+    next_steps: &mut Vec<String>,
+    values: &[(String, String)],
+) -> bool {
+    let command_ready = check_command_placeholders(
+        checks,
+        next_steps,
+        values,
+        "face-command",
+        "FaceFusion comando",
+        "SHAPE_FACE_COMMAND",
+        &["input", "output", "identity"],
+        "Configura SHAPE_FACE_COMMAND con {input}, {output} e {identity}.",
+    );
+    let dir_ready = check_runtime_path(
+        checks,
+        next_steps,
+        env_lookup(values, "FACEFUSION_DIR"),
+        "facefusion-dir",
+        "FaceFusion repo",
+        true,
+        "Configura FACEFUSION_DIR con el repo FaceFusion instalado.",
+    );
+    let python_ready = check_runtime_path(
+        checks,
+        next_steps,
+        env_lookup(values, "FACEFUSION_PYTHON"),
+        "facefusion-python",
+        "FaceFusion Python",
+        false,
+        "Configura FACEFUSION_PYTHON con el venv de FaceFusion.",
+    );
+
+    command_ready && dir_ready && python_ready
+}
+
+fn check_bmv2_runtime(
+    checks: &mut Vec<AiRuntimeDoctorCheck>,
+    next_steps: &mut Vec<String>,
+    values: &[(String, String)],
+) -> bool {
+    let command_ready = check_command_placeholders(
+        checks,
+        next_steps,
+        values,
+        "bmv2-command",
+        "BMV2 comando",
+        "SHAPE_BACKGROUND_COMMAND",
+        &["input", "output", "clean_plate"],
+        "Configura SHAPE_BACKGROUND_COMMAND con {input}, {output} y {clean_plate}.",
+    );
+    let repo_ready = check_runtime_path(
+        checks,
+        next_steps,
+        env_lookup(values, "BMV2_REPO_DIR"),
+        "bmv2-repo",
+        "BMV2 repo",
+        true,
+        "Configura BMV2_REPO_DIR con BackgroundMattingV2 instalado.",
+    );
+    let python_ready = check_runtime_path(
+        checks,
+        next_steps,
+        env_lookup(values, "BMV2_PYTHON"),
+        "bmv2-python",
+        "BMV2 Python",
+        false,
+        "Configura BMV2_PYTHON con el venv de BackgroundMattingV2.",
+    );
+    let checkpoint_ready = check_runtime_path(
+        checks,
+        next_steps,
+        env_lookup(values, "BMV2_MODEL_CHECKPOINT"),
+        "bmv2-checkpoint",
+        "BMV2 checkpoint",
+        false,
+        "Configura BMV2_MODEL_CHECKPOINT antes de probar fondo real.",
+    );
+
+    command_ready && repo_ready && python_ready && checkpoint_ready
+}
+
+fn check_vcclient_runtime(
+    checks: &mut Vec<AiRuntimeDoctorCheck>,
+    next_steps: &mut Vec<String>,
+    values: &[(String, String)],
+) -> bool {
+    let endpoint = env_lookup(values, "VCCLIENT000_HTTP_ENDPOINT");
+    let chunk_command = env_lookup(values, "VCCLIENT000_CHUNK_COMMAND");
+    let voice_command = env_lookup(values, "SHAPE_VOICE_COMMAND");
+    let mut endpoint_ready = false;
+    let mut command_ready = false;
+
+    if let Some(endpoint) = endpoint {
+        if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+            push_doctor_check(
+                checks,
+                "vcclient-endpoint",
+                "vcclient000 REST",
+                "ok",
+                format!("Endpoint configurado: {endpoint}"),
+            );
+            endpoint_ready = true;
+        } else {
+            push_doctor_check(
+                checks,
+                "vcclient-endpoint",
+                "vcclient000 REST",
+                "error",
+                "VCCLIENT000_HTTP_ENDPOINT debe iniciar con http:// o https://.".to_string(),
+            );
+            push_next_step(
+                next_steps,
+                "Corrige VCCLIENT000_HTTP_ENDPOINT para w-okada/VCClient.",
+            );
+        }
+    }
+
+    if chunk_command.is_some() || voice_command.is_some() {
+        let command_key = if chunk_command.is_some() {
+            "VCCLIENT000_CHUNK_COMMAND"
+        } else {
+            "SHAPE_VOICE_COMMAND"
+        };
+        command_ready = check_command_placeholders(
+            checks,
+            next_steps,
+            values,
+            "vcclient-command",
+            "vcclient000 comando",
+            command_key,
+            &["input", "output", "sample_rate"],
+            "Configura el comando de voz con {input}, {output} y {sample_rate}.",
+        );
+    }
+
+    if endpoint_ready || command_ready {
+        return true;
+    }
+
+    push_doctor_check(
+        checks,
+        "vcclient-ready",
+        "vcclient000",
+        "error",
+        "No hay endpoint REST ni comando de voz válido.".to_string(),
+    );
+    push_next_step(
+        next_steps,
+        "Arranca vcclient000 localmente y configura VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test.",
+    );
+    false
+}
+
+fn check_command_placeholders(
+    checks: &mut Vec<AiRuntimeDoctorCheck>,
+    next_steps: &mut Vec<String>,
+    values: &[(String, String)],
+    id: &str,
+    label: &str,
+    key: &str,
+    placeholders: &[&str],
+    next_step: &str,
+) -> bool {
+    let Some(command) = env_lookup(values, key) else {
+        push_doctor_check(
+            checks,
+            id,
+            label,
+            "error",
+            format!("{key} no está configurado."),
+        );
+        push_next_step(next_steps, next_step);
+        return false;
+    };
+    let missing: Vec<&str> = placeholders
+        .iter()
+        .copied()
+        .filter(|placeholder| !command.contains(&format!("{{{placeholder}}}")))
+        .collect();
+    if missing.is_empty() {
+        push_doctor_check(
+            checks,
+            id,
+            label,
+            "ok",
+            format!("{key} contiene placeholders requeridos."),
+        );
+        true
+    } else {
+        push_doctor_check(
+            checks,
+            id,
+            label,
+            "error",
+            format!("{key} no incluye: {}.", missing.join(", ")),
+        );
+        push_next_step(next_steps, next_step);
+        false
+    }
+}
+
+fn check_runtime_path(
+    checks: &mut Vec<AiRuntimeDoctorCheck>,
+    next_steps: &mut Vec<String>,
+    value: Option<&str>,
+    id: &str,
+    label: &str,
+    directory: bool,
+    next_step: &str,
+) -> bool {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        push_doctor_check(
+            checks,
+            id,
+            label,
+            "error",
+            format!("{label} no configurado."),
+        );
+        push_next_step(next_steps, next_step);
+        return false;
+    };
+    let Some(path) = verifiable_runtime_path(value) else {
+        push_doctor_check(
+            checks,
+            id,
+            label,
+            "warn",
+            format!("{label} no verificable en este sistema: {value}"),
+        );
+        push_next_step(next_steps, next_step);
+        return false;
+    };
+    let metadata = fs::metadata(&path);
+    let exists = metadata
+        .as_ref()
+        .map(|metadata| {
+            if directory {
+                metadata.is_dir()
+            } else {
+                metadata.is_file()
+            }
+        })
+        .unwrap_or(false);
+    if exists {
+        push_doctor_check(checks, id, label, "ok", format!("{label} listo: {value}"));
+        true
+    } else {
+        push_doctor_check(
+            checks,
+            id,
+            label,
+            "error",
+            format!("{label} no existe o no es válido: {value}"),
+        );
+        push_next_step(next_steps, next_step);
+        false
+    }
+}
+
+fn push_doctor_check(
+    checks: &mut Vec<AiRuntimeDoctorCheck>,
+    id: &str,
+    label: &str,
+    status: &str,
+    message: String,
+) {
+    checks.push(AiRuntimeDoctorCheck {
+        id: id.to_string(),
+        label: label.to_string(),
+        status: status.to_string(),
+        message,
+    });
+}
+
+fn push_next_step(next_steps: &mut Vec<String>, message: &str) {
+    if !next_steps.iter().any(|step| step == message) {
+        next_steps.push(message.to_string());
+    }
+}
+
+fn env_lookup<'a>(values: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    values
+        .iter()
+        .find(|(candidate, _)| candidate == key)
+        .map(|(_, value)| value.as_str())
+}
+
+fn env_bool(values: &[(String, String)], key: &str) -> Option<bool> {
+    env_lookup(values, key).map(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+fn verifiable_runtime_path(value: &str) -> Option<PathBuf> {
+    if is_windows_path_string(value) && !cfg!(windows) {
+        return None;
+    }
+    if value == "~" {
+        return home_dir().map(PathBuf::from);
+    }
+    if let Some(rest) = value
+        .strip_prefix("~/")
+        .or_else(|| value.strip_prefix("~\\"))
+    {
+        return home_dir().map(|home| PathBuf::from(home).join(rest));
+    }
+
+    Some(PathBuf::from(value))
+}
+
+fn is_windows_path_string(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+}
+
+fn home_dir() -> Option<String> {
+    env::var("HOME")
+        .ok()
+        .or_else(|| env::var("USERPROFILE").ok())
 }
 
 fn load_ai_runtime_env() -> Result<Vec<(String, String)>, String> {
@@ -2815,5 +3350,95 @@ mod tests {
             .values
             .iter()
             .any(|(key, value)| key == "SHAPE_PROCESSOR_TIMEOUT_SECS" && value == "75"));
+    }
+
+    #[test]
+    fn ai_runtime_doctor_accepts_ready_local_runtime() {
+        let root = test_temp_dir("ready-runtime");
+        let facefusion_dir = root.join("FaceFusion");
+        let bmv2_dir = root.join("BackgroundMattingV2");
+        let facefusion_python = facefusion_dir.join("python");
+        let bmv2_python = bmv2_dir.join("python");
+        let checkpoint = bmv2_dir.join("pytorch_resnet50.pth");
+        fs::create_dir_all(&facefusion_dir).expect("create FaceFusion dir");
+        fs::create_dir_all(&bmv2_dir).expect("create BMV2 dir");
+        fs::write(&facefusion_python, "python").expect("write FaceFusion python");
+        fs::write(&bmv2_python, "python").expect("write BMV2 python");
+        fs::write(&checkpoint, "checkpoint").expect("write checkpoint");
+
+        let content = format!(
+            r#"
+            SHAPE_AI_MODE=adapter-contract
+            SHAPE_MODEL_WORKSTATION_PROFILE=apple-silicon
+            SHAPE_VIDEO_PROCESSOR_COMMAND=shape-ai-processor --kind video
+            SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame
+            SHAPE_AUDIO_PROCESSOR_COMMAND=shape-ai-processor --kind audio
+            SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio
+            SHAPE_FACE_COMMAND=python facefusion_frame.py --input {{input}} --output {{output}} --identity {{identity}}
+            SHAPE_BACKGROUND_COMMAND=python backgroundmattingv2_frame.py --input {{input}} --output {{output}} --clean-plate {{clean_plate}}
+            SHAPE_VOICE_COMMAND=python vcclient000_chunk.py --input {{input}} --output {{output}} --sample-rate {{sample_rate}}
+            SHAPE_WRAPPER_PASSTHROUGH=false
+            FACEFUSION_DIR={}
+            FACEFUSION_PYTHON={}
+            BMV2_REPO_DIR={}
+            BMV2_PYTHON={}
+            BMV2_MODEL_CHECKPOINT={}
+            VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test
+            "#,
+            render_env_value(&facefusion_dir.display().to_string()),
+            render_env_value(&facefusion_python.display().to_string()),
+            render_env_value(&bmv2_dir.display().to_string()),
+            render_env_value(&bmv2_python.display().to_string()),
+            render_env_value(&checkpoint.display().to_string()),
+        );
+
+        let report =
+            doctor_ai_runtime_env_report(&root.join("shape-ai-runtime.env"), true, &content);
+        fs::remove_dir_all(root).ok();
+
+        assert!(report.ok);
+        assert_eq!(report.status, "ready");
+        assert!(report.real_models_configured);
+        assert!(!report.passthrough_enabled);
+        assert!(report.checks.iter().all(|check| check.status == "ok"));
+    }
+
+    #[test]
+    fn ai_runtime_doctor_flags_incomplete_passthrough_runtime() {
+        let root = test_temp_dir("incomplete-runtime");
+        let content = r#"
+            SHAPE_AI_MODE=adapter-contract
+            SHAPE_PROCESSOR_DEMO_EFFECTS=true
+            SHAPE_WRAPPER_PASSTHROUGH=true
+            SHAPE_VIDEO_PROCESSOR_COMMAND=shape-ai-processor --kind video
+            SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame
+        "#;
+
+        let report =
+            doctor_ai_runtime_env_report(&root.join("shape-ai-runtime.env"), true, content);
+        fs::remove_dir_all(root).ok();
+
+        assert!(report.ok == false);
+        assert_eq!(report.status, "error");
+        assert!(report.passthrough_enabled);
+        assert!(!report.real_models_configured);
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.id == "audio-pipeline" && check.status == "error"));
+        assert!(report
+            .next_steps
+            .iter()
+            .any(|step| step.contains("Desactiva SHAPE_WRAPPER_PASSTHROUGH")));
+    }
+
+    fn test_temp_dir(label: &str) -> PathBuf {
+        let id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = env::temp_dir().join(format!("shape-meet-{label}-{id}"));
+        fs::create_dir_all(&path).expect("create test temp dir");
+        path
     }
 }

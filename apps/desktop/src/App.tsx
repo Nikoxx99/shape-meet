@@ -92,8 +92,9 @@ import {
 import { connectLiveKitRoom } from "./lib/livekit";
 import {
   cacheIdentityArtifact,
-  evictIdentityArtifact,
   captureNativeDebugEvent,
+  doctorAiRuntimeEnv,
+  evictIdentityArtifact,
   exportDebugBundle,
   getAiSidecarRuntime,
   getAiRuntimeEnv,
@@ -107,6 +108,7 @@ import {
   saveAiRuntimeEnv,
   startAiSidecar,
   stopAiSidecar,
+  type NativeAiRuntimeDoctorReport,
   type NativeAiRuntimeEnvFile,
   type NativeAiSidecarRuntime,
   type NativeIdentityArtifactCacheResult,
@@ -488,6 +490,7 @@ function statusTone(status?: string | null): "ok" | "warning" | "idle" {
       "limited",
       "stopped",
       "dead",
+      "warn",
       "warning",
     ].includes(normalized)
   )
@@ -3081,6 +3084,9 @@ function AiRuntimeScreen({
   const [envFile, setEnvFile] = useState<NativeAiRuntimeEnvFile | null>(null);
   const [content, setContent] = useState("");
   const [diagnostics, setDiagnostics] = useState<AiDiagnostics | null>(null);
+  const [doctor, setDoctor] = useState<NativeAiRuntimeDoctorReport | null>(
+    null,
+  );
   const [preflight, setPreflight] = useState<AiPreflightResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [preflightRunning, setPreflightRunning] = useState(false);
@@ -3112,14 +3118,16 @@ function AiRuntimeScreen({
   async function loadRuntimeState() {
     setLoading(true);
     try {
-      const [runtimeEnv, nextDiagnostics] = await Promise.all([
+      const [runtimeEnv, nextDiagnostics, nextDoctor] = await Promise.all([
         getAiRuntimeEnv(),
         getAiDiagnostics().catch(() => null),
+        doctorAiRuntimeEnv().catch(() => null),
       ]);
       setEnvFile(runtimeEnv);
       setContent(runtimeEnv.content);
       setModelRuntimeInput(modelRuntimeInputFromContent(runtimeEnv.content));
       setDiagnostics(nextDiagnostics);
+      setDoctor(nextDoctor);
       setRuntimeError(null);
       await onRefresh();
     } catch (error) {
@@ -3691,6 +3699,55 @@ function AiRuntimeScreen({
                 tone={diagnostics ? "warning" : "idle"}
               />
             )}
+          </Panel>
+          <Panel title="Doctor IA">
+            <StatusRow
+              label="Estado"
+              value={doctor ? doctor.status : "Sin diagnóstico"}
+              tone={statusTone(doctor?.status)}
+            />
+            <StatusRow
+              label="Perfil"
+              value={doctor?.profile ?? "Detectando"}
+              tone={doctor ? "idle" : "warning"}
+            />
+            <StatusRow
+              label="Modelos reales"
+              value={
+                doctor?.realModelsConfigured
+                  ? "Configurados"
+                  : doctor
+                    ? "Pendientes"
+                    : "Detectando"
+              }
+              tone={serviceTone(doctor?.realModelsConfigured)}
+            />
+            <StatusRow
+              label="Passthrough"
+              value={
+                doctor?.passthroughEnabled
+                  ? "Activo"
+                  : doctor
+                    ? "Inactivo"
+                    : "Detectando"
+              }
+              tone={
+                doctor ? (doctor.passthroughEnabled ? "warning" : "ok") : "idle"
+              }
+            />
+            {doctor?.checks.slice(0, 6).map((check, index) => (
+              <StatusRow
+                key={`${check.id}-${index}`}
+                label={check.label}
+                value={check.message}
+                tone={statusTone(check.status)}
+              />
+            ))}
+            {doctor?.nextSteps.slice(0, 2).map((step) => (
+              <InlineNotice icon={<ShieldAlert />} key={step}>
+                {step}
+              </InlineNotice>
+            ))}
           </Panel>
           <Panel title="Prueba IA">
             <StatusRow

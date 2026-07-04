@@ -95,6 +95,25 @@ export interface NativeAiRuntimeEnvFile {
   warnings: string[];
 }
 
+export interface NativeAiRuntimeDoctorReport {
+  ok: boolean;
+  status: string;
+  profile: string;
+  runtimePath: string;
+  runtimeExists: boolean;
+  passthroughEnabled: boolean;
+  realModelsConfigured: boolean;
+  checks: NativeAiRuntimeDoctorCheck[];
+  nextSteps: string[];
+}
+
+export interface NativeAiRuntimeDoctorCheck {
+  id: string;
+  label: string;
+  status: string;
+  message: string;
+}
+
 export interface NativeDemoAiRuntimeInput {
   videoProcessorPort?: string | null;
   audioProcessorPort?: string | null;
@@ -260,6 +279,31 @@ export async function getAiRuntimeEnv(): Promise<NativeAiRuntimeEnvFile> {
       content: "",
       configuredKeys: [],
       warnings: ["Config IA local disponible solo dentro de Tauri."],
+    };
+  }
+}
+
+export async function doctorAiRuntimeEnv(): Promise<NativeAiRuntimeDoctorReport> {
+  try {
+    return await invoke<NativeAiRuntimeDoctorReport>("doctor_ai_runtime_env");
+  } catch {
+    return {
+      ok: false,
+      status: "warning",
+      profile: "browser",
+      runtimePath: "",
+      runtimeExists: false,
+      passthroughEnabled: true,
+      realModelsConfigured: false,
+      checks: [
+        {
+          id: "native-runtime",
+          label: "Runtime",
+          status: "warn",
+          message: "Doctor IA local disponible dentro de Tauri.",
+        },
+      ],
+      nextSteps: ["Abre la app Tauri para diagnosticar modelos reales."],
     };
   }
 }
