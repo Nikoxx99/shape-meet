@@ -84,5 +84,8 @@ jobs:
       - name: Smoke remote demo checker
         run: pnpm smoke:remote-demo
 
+      - name: Smoke real demo readiness checker
+        run: pnpm smoke:real-demo
+
       - name: Validate Coolify compose
         run: pnpm check:coolify infra/env.coolify.example

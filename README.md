@@ -108,6 +108,7 @@ pnpm models:runtime -- --face-command "python apps/ai-sidecar/wrappers/facefusio
 pnpm demo:ui:install
 pnpm demo:ui
 pnpm demo:local-preview
+pnpm demo:real:check
 pnpm check:sentry
 pnpm check:sentry:live
 
@@ -204,6 +205,27 @@ pnpm models:preflight -- \
 Si no pasas assets, usa muestras mínimas internas; eso sirve para validar
 contrato/passthrough, pero la prueba real de calidad debe usar una foto de
 identidad, frame y clean plate de la cámara del demo.
+
+`pnpm demo:real:check` agrupa la compuerta operativa del demo real: Sentry,
+`models:doctor`, `models:preflight` y, si pasas `--remote-env-file`, el doctor
+remoto de LiveKit/TURN/Coolify. En la estación NVIDIA final debe correrse con
+assets reales:
+
+```bash
+pnpm demo:real:check -- \
+  --env-file C:\Users\demo\AppData\Local\Shape Meet\shape-ai-runtime.env \
+  --remote-env-file infra\shape-meet.production.env \
+  --identity C:\models\identities\host.jpg \
+  --frame C:\models\samples\frame.jpg \
+  --clean-plate C:\models\samples\clean-plate.jpg \
+  --audio C:\models\samples\audio.f32le \
+  --strict \
+  --output output\debug\real-demo-readiness.json
+```
+
+En equipos sin GPU/modelos instalados puedes validar Sentry y configuración
+base con `--skip-model-preflight`; el preflight real debe pasar antes de mostrar
+face swap/fondo/voz en una demo comercial.
 
 `pnpm models:doctor` revisa el runtime de modelos sin cargar pesos pesados:
 archivo `shape-ai-runtime.env`, comandos de procesador, placeholders requeridos,
