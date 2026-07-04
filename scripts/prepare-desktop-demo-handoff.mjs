@@ -1,6 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -8,6 +16,9 @@ const repoRoot = resolve(scriptDir, "..");
 const args = process.argv.slice(2);
 const json = args.includes("--json");
 const download = args.includes("--download");
+const localBundle = args.includes("--local-bundle");
+const copyLocal = args.includes("--copy-local");
+const skipBundleCheck = args.includes("--skip-bundle-check");
 const strictLatest = args.includes("--strict-latest");
 const allowStale = args.includes("--allow-stale");
 const workflowName = argValue("--workflow") ?? "Desktop Packages";
@@ -32,6 +43,11 @@ try {
 }
 
 function main() {
+  if (localBundle) {
+    mainLocalBundle();
+    return;
+  }
+
   if (!repo) {
     throw new Error("No se pudo detectar repo GitHub. Usa --repo owner/name.");
   }
@@ -69,6 +85,49 @@ function main() {
   if (!report.ok || (strictLatest && report.run.conclusion !== "success")) {
     process.exit(1);
   }
+}
+
+function mainLocalBundle() {
+  const bundleDir = resolve(
+    repoRoot,
+    argValue("--bundle-dir") ??
+      join("apps", "desktop", "src-tauri", "target", "release", "bundle"),
+  );
+  const outputDir = resolve(
+    repoRoot,
+    argValue("--out") ??
+      join("output", "desktop-handoff", `local-${shortSha(currentHeadSha)}`),
+  );
+  mkdirSync(outputDir, { recursive: true });
+
+  const bundleCheck = skipBundleCheck
+    ? {
+        ok: true,
+        skipped: true,
+        command: "pnpm desktop:bundle:check",
+        message: "omitido por --skip-bundle-check",
+      }
+    : runDesktopBundleCheck();
+  const artifacts = findLocalBundleArtifacts(bundleDir);
+  const report = buildLocalReport(bundleDir, bundleCheck, artifacts);
+
+  if (copyLocal && report.ok) {
+    copyLocalArtifacts(outputDir, report.artifacts);
+  }
+
+  writeFileSync(
+    join(outputDir, "manifest.json"),
+    `${JSON.stringify(report, null, 2)}\n`,
+  );
+  writeFileSync(join(outputDir, "README.md"), localHandoffReadme(report));
+
+  if (json) {
+    console.log(JSON.stringify({ ...report, outputDir }, null, 2));
+  } else {
+    printLocalReport(report, outputDir);
+  }
+
+  if (!report.ok) process.exit(1);
 }
 
 function resolveRun() {
@@ -205,6 +264,48 @@ function buildReport(run, artifacts) {
   };
 }
 
+function runDesktopBundleCheck() {
+  const result = runCommand(pnpmCommand(), ["desktop:bundle:check"]);
+  return {
+    ok: result.status === 0,
+    skipped: false,
+    command: "pnpm desktop:bundle:check",
+    stdout: trim(result.stdout),
+    stderr: trim(result.stderr),
+  };
+}
+
+function buildLocalReport(bundleDir, bundleCheck, artifacts) {
+  const bundleExists = existsSync(bundleDir);
+  const issues = [];
+  if (!bundleExists) {
+    issues.push(`No existe bundle local: ${relativePath(bundleDir)}`);
+  }
+  if (!bundleCheck.ok) {
+    issues.push("desktop:bundle:check fallo para el bundle local.");
+  }
+  if (artifacts.length === 0) {
+    issues.push(
+      "No se encontraron instaladores o bundles locales en target/release/bundle.",
+    );
+  }
+
+  return {
+    ok: issues.length === 0,
+    source: "local-bundle",
+    generatedAt: new Date().toISOString(),
+    repository: repo,
+    currentHeadSha,
+    platform: process.platform,
+    arch: process.arch,
+    bundleDir,
+    bundleExists,
+    bundleCheck,
+    artifacts,
+    issues,
+  };
+}
+
 function downloadArtifacts(databaseId, outputDir, artifacts) {
   const artifactsDir = join(outputDir, "artifacts");
   mkdirSync(artifactsDir, { recursive: true });
@@ -226,6 +327,17 @@ function downloadArtifacts(databaseId, outputDir, artifacts) {
         `No se pudo descargar ${artifact.name}: ${trim(result.stderr)}`,
       );
     }
+  }
+}
+
+function copyLocalArtifacts(outputDir, artifacts) {
+  const artifactsDir = join(outputDir, "artifacts");
+  mkdirSync(artifactsDir, { recursive: true });
+
+  for (const artifact of artifacts) {
+    const target = join(artifactsDir, safeArtifactName(artifact.name));
+    cpSync(artifact.path, target, { recursive: true });
+    artifact.copiedTo = target;
   }
 }
 
@@ -265,6 +377,47 @@ ${artifactLines}
 `;
 }
 
+function localHandoffReadme(report) {
+  const artifactLines = report.artifacts.length
+    ? report.artifacts
+        .map((artifact) => {
+          const size = artifact.sizeBytes
+            ? `${Math.round(artifact.sizeBytes / 1024 / 1024)} MB`
+            : "tamano desconocido";
+          return `- ${artifact.name}: ${size}, ${artifact.kind}, ${artifact.path}`;
+        })
+        .join("\n")
+    : "- No se encontraron artifacts locales.";
+  const issueLines = report.issues.length
+    ? report.issues.map((issue) => `- ${issue}`).join("\n")
+    : "- Sin issues.";
+
+  return `# Shape Meet local desktop demo handoff
+
+Fuente: bundle local
+Commit actual: ${report.currentHeadSha ?? "desconocido"}
+Bundle: ${report.bundleDir}
+Estado: ${report.ok ? "listo" : "revisar bundle local"}
+Bundle check: ${report.bundleCheck.ok ? "ok" : "fallo"}${report.bundleCheck.skipped ? " (omitido)" : ""}
+
+## Artifacts Locales
+
+${artifactLines}
+
+## Issues
+
+${issueLines}
+
+## Uso Operativo
+
+1. Genera el bundle local con \`pnpm build:desktop\`.
+2. Valida contenido con \`pnpm desktop:bundle:check\`.
+3. Genera este handoff con \`pnpm desktop:handoff -- --local-bundle\`.
+4. Si necesitas copiar los instaladores al directorio de handoff, usa \`--copy-local\`.
+5. Instala la app y valida la estacion con \`pnpm demo:real:check -- --strict --include-desktop\`.
+`;
+}
+
 function printReport(report, outputDir) {
   console.log("Desktop demo handoff");
   console.log(`Run: ${report.run.url}`);
@@ -301,12 +454,102 @@ function printReport(report, outputDir) {
   );
 }
 
+function printLocalReport(report, outputDir) {
+  console.log("Desktop local demo handoff");
+  console.log(`Bundle: ${report.bundleDir}`);
+  console.log(`Output: ${outputDir}`);
+  for (const artifact of report.artifacts) {
+    const size = artifact.sizeBytes
+      ? `${Math.round(artifact.sizeBytes / 1024 / 1024)} MB`
+      : "sin tamano";
+    console.log(`ok: ${artifact.name} (${size})`);
+  }
+  for (const issue of report.issues) console.error(`fail: ${issue}`);
+  console.log(
+    report.ok
+      ? "Desktop local demo handoff ok"
+      : "Desktop local demo handoff failed",
+  );
+}
+
 function headMatchesCurrent(runHeadSha) {
   if (!currentHeadSha || !runHeadSha) return false;
   return (
     String(runHeadSha).startsWith(currentHeadSha) ||
     String(currentHeadSha).startsWith(runHeadSha)
   );
+}
+
+function findLocalBundleArtifacts(bundleDir) {
+  if (!existsSync(bundleDir)) return [];
+
+  const artifacts = [];
+  walkBundle(bundleDir, (path, stat) => {
+    const name = basename(path);
+    if (stat.isDirectory()) {
+      if (name.endsWith(".app")) {
+        artifacts.push(localArtifact(path, "app-bundle"));
+        return false;
+      }
+      return true;
+    }
+
+    if (isDesktopDeliverable(name)) {
+      artifacts.push(localArtifact(path, "installer"));
+    }
+    return true;
+  });
+
+  return artifacts.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function walkBundle(dir, visitor) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    const stat = statSync(path);
+    const shouldContinue = visitor(path, stat);
+    if (entry.isDirectory() && shouldContinue !== false) {
+      walkBundle(path, visitor);
+    }
+  }
+}
+
+function localArtifact(path, kind) {
+  const stat = statSync(path);
+  return {
+    name: basename(path),
+    path,
+    relativePath: relativePath(path),
+    kind,
+    sizeBytes: pathSize(path),
+    modifiedAt: stat.mtime.toISOString(),
+  };
+}
+
+function isDesktopDeliverable(name) {
+  return /\.(dmg|msi|exe|appimage|deb|rpm|zip)$/i.test(name);
+}
+
+function pathSize(path) {
+  const stat = statSync(path);
+  if (stat.isFile()) return stat.size;
+  if (!stat.isDirectory()) return 0;
+  return readdirSync(path).reduce(
+    (total, entry) => total + pathSize(join(path, entry)),
+    0,
+  );
+}
+
+function safeArtifactName(name) {
+  return name.replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
+function shortSha(value) {
+  return value ? String(value).slice(0, 12) : "unknown";
+}
+
+function pnpmCommand() {
+  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 }
 
 function detectRepository() {
@@ -338,6 +581,11 @@ function envJson(name) {
   if (!value) return null;
   if (existsSync(value)) return parseJson(readFileSync(value, "utf8"));
   return parseJson(value);
+}
+
+function relativePath(path) {
+  const relativeToRepo = relative(repoRoot, path);
+  return relativeToRepo.startsWith("..") ? path : relativeToRepo;
 }
 
 function runCommand(command, commandArgs) {

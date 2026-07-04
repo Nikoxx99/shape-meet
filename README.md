@@ -426,6 +426,16 @@ Después de un run exitoso, `pnpm desktop:handoff` genera
 `-- --download` para bajarlos localmente con `gh`. El handoff falla si el run
 exitoso no coincide con el commit actual; usa `-- --allow-stale` solo para
 documentar una prueba puntual con artifacts viejos.
+Si GitHub Actions no tiene artifacts recientes, genera el paquete en la máquina
+actual y crea un handoff local:
+
+```bash
+pnpm build:desktop
+pnpm desktop:handoff -- --local-bundle
+```
+
+Usa `-- --local-bundle --copy-local` si quieres copiar los instaladores a
+`output/desktop-handoff/local-{commit}/artifacts`.
 
 PyInstaller no hace cross-compile real. Para Windows hay que ejecutar
 `pnpm build:desktop` en Windows o en un runner Windows; para macOS, en macOS. Si

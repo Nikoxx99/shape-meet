@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -103,6 +110,58 @@ try {
   assert(
     staleReport.headMatchesCurrent === false,
     "stale handoff did not report commit mismatch",
+  );
+
+  const localBundleDir = join(tempDir, "bundle");
+  const localOutputDir = join(tempDir, "local-handoff");
+  mkdirSync(join(localBundleDir, "dmg"), { recursive: true });
+  writeFileSync(
+    join(localBundleDir, "dmg", "Shape Meet_0.1.0_aarch64.dmg"),
+    "demo",
+  );
+  const localResult = spawnSync(
+    process.execPath,
+    [
+      "scripts/prepare-desktop-demo-handoff.mjs",
+      "--json",
+      "--local-bundle",
+      "--skip-bundle-check",
+      "--bundle-dir",
+      localBundleDir,
+      "--out",
+      localOutputDir,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SHAPE_DESKTOP_HANDOFF_CURRENT_HEAD: currentHead,
+      },
+    },
+  );
+  if (localResult.status !== 0) {
+    if (localResult.stdout) process.stdout.write(localResult.stdout);
+    if (localResult.stderr) process.stderr.write(localResult.stderr);
+    throw new Error(
+      `local desktop handoff smoke failed with ${localResult.status}`,
+    );
+  }
+  const localReport = JSON.parse(localResult.stdout);
+  assert(localReport.ok === true, "local handoff report was not ok");
+  assert(
+    localReport.source === "local-bundle",
+    "local handoff source mismatch",
+  );
+  assert(
+    localReport.artifacts.some((item) => item.name.includes("Shape Meet")),
+    "local handoff did not include local artifact",
+  );
+  assert(
+    readFileSync(join(localOutputDir, "README.md"), "utf8").includes(
+      "bundle local",
+    ),
+    "local handoff README did not describe local bundle",
   );
 
   console.log("desktop handoff smoke ok");

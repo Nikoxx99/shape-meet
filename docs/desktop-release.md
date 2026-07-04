@@ -52,6 +52,20 @@ pnpm desktop:handoff -- --download
 El handoff queda en `output/desktop-handoff/run-{id}` e incluye
 `manifest.json`, `README.md` y, con `--download`, una carpeta `artifacts/`.
 
+Si `Desktop Packages` está bloqueado, fallando o quedó stale frente a `HEAD`,
+puedes entregar una build local de la plataforma actual:
+
+```bash
+pnpm build:desktop
+pnpm desktop:bundle:check
+pnpm desktop:handoff -- --local-bundle
+```
+
+Ese modo crea `output/desktop-handoff/local-{commit}` con manifest y README del
+bundle en `apps/desktop/src-tauri/target/release/bundle`. Agrega
+`-- --local-bundle --copy-local` si quieres copiar los instaladores al directorio
+de handoff.
+
 Desde GitHub Actions:
 
 1. Abrir `Desktop Packages`.
