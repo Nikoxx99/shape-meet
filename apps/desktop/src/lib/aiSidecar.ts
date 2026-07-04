@@ -1,6 +1,7 @@
 import type { NativeAiPipelineStatus } from "./native";
 
-export type AiStageState = "active" | "degraded" | "failed" | "standby" | string;
+export type AiStageState =
+  "active" | "degraded" | "failed" | "standby" | string;
 
 // Pipeline status enriched with explicit stage health (§3): state + reason code
 // + localizable detail + resolved device/vram, on top of the native shape.
@@ -266,7 +267,8 @@ export interface AiDiagnostics {
   }>;
   modelEndpoint: {
     configured: boolean;
-    status: "ready" | "limited" | "offline" | "error" | "not-configured" | string;
+    status:
+      "ready" | "limited" | "offline" | "error" | "not-configured" | string;
     ready: boolean;
     url: string | null;
     mode: string | null;
