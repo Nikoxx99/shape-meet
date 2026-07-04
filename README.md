@@ -243,9 +243,9 @@ contrato/passthrough, pero la prueba real de calidad debe usar una foto de
 identidad, frame y clean plate de la cámara del demo.
 
 `pnpm demo:real:check` agrupa la compuerta operativa del demo real: Sentry,
-`models:doctor`, `models:preflight` y, si pasas `--remote-env-file`, el doctor
-remoto de LiveKit/TURN/Coolify. En la estación NVIDIA final debe correrse con
-assets reales:
+`models:doctor`, assets reales, `models:preflight` y, si pasas
+`--remote-env-file`, el doctor remoto de LiveKit/TURN/Coolify. En la estación
+NVIDIA final debe correrse con assets reales:
 
 ```bash
 pnpm demo:real:check -- \
@@ -262,10 +262,12 @@ pnpm demo:real:check -- \
 
 En equipos sin GPU/modelos instalados puedes validar Sentry, contrato y
 configuración base sin `--require-real-models`; el reporte marcará `Modelos
-reales: pendiente` si sigue en passthrough. En la estación NVIDIA final usa
-`--require-real-models` para fallar cuando FaceFusion, BackgroundMattingV2 o
-vcclient000 todavía no estén realmente conectados. El preflight real debe pasar
-antes de mostrar face swap/fondo/voz en una demo comercial.
+reales: pendiente` si sigue en passthrough y los assets serán recomendados, no
+bloqueantes. En la estación NVIDIA final usa `--require-real-models` para fallar
+cuando falten `--identity`, `--frame`, `--clean-plate` o `--audio`, o cuando
+FaceFusion, BackgroundMattingV2 o vcclient000 todavía no estén realmente
+conectados. El preflight real debe pasar antes de mostrar face swap/fondo/voz en
+una demo comercial.
 
 `pnpm models:doctor` revisa el runtime de modelos sin cargar pesos pesados:
 archivo `shape-ai-runtime.env`, comandos de procesador, placeholders requeridos,

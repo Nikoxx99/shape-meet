@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,8 @@ const skipModelDoctor = args.includes("--skip-model-doctor");
 const skipModelPreflight = args.includes("--skip-model-preflight");
 const forceModelPreflight = args.includes("--force-model-preflight");
 const includeDesktop = args.includes("--include-desktop");
+const skipVideo = args.includes("--skip-video");
+const skipAudio = args.includes("--skip-audio");
 const requireRealModels =
   args.includes("--require-real-models") || args.includes("--real-models");
 const runtimeEnvFile =
@@ -72,6 +75,7 @@ async function main() {
     : runModelDoctor();
 
   report.steps.realModels = inspectRealModels();
+  report.steps.demoAssets = inspectDemoAssets();
   report.steps.modelPreflight = runModelPreflight();
   report.steps.remoteDemo = remoteEnvFile
     ? runRemoteDemoCheck()
@@ -131,6 +135,19 @@ function runModelPreflight() {
     );
   }
 
+  const demoAssets = report.steps.demoAssets;
+  if (
+    requireRealModels &&
+    demoAssets &&
+    !demoAssets.ok &&
+    !forceModelPreflight
+  ) {
+    return skipped(
+      "Modelos preflight",
+      "omitido porque faltan assets reales; usa --force-model-preflight para forzarlo",
+    );
+  }
+
   const commandArgs = ["models:preflight", "--", "--json"];
   if (runtimeEnvFile) commandArgs.push("--env-file", runtimeEnvFile);
   if (timeoutMs) commandArgs.push("--timeout-ms", timeoutMs);
@@ -139,8 +156,8 @@ function runModelPreflight() {
   appendForwardedArg(commandArgs, "--identity");
   appendForwardedArg(commandArgs, "--clean-plate");
   appendForwardedArg(commandArgs, "--audio");
-  if (args.includes("--skip-video")) commandArgs.push("--skip-video");
-  if (args.includes("--skip-audio")) commandArgs.push("--skip-audio");
+  if (skipVideo) commandArgs.push("--skip-video");
+  if (skipAudio) commandArgs.push("--skip-audio");
 
   const step = commandStep("Modelos preflight", commandArgs, {
     parseJson: true,
@@ -299,6 +316,133 @@ function inspectRealModels() {
   };
 }
 
+function inspectDemoAssets() {
+  if (skipVideo && skipAudio) {
+    return skipped(
+      "Assets demo real",
+      "video y audio omitidos por --skip-video/--skip-audio",
+    );
+  }
+
+  const required = requireRealModels;
+  const assets = [];
+  if (!skipVideo) {
+    assets.push(
+      inspectDemoAsset({
+        id: "frame",
+        label: "Frame de cámara",
+        argName: "--frame",
+        required,
+      }),
+      inspectDemoAsset({
+        id: "identity",
+        label: "Identidad de rostro",
+        argName: "--identity",
+        required,
+      }),
+      inspectDemoAsset({
+        id: "cleanPlate",
+        label: "Clean plate de fondo",
+        argName: "--clean-plate",
+        required,
+      }),
+    );
+  }
+  if (!skipAudio) {
+    assets.push(
+      inspectDemoAsset({
+        id: "audio",
+        label: "Muestra de audio",
+        argName: "--audio",
+        required,
+      }),
+    );
+  }
+
+  const issues = assets
+    .filter((asset) => asset.required && !asset.ok)
+    .map((asset) => `${asset.label}: ${asset.error}`);
+  const warnings = assets
+    .filter((asset) => !asset.required && !asset.ok)
+    .map(
+      (asset) =>
+        `${asset.label}: no se validó asset real; el preflight puede usar muestra generada.`,
+    );
+  const nextSteps =
+    issues.length > 0
+      ? [
+          "Pasa `--identity`, `--frame`, `--clean-plate` y `--audio` con archivos reales para `pnpm demo:real:check -- --require-real-models`.",
+        ]
+      : [];
+
+  return {
+    ok: issues.length === 0,
+    label: "Assets demo real",
+    statusLabel:
+      issues.length === 0
+        ? required
+          ? "assets reales verificados"
+          : "assets opcionales"
+        : "faltan assets reales",
+    required,
+    assets,
+    issues,
+    warnings,
+    nextSteps,
+  };
+}
+
+function inspectDemoAsset({ id, label, argName, required }) {
+  const rawPath = argValue(argName);
+  if (!rawPath) {
+    return {
+      id,
+      label,
+      argName,
+      required,
+      ok: false,
+      error: `falta ${argName}`,
+    };
+  }
+
+  const fullPath = resolve(repoRoot, rawPath);
+  if (!existsSync(fullPath)) {
+    return {
+      id,
+      label,
+      argName,
+      path: rawPath,
+      required,
+      ok: false,
+      error: `no existe ${rawPath}`,
+    };
+  }
+
+  const buffer = readFileSync(fullPath);
+  if (buffer.byteLength === 0) {
+    return {
+      id,
+      label,
+      argName,
+      path: rawPath,
+      required,
+      ok: false,
+      error: "archivo vacío",
+    };
+  }
+
+  return {
+    id,
+    label,
+    argName,
+    path: rawPath,
+    required,
+    ok: true,
+    sizeBytes: buffer.byteLength,
+    sha256: createHash("sha256").update(buffer).digest("hex"),
+  };
+}
+
 function commandStep(label, commandArgs, options = {}) {
   const result = runPnpm(commandArgs, options);
   const parsed = options.parseJson ? parseJson(result.stdout) : null;
@@ -371,6 +515,7 @@ function printHuman(currentReport) {
   printStep(currentReport.steps.desktop);
   printStep(currentReport.steps.modelDoctor);
   printStep(currentReport.steps.realModels);
+  printStep(currentReport.steps.demoAssets);
   printStep(currentReport.steps.modelPreflight);
   printStep(currentReport.steps.remoteDemo);
 
@@ -432,11 +577,18 @@ function appendForwardedArg(target, name) {
 }
 
 function realDemoReady() {
-  const { sentry, modelDoctor, realModels, modelPreflight, remoteDemo } =
-    report.steps;
+  const {
+    sentry,
+    modelDoctor,
+    realModels,
+    demoAssets,
+    modelPreflight,
+    remoteDemo,
+  } = report.steps;
   if (!sentry?.ok || sentry.skipped) return false;
   if (!modelDoctor?.ok || modelDoctor.skipped) return false;
   if (!realModels?.ok || realModels.realModelsConfigured !== true) return false;
+  if (!demoAssets?.ok || demoAssets.skipped) return false;
   if (!modelPreflight?.ok || modelPreflight.skipped) return false;
   if (remoteEnvFile && (!remoteDemo?.ok || remoteDemo.skipped)) return false;
   return true;

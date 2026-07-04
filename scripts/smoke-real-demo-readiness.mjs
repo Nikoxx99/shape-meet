@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
@@ -11,6 +11,15 @@ const audioPort = await getFreePort();
 
 try {
   const envPath = join(tempDir, "shape-ai-runtime.env");
+  const framePath = join(tempDir, "frame.jpg");
+  const identityPath = join(tempDir, "identity.jpg");
+  const cleanPlatePath = join(tempDir, "clean-plate.jpg");
+  const audioPath = join(tempDir, "audio.f32le");
+
+  writeFileSync(framePath, Buffer.from("shape-frame-sample"));
+  writeFileSync(identityPath, Buffer.from("shape-identity-sample"));
+  writeFileSync(cleanPlatePath, Buffer.from("shape-clean-plate-sample"));
+  writeFileSync(audioPath, Buffer.from("shape-audio-sample"));
 
   runChecked([
     "scripts/prepare-ai-runtime-models.mjs",
@@ -80,6 +89,10 @@ try {
     "passthrough smoke should not be marked as real model ready",
   );
   assert(
+    report.steps?.demoAssets?.ok === true,
+    "optional demo assets should not block readiness",
+  );
+  assert(
     report.readyForRealDemo === false,
     "passthrough smoke should not be marked ready for real demo",
   );
@@ -115,6 +128,64 @@ try {
   assert(
     strictReport.steps?.realModels?.ok === false,
     "require-real-models did not fail the realModels step",
+  );
+  assert(
+    strictReport.steps?.demoAssets?.ok === false,
+    "require-real-models did not fail without demo assets",
+  );
+  assert(
+    strictReport.steps?.modelPreflight?.skipped === true,
+    "model preflight should be skipped when required demo assets are missing",
+  );
+
+  const assetResult = spawnSync(
+    process.execPath,
+    [
+      "scripts/check-real-demo-readiness.mjs",
+      "--json",
+      "--skip-sentry",
+      "--env-file",
+      envPath,
+      "--require-real-models",
+      "--skip-model-preflight",
+      "--frame",
+      framePath,
+      "--identity",
+      identityPath,
+      "--clean-plate",
+      cleanPlatePath,
+      "--audio",
+      audioPath,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 90000,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+
+  if (assetResult.status === 0) {
+    if (assetResult.stdout) process.stdout.write(assetResult.stdout);
+    if (assetResult.stderr) process.stderr.write(assetResult.stderr);
+    throw new Error(
+      "passthrough runtime should still fail real model readiness",
+    );
+  }
+
+  const assetReport = JSON.parse(assetResult.stdout);
+  assert(
+    assetReport.steps?.demoAssets?.ok === true,
+    "real demo asset validation did not pass with provided assets",
+  );
+  assert(
+    assetReport.steps?.demoAssets?.assets?.every(
+      (asset) =>
+        asset.ok === true &&
+        typeof asset.sha256 === "string" &&
+        asset.sha256.length === 64,
+    ),
+    "validated demo assets should include sha256 hashes",
   );
 
   console.log("real demo readiness smoke ok");
