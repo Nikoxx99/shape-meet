@@ -9,6 +9,7 @@ const replaceAi = args.has("--replace-ai") || args.has("--restart-ai");
 const strict = args.has("--strict");
 const verifyUi = args.has("--verify-ui");
 const keepAlive = args.has("--keep-alive");
+const skipLiveKitHandshake = args.has("--skip-livekit-handshake");
 const tauriMode =
   args.has("--tauri") || args.has("--native") || args.has("--desktop-app");
 const exitAfterReady =
@@ -87,10 +88,12 @@ async function main() {
       console.log(`- LiveKit RTC: ${liveKitRecreateReason}`);
       console.log("");
     }
-    if (
-      strict &&
-      (!demoReady(services) || liveKitRecreateReason || adminRecreateReason)
-    ) {
+    const ready =
+      demoReady(services) && !liveKitRecreateReason && !adminRecreateReason;
+    if (ready) {
+      verifyLiveKitHandshakeIfNeeded(services);
+    }
+    if (strict && !ready) {
       process.exit(1);
     }
     return;
@@ -155,6 +158,7 @@ async function main() {
 
   const ready = await waitForReady();
   printServiceReport(ready);
+  verifyLiveKitHandshakeIfNeeded(ready);
 
   if (verifyUi) {
     const verified = runPnpmCapture(["demo:ui"]);
@@ -594,12 +598,30 @@ async function ensureProcessKeepsRunning(label, child, timeoutMs) {
   });
 }
 
-function runPnpmCapture(pnpmArgs) {
+function verifyLiveKitHandshakeIfNeeded(report) {
+  if (!shouldVerifyLiveKitHandshake(report)) return;
+
+  runPnpmCapture(["smoke:livekit-handshake"], {
+    SHAPE_SMOKE_API_URL: adminUrl,
+    SHAPE_SMOKE_LIVEKIT_URL: liveKitUrl,
+  });
+}
+
+function shouldVerifyLiveKitHandshake(report) {
+  return (
+    !skipLiveKitHandshake &&
+    (strict || exitAfterReady) &&
+    report.admin.ok &&
+    report.livekit.ok
+  );
+}
+
+function runPnpmCapture(pnpmArgs, extraEnv = {}) {
   console.log("");
   console.log(`> pnpm ${pnpmArgs.join(" ")}`);
   const result = spawnSync(pnpmCommand(), pnpmArgs, {
     cwd: process.cwd(),
-    env,
+    env: { ...env, ...extraEnv },
     encoding: "utf8",
   });
 

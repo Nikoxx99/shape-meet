@@ -86,6 +86,10 @@ Para validar que el stack queda listo y salir sin dejar procesos locales vivos:
 pnpm demo:ready
 ```
 
+En modo ready/strict, el runner también emite un token LiveKit y valida handshake
+WebSocket contra `/rtc`. Usa `--skip-livekit-handshake` solo para aislar un
+diagnóstico de servicios HTTP.
+
 Para levantar/verificar servicios y recorrer la UI real con Playwright:
 
 ```bash
@@ -101,6 +105,7 @@ Para diagnosticar sin levantar procesos:
 
 ```bash
 pnpm demo:doctor
+pnpm demo:doctor -- --strict
 ```
 
 Para exportar un reporte local de soporte con servicios, Docker, Sentry,
