@@ -89,8 +89,8 @@ SHAPE_VOICE_COMMAND=
 VCCLIENT000_HTTP_ENDPOINT=http://127.0.0.1:18888/test
 VCCLIENT000_HTTP_MODE=w-okada-rest
 SHAPE_PROCESSOR_DEMO_EFFECTS=false
-SHAPE_MODEL_COMMAND_TIMEOUT_SECS=2.0
-SHAPE_PROCESSOR_TIMEOUT_SECS=0.8
+SHAPE_MODEL_COMMAND_TIMEOUT_SECS=30
+SHAPE_PROCESSOR_TIMEOUT_SECS=75
 ```
 
 `development-passthrough` valida el transporte de frames sin cargar modelos. Los
@@ -169,6 +169,8 @@ Ese perfil asume `C:\models\FaceFusion`,
 `http://127.0.0.1:18888/test`. Ese endpoint usa el REST oficial de
 w-okada/VCClient (`POST /test`) y el wrapper convierte entre el `pcm_f32le` de
 Shape Meet y el `pcm_s16le` que espera VCClient.
+El runtime generado usa 30s por comando de modelo y 75s para el procesador
+gestionado, suficiente para una primera carga de rostro + fondo en demo.
 
 También puedes usar `--vcclient000-command` para un comando local de vcclient000.
 Usa `--video-frame-command` si prefieres un solo wrapper combinado para rostro y

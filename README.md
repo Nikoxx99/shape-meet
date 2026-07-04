@@ -541,6 +541,9 @@ Ese perfil asume `C:\models\FaceFusion`,
 `C:\models\BackgroundMattingV2\pytorch_resnet50.pth` y VCClient REST en
 `http://127.0.0.1:18888/test`. Puedes sobreescribir cualquier ruta con las
 banderas `--facefusion-*`, `--bmv2-*` o `--vcclient000-*`.
+El perfil deja `SHAPE_MODEL_COMMAND_TIMEOUT_SECS=30` y
+`SHAPE_PROCESSOR_TIMEOUT_SECS=75` para cubrir el calentamiento inicial de
+FaceFusion + BackgroundMattingV2 antes de medir latencia real.
 Después de escribir el runtime, ejecuta `pnpm models:preflight` con assets reales
 de esa máquina para confirmar procesador, latencia y warnings antes de iniciar
 la llamada.

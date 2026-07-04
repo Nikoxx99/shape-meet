@@ -258,7 +258,7 @@ function assertWindowsNvidiaProfileRuntimeEnv() {
   );
   assert(
     env.SHAPE_MODEL_COMMAND_TIMEOUT_SECS === "30" &&
-      env.SHAPE_PROCESSOR_TIMEOUT_SECS === "12",
+      env.SHAPE_PROCESSOR_TIMEOUT_SECS === "75",
     "windows-nvidia profile did not set demo timeouts",
   );
   assert(

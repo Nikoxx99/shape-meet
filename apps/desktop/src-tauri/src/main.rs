@@ -1514,7 +1514,7 @@ fn model_ai_runtime_env_content(
         .unwrap_or(true);
     let processor_timeout =
         trimmed_model_input_value(input.and_then(|value| value.processor_timeout_secs.as_deref()))
-            .unwrap_or_else(|| "10".to_string());
+            .unwrap_or_else(|| "75".to_string());
     let model_timeout =
         trimmed_model_input_value(input.and_then(|value| value.model_timeout_secs.as_deref()))
             .unwrap_or_else(|| "8".to_string());
@@ -2652,7 +2652,7 @@ mod tests {
             vcclient000_http_endpoint: Some("http://127.0.0.1:18888/test".to_string()),
             vcclient000_http_mode: Some("w-okada-rest".to_string()),
             model_timeout_secs: Some("30".to_string()),
-            processor_timeout_secs: Some("12".to_string()),
+            processor_timeout_secs: Some("75".to_string()),
         };
         let content =
             model_ai_runtime_env_content("python3 /tmp/shape_processor_command.py", Some(&input))
@@ -2703,6 +2703,6 @@ mod tests {
         assert!(parsed
             .values
             .iter()
-            .any(|(key, value)| key == "SHAPE_PROCESSOR_TIMEOUT_SECS" && value == "12"));
+            .any(|(key, value)| key == "SHAPE_PROCESSOR_TIMEOUT_SECS" && value == "75"));
     }
 }

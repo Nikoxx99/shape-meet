@@ -230,7 +230,7 @@ function workstationProfileDefaults(profile) {
   if (profile === "windows-nvidia") {
     return {
       modelTimeout: "30",
-      processorTimeout: "12",
+      processorTimeout: "75",
       wrapperPassthrough: "false",
       modelEnv: {
         FACEFUSION_DIR: "C:\\models\\FaceFusion",
@@ -254,7 +254,7 @@ function workstationProfileDefaults(profile) {
   if (profile === "apple-silicon") {
     return {
       modelTimeout: "30",
-      processorTimeout: "12",
+      processorTimeout: "75",
       wrapperPassthrough: "true",
       modelEnv: {
         FACEFUSION_DIR: "~/models/FaceFusion",

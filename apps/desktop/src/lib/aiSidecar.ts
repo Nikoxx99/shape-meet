@@ -1,6 +1,9 @@
 import type { NativeAiPipelineStatus } from "./native";
 
 const DEFAULT_AI_SIDECAR_URL = "http://127.0.0.1:7851";
+const PREFLIGHT_TIMEOUT_MS = 150_000;
+const FRAME_PROCESS_TIMEOUT_MS = 80_000;
+const AUDIO_PROCESS_TIMEOUT_MS = 15_000;
 
 export interface AiSessionStartInput {
   meetingCode: string;
@@ -295,7 +298,10 @@ export async function runAiPreflight(
   input: AiPreflightInput,
 ): Promise<AiPreflightResult> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    PREFLIGHT_TIMEOUT_MS,
+  );
 
   try {
     const response = await fetch(`${aiSidecarUrl()}/preflight`, {
@@ -320,6 +326,13 @@ export async function runAiPreflight(
     }
 
     return data.preflight;
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(
+        `El preflight IA agotó ${timeoutLabel(PREFLIGHT_TIMEOUT_MS)}. Revisa logs del sidecar y timeouts de modelos.`,
+      );
+    }
+    throw error;
   } finally {
     window.clearTimeout(timeoutId);
   }
@@ -456,7 +469,10 @@ export async function processAiFrame(
   input: AiFrameProcessInput,
 ): Promise<AiFrameProcessResult> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 900);
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    FRAME_PROCESS_TIMEOUT_MS,
+  );
 
   try {
     const response = await fetch(
@@ -478,6 +494,13 @@ export async function processAiFrame(
     }
 
     return data.frame;
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(
+        `El frame IA agotó ${timeoutLabel(FRAME_PROCESS_TIMEOUT_MS)} sin respuesta del procesador.`,
+      );
+    }
+    throw error;
   } finally {
     window.clearTimeout(timeoutId);
   }
@@ -488,7 +511,10 @@ export async function processAiAudio(
   input: AiAudioProcessInput,
 ): Promise<AiAudioProcessResult> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 500);
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    AUDIO_PROCESS_TIMEOUT_MS,
+  );
 
   try {
     const response = await fetch(
@@ -510,9 +536,30 @@ export async function processAiAudio(
     }
 
     return data.audio;
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(
+        `El audio IA agotó ${timeoutLabel(AUDIO_PROCESS_TIMEOUT_MS)} sin respuesta del procesador.`,
+      );
+    }
+    throw error;
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+function isAbortError(error: unknown) {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      (error as { name?: string }).name === "AbortError")
+  );
+}
+
+function timeoutLabel(timeoutMs: number) {
+  return `${Math.round(timeoutMs / 1000)}s`;
 }
 
 export async function getAiSession(sessionId: string): Promise<AiSession> {

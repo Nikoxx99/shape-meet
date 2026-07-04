@@ -196,6 +196,11 @@ interface BackgroundCalibration {
   cameraDeviceId: string;
 }
 
+interface AiPreflightAudioSample {
+  audioDataBase64: string;
+  sampleRate: number;
+}
+
 const DEMO_DATA_ENABLED =
   import.meta.env.DEV &&
   (import.meta.env.VITE_SHAPE_DEMO_DATA as string | undefined) === "true";
@@ -582,7 +587,7 @@ function modelRuntimeProfileDefaults(
       vcclient000HttpEndpoint: "http://127.0.0.1:18888/test",
       vcclient000HttpMode: "w-okada-rest",
       modelTimeoutSecs: "30",
-      processorTimeoutSecs: "12",
+      processorTimeoutSecs: "75",
     };
   }
 
@@ -602,7 +607,7 @@ function modelRuntimeProfileDefaults(
       vcclient000HttpEndpoint: "",
       vcclient000HttpMode: "",
       modelTimeoutSecs: "30",
-      processorTimeoutSecs: "12",
+      processorTimeoutSecs: "75",
     };
   }
 
@@ -812,6 +817,73 @@ async function captureAiPreflightFrame(
     video.pause();
     video.srcObject = null;
   }
+}
+
+async function captureAiPreflightAudio(
+  deviceId: string,
+): Promise<AiPreflightAudioSample | null> {
+  if (!navigator.mediaDevices?.getUserMedia) return null;
+  const AudioContextCtor =
+    window.AudioContext ??
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
+
+  if (!AudioContextCtor) return null;
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: false,
+    audio: mediaTrackAudioConstraints(deviceId),
+  });
+  const audioContext = new AudioContextCtor({ sampleRate: 48000 });
+  const source = audioContext.createMediaStreamSource(stream);
+  const processor = audioContext.createScriptProcessor(4096, 1, 1);
+  const silentGain = audioContext.createGain();
+  silentGain.gain.value = 0;
+
+  source.connect(processor);
+  processor.connect(silentGain);
+  silentGain.connect(audioContext.destination);
+
+  try {
+    await audioContext.resume();
+    return await new Promise<AiPreflightAudioSample | null>((resolve) => {
+      const timeout = window.setTimeout(() => resolve(null), 1200);
+
+      processor.onaudioprocess = (event) => {
+        window.clearTimeout(timeout);
+        const input = event.inputBuffer.getChannelData(0);
+        const pcm = new Float32Array(input.length);
+        pcm.set(input);
+        resolve({
+          audioDataBase64: floatsToBase64PcmF32(pcm),
+          sampleRate: audioContext.sampleRate,
+        });
+      };
+    });
+  } finally {
+    processor.onaudioprocess = null;
+    source.disconnect();
+    processor.disconnect();
+    silentGain.disconnect();
+    stream.getTracks().forEach((track) => track.stop());
+    await audioContext.close().catch(() => undefined);
+  }
+}
+
+function floatsToBase64PcmF32(samples: Float32Array) {
+  const bytes = new Uint8Array(
+    samples.buffer,
+    samples.byteOffset,
+    samples.byteLength,
+  );
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(index, index + chunkSize));
+  }
+
+  return btoa(binary);
 }
 
 async function prepareIdentityForAiSession(
@@ -3006,8 +3078,8 @@ function AiRuntimeScreen({
       bmv2ExtraArgs: "",
       vcclient000HttpEndpoint: "",
       vcclient000HttpMode: "",
-      modelTimeoutSecs: "8",
-      processorTimeoutSecs: "10",
+      modelTimeoutSecs: "30",
+      processorTimeoutSecs: "75",
     });
 
   async function loadRuntimeState() {
@@ -3156,6 +3228,11 @@ function AiRuntimeScreen({
             () => null,
           )
         : null;
+      const audioSample = voiceEnabled
+        ? await captureAiPreflightAudio(deviceSelection.microphoneId).catch(
+            () => null,
+          )
+        : null;
       const result = await runAiPreflight({
         meetingCode: "PREFLIGHT",
         participantId: "runtime-preflight",
@@ -3188,6 +3265,8 @@ function AiRuntimeScreen({
         targetHeight: 720,
         targetFps: 30,
         frameDataUrl,
+        audioDataBase64: audioSample?.audioDataBase64 ?? null,
+        audioSampleRate: audioSample?.sampleRate ?? null,
       });
 
       setPreflight(result);
