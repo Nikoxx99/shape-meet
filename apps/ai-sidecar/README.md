@@ -152,6 +152,19 @@ Cada endpoint por etapa recibe JSON con `stage`, `session`, `frame` o `audio`,
 `outputPath` temporales; el servicio puede devolver `frame.dataUrl` /
 `audio.audioDataBase64` o escribir directamente en `outputPath`.
 
+Para probar esa ruta sin GPU, levanta el servidor local de endpoints y genera el
+runtime correspondiente:
+
+```bash
+pnpm models:endpoint -- --passthrough
+pnpm models:runtime -- --preset local-endpoints
+pnpm models:preflight
+```
+
+Ese servidor expone `/face`, `/background`, `/voice` y `/health` en
+`http://127.0.0.1:9100`. Sin `--passthrough`, el servidor llama los wrappers de
+referencia de FaceFusion, BackgroundMattingV2 y vcclient000.
+
 Para demo sin modelos reales, `SHAPE_PROCESSOR_DEMO_EFFECTS=true` hace que el
 procesador empaquetable devuelva un SVG con una capa visible sobre el frame y
 audio passthrough marcado como procesado. Genera el archivo runtime con:
@@ -276,6 +289,7 @@ pnpm smoke:ai-demo
 pnpm smoke:ai-runtime
 pnpm smoke:ai-model-runtime
 pnpm smoke:ai-model-wrappers
+pnpm smoke:ai-model-endpoint
 pnpm smoke:ai-demo-sidecar
 pnpm smoke:ai-managed
 pnpm smoke:ai-command

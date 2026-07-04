@@ -29,6 +29,15 @@ const videoPort =
   argValue("--video-port") ?? process.env.SHAPE_VIDEO_PROCESSOR_PORT ?? "7860";
 const audioPort =
   argValue("--audio-port") ?? process.env.SHAPE_AUDIO_PROCESSOR_PORT ?? "7861";
+const modelEndpointHost =
+  argValue("--model-endpoint-host") ??
+  process.env.SHAPE_MODEL_ENDPOINT_HOST ??
+  "127.0.0.1";
+const modelEndpointPort =
+  argValue("--model-endpoint-port") ??
+  process.env.SHAPE_MODEL_ENDPOINT_PORT ??
+  "9100";
+const modelEndpointBaseUrl = `http://${modelEndpointHost}:${modelEndpointPort}`;
 const outputPath =
   argValue("--out") ??
   process.env.SHAPE_AI_RUNTIME_ENV_FILE ??
@@ -167,8 +176,23 @@ function hasAnyModelAdapter(input) {
 
 function applyPreset(input) {
   if (!preset) return;
-  if (!["local-wrappers", "repo-wrappers", "wrappers"].includes(preset)) {
+  if (
+    ![
+      "local-wrappers",
+      "repo-wrappers",
+      "wrappers",
+      "local-endpoints",
+      "endpoints",
+    ].includes(preset)
+  ) {
     fail(`Preset de modelos no soportado: ${preset}`);
+  }
+
+  if (["local-endpoints", "endpoints"].includes(preset)) {
+    input.faceEndpoint ??= `${modelEndpointBaseUrl}/face`;
+    input.backgroundEndpoint ??= `${modelEndpointBaseUrl}/background`;
+    input.voiceEndpoint ??= `${modelEndpointBaseUrl}/voice`;
+    return;
   }
 
   input.faceCommand ??= `${pythonCommand()} ${shellQuote(wrapperPath("facefusion_frame.py"))} --input {input} --output {output} --identity {identity}`;

@@ -82,3 +82,14 @@ pnpm models:runtime -- --preset local-wrappers \
   --bmv2-checkpoint "/models/BackgroundMattingV2/pytorch_resnet50.pth" \
   --vcclient000-http-endpoint "http://127.0.0.1:18888/test"
 ```
+
+Para probar la ruta de procesos persistentes por etapa:
+
+```bash
+pnpm models:endpoint -- --passthrough
+pnpm models:runtime -- --preset local-endpoints
+pnpm smoke:ai-model-endpoint
+```
+
+Ese preset apunta `SHAPE_FACE_ENDPOINT`, `SHAPE_BACKGROUND_ENDPOINT` y
+`SHAPE_VOICE_ENDPOINT` al servidor local `shape_model_endpoint_server.py`.

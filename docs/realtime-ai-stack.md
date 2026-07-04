@@ -239,6 +239,9 @@ Implementacion actual:
   `shape_processor_command.py` mantiene el contrato de sidecar, pero delega
   `face`, `background` y `voice` a endpoints HTTP por etapa que pueden mantener
   modelos cargados en VRAM.
+- `pnpm smoke:ai-model-endpoint` verifica la ruta operable de demo: levanta
+  `shape_model_endpoint_server.py`, genera runtime `local-endpoints`, arranca
+  el sidecar y valida `/preflight`.
 - `apps/ai-sidecar/wrappers` contiene wrappers CLI de referencia para
   FaceFusion, BackgroundMattingV2 y vcclient000. Estos wrappers son el puente
   inicial para máquinas de demo con modelos instalados; para producción de baja
@@ -285,6 +288,11 @@ Variables del supervisor nativo:
   audio y `{identity}`.
 - `SHAPE_VOICE_ENDPOINT`: endpoint HTTP de voz por etapa. Recibe `stage=voice`,
   chunk de audio, paths temporales, identidad y formato.
+- `SHAPE_MODEL_ENDPOINT_HOST` / `SHAPE_MODEL_ENDPOINT_PORT`: host y puerto del
+  servidor local `shape_model_endpoint_server.py`. El preset
+  `pnpm models:runtime -- --preset local-endpoints` usa esas variables para
+  generar `SHAPE_FACE_ENDPOINT`, `SHAPE_BACKGROUND_ENDPOINT` y
+  `SHAPE_VOICE_ENDPOINT`.
 - `shape-ai-runtime.env`: archivo local cargado por la app Tauri antes de iniciar
   el sidecar gestionado. Windows usa `%LOCALAPPDATA%\Shape Meet`, macOS usa
   `~/Library/Application Support/Shape Meet` y Linux usa XDG data dir. Puede

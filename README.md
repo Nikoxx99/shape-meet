@@ -210,6 +210,16 @@ mantengan modelos cargados. Los comandos reciben placeholders como `{input}`,
 `{output}`, `{identity}`, `{clean_plate}`, `{sample_rate}` y `{session_id}`.
 Los wrappers de referencia viven en `apps/ai-sidecar/wrappers` y cubren
 FaceFusion, BackgroundMattingV2 y vcclient000.
+`pnpm models:endpoint -- --passthrough` levanta un servidor local en
+`http://127.0.0.1:9100` con rutas `/face`, `/background` y `/voice`; sirve para
+probar el contrato endpoint completo antes de conectar modelos pesados.
+Genera el runtime para esa ruta con:
+
+```bash
+pnpm models:runtime -- --preset local-endpoints
+pnpm models:preflight
+```
+
 Usa `--profile windows-nvidia` para generar defaults estrictos de demo en
 `C:\models\...` con CUDA, BackgroundMattingV2 y VCClient REST. Usa
 `--profile apple-silicon` para prellenar rutas `~/models/...` y BMV2 con MPS.
