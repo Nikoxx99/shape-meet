@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ const endpointPort = await getFreePort();
 const videoPort = await getFreePort();
 const audioPort = await getFreePort();
 const envPath = join(tempDir, "shape-ai-runtime.env");
-const combinedEnvPath = join(tempDir, "shape-ai-runtime-combined.env");
+const stageEnvPath = join(tempDir, "shape-ai-runtime-stage.env");
 let endpointServer = null;
 
 try {
@@ -43,6 +43,7 @@ try {
   await waitForEndpoint(endpointOutput);
   await assertEndpointDemoEffects();
   renderRuntimeEnv();
+  assertDefaultCombinedRuntimeEnv();
   assertLocalEndpointRuntimeEnv();
 
   const report = runPreflight();
@@ -54,23 +55,23 @@ try {
     report.preflight?.checks?.some(
       (check) =>
         check.id === "video" &&
-        check.processor === "shape-video-model-chain:face+background",
+        check.processor === "shape-video-endpoint-adapter",
     ),
-    "video preflight did not use face/background endpoint chain",
+    "video preflight did not use default combined endpoint",
   );
   assert(
     report.preflight?.checks?.some(
       (check) =>
         check.id === "audio" &&
-        check.processor === "shape-voice-endpoint-adapter",
+        check.processor === "shape-audio-endpoint-adapter",
     ),
-    "audio preflight did not use voice endpoint adapter",
+    "audio preflight did not use default audio chunk endpoint",
   );
   assert(
     report.preflight?.warnings?.some((warning) =>
-      warning.includes("endpoint_demo_effect"),
+      warning.includes("video_frame_endpoint_demo_effect"),
     ),
-    "video endpoint demo effect warning was not reported",
+    "combined video endpoint demo effect warning was not reported",
   );
   assert(
     report.preflight?.warnings?.some((warning) =>
@@ -85,32 +86,81 @@ try {
     "face engine was not ready with endpoint runtime",
   );
 
-  renderCombinedRuntimeEnv();
-  assertLocalEndpointRuntimeEnv(combinedEnvPath);
-  const combinedReport = runPreflight(combinedEnvPath);
+  renderStageRuntimeEnv();
+  assertStageRuntimeEnv();
+  assertLocalEndpointRuntimeEnv(stageEnvPath);
+  const stageReport = runPreflight(stageEnvPath);
   assert(
-    combinedReport.preflight?.status === "passed",
-    "combined video endpoint preflight did not pass",
+    stageReport.preflight?.status === "passed",
+    "stage endpoint preflight did not pass",
   );
   assert(
-    combinedReport.preflight?.checks?.some(
+    stageReport.preflight?.checks?.some(
       (check) =>
         check.id === "video" &&
-        check.processor === "shape-video-endpoint-adapter",
+        check.processor === "shape-video-model-chain:face+background",
     ),
-    "combined video preflight did not use SHAPE_VIDEO_FRAME_ENDPOINT",
+    "stage video preflight did not use face/background endpoint chain",
   );
   assert(
-    combinedReport.preflight?.warnings?.some((warning) =>
-      warning.includes("video_frame_endpoint_demo_effect"),
+    stageReport.preflight?.checks?.some(
+      (check) =>
+        check.id === "audio" &&
+        check.processor === "shape-voice-endpoint-adapter",
     ),
-    "combined video endpoint demo effect warning was not reported",
+    "stage audio preflight did not use voice endpoint adapter",
+  );
+  assert(
+    stageReport.preflight?.warnings?.some((warning) =>
+      warning.includes("face_endpoint_demo_effect"),
+    ),
+    "stage video endpoint demo effect warning was not reported",
   );
 
   console.log("model endpoint server smoke ok");
 } finally {
   if (endpointServer) endpointServer.kill();
   rmSync(tempDir, { recursive: true, force: true });
+}
+
+function assertDefaultCombinedRuntimeEnv() {
+  const content = readFileSync(envPath, "utf8");
+  assert(
+    content.includes(
+      `SHAPE_VIDEO_FRAME_ENDPOINT=http://127.0.0.1:${endpointPort}/video-frame`,
+    ),
+    "default local-endpoints runtime did not include /video-frame",
+  );
+  assert(
+    content.includes(
+      `SHAPE_AUDIO_CHUNK_ENDPOINT=http://127.0.0.1:${endpointPort}/voice`,
+    ),
+    "default local-endpoints runtime did not include audio chunk endpoint",
+  );
+}
+
+function assertStageRuntimeEnv() {
+  const content = readFileSync(stageEnvPath, "utf8");
+  assert(
+    content.includes("# SHAPE_VIDEO_FRAME_ENDPOINT="),
+    "stage runtime should disable combined video endpoint",
+  );
+  assert(
+    content.includes("# SHAPE_AUDIO_CHUNK_ENDPOINT="),
+    "stage runtime should disable combined audio endpoint",
+  );
+  assert(
+    content.includes(
+      `SHAPE_FACE_ENDPOINT=http://127.0.0.1:${endpointPort}/face`,
+    ),
+    "stage runtime did not include face endpoint",
+  );
+  assert(
+    content.includes(
+      `SHAPE_BACKGROUND_ENDPOINT=http://127.0.0.1:${endpointPort}/background`,
+    ),
+    "stage runtime did not include background endpoint",
+  );
 }
 
 async function assertEndpointDemoEffects() {
@@ -256,13 +306,13 @@ function renderRuntimeEnv() {
   );
 }
 
-function renderCombinedRuntimeEnv() {
+function renderStageRuntimeEnv() {
   const result = spawnSync(
     process.execPath,
     [
       "scripts/prepare-ai-runtime-models.mjs",
       "--out",
-      combinedEnvPath,
+      stageEnvPath,
       "--preset",
       "local-endpoints",
       "--video-port",
@@ -274,7 +324,9 @@ function renderCombinedRuntimeEnv() {
       "--model-endpoint-port",
       String(endpointPort),
       "--video-frame-endpoint",
-      `http://127.0.0.1:${endpointPort}/video-frame`,
+      "",
+      "--audio-chunk-endpoint",
+      "",
     ],
     {
       cwd: process.cwd(),
@@ -287,7 +339,7 @@ function renderCombinedRuntimeEnv() {
   if (result.stderr) process.stderr.write(result.stderr);
   assert(
     result.status === 0,
-    `combined runtime generation failed with ${result.status}`,
+    `stage runtime generation failed with ${result.status}`,
   );
 }
 

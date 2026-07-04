@@ -205,8 +205,10 @@ function applyPreset(input) {
   }
 
   if (["local-endpoints", "endpoints"].includes(preset)) {
+    input.videoFrameEndpoint ??= `${modelEndpointBaseUrl}/video-frame`;
     input.faceEndpoint ??= `${modelEndpointBaseUrl}/face`;
     input.backgroundEndpoint ??= `${modelEndpointBaseUrl}/background`;
+    input.audioChunkEndpoint ??= `${modelEndpointBaseUrl}/voice`;
     input.voiceEndpoint ??= `${modelEndpointBaseUrl}/voice`;
     return;
   }

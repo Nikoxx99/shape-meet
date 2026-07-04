@@ -241,10 +241,13 @@ pnpm models:runtime -- --preset local-endpoints
 pnpm models:preflight
 ```
 
-Para probar el endpoint combinado de video:
+Ese preset escribe por defecto `SHAPE_VIDEO_FRAME_ENDPOINT=/video-frame` y
+`SHAPE_AUDIO_CHUNK_ENDPOINT=/voice`. Para forzar etapas separadas en video o
+audio, pasa el endpoint combinado vacío y conserva `/face`, `/background` o
+`/voice`:
 
 ```bash
-pnpm models:runtime -- --preset local-endpoints --video-frame-endpoint http://127.0.0.1:9100/video-frame
+pnpm models:runtime -- --preset local-endpoints --video-frame-endpoint "" --audio-chunk-endpoint ""
 ```
 
 Usa `--profile windows-nvidia` para generar defaults estrictos de demo en

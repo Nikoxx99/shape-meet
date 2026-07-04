@@ -294,10 +294,12 @@ Variables del supervisor nativo:
 - `SHAPE_MODEL_ENDPOINT_HOST` / `SHAPE_MODEL_ENDPOINT_PORT`: host y puerto del
   servidor local `shape_model_endpoint_server.py`. El preset
   `pnpm models:runtime -- --preset local-endpoints` usa esas variables para
-  generar `SHAPE_FACE_ENDPOINT`, `SHAPE_BACKGROUND_ENDPOINT` y
-  `SHAPE_VOICE_ENDPOINT`. Si la workstation usa un solo pipeline persistente de
-  rostro + fondo, agrega `--video-frame-endpoint http://host:puerto/video-frame`
-  al generar el runtime.
+  generar `SHAPE_VIDEO_FRAME_ENDPOINT`, `SHAPE_FACE_ENDPOINT`,
+  `SHAPE_BACKGROUND_ENDPOINT`, `SHAPE_AUDIO_CHUNK_ENDPOINT` y
+  `SHAPE_VOICE_ENDPOINT`. Por defecto la workstation usa `/video-frame` para el
+  pipeline persistente de rostro + fondo y `/voice` como endpoint combinado de
+  audio. Para forzar etapas separadas, genera el runtime con
+  `--video-frame-endpoint ""` o `--audio-chunk-endpoint ""`.
 - `shape-ai-runtime.env`: archivo local cargado por la app Tauri antes de iniciar
   el sidecar gestionado. Windows usa `%LOCALAPPDATA%\Shape Meet`, macOS usa
   `~/Library/Application Support/Shape Meet` y Linux usa XDG data dir. Puede
