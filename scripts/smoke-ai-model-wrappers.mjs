@@ -51,6 +51,77 @@ try {
     "pcm_f32le",
   ]);
   await smokeVcClientRestWrapper(inputAudio);
+  smokeWrapperFailure(
+    "invalid timeout",
+    [
+      "apps/ai-sidecar/wrappers/facefusion_frame.py",
+      "--input",
+      inputFrame,
+      "--output",
+      join(tempDir, "invalid-timeout.out.jpg"),
+      "--identity",
+      identity,
+    ],
+    {
+      env: { FACEFUSION_TIMEOUT_SECS: "not-a-number" },
+      stderrIncludes: ["FACEFUSION_TIMEOUT_SECS debe ser numérico"],
+    },
+  );
+  smokeWrapperFailure(
+    "command failure",
+    [
+      "apps/ai-sidecar/wrappers/facefusion_frame.py",
+      "--input",
+      inputFrame,
+      "--output",
+      join(tempDir, "command-failure.out.jpg"),
+      "--identity",
+      identity,
+      "--command-template",
+      nodeSnippetCommand(
+        "process.stderr.write('model exploded'); process.exit(7)",
+      ),
+    ],
+    {
+      stderrIncludes: ["comando falló con código 7", "model exploded"],
+    },
+  );
+  smokeWrapperFailure(
+    "command timeout",
+    [
+      "apps/ai-sidecar/wrappers/facefusion_frame.py",
+      "--input",
+      inputFrame,
+      "--output",
+      join(tempDir, "command-timeout.out.jpg"),
+      "--identity",
+      identity,
+      "--command-template",
+      nodeSnippetCommand("setTimeout(() => {}, 2000)"),
+      "--timeout",
+      "0.2",
+    ],
+    {
+      stderrIncludes: ["comando agotó timeout 0.2s"],
+    },
+  );
+  smokeWrapperFailure(
+    "missing output",
+    [
+      "apps/ai-sidecar/wrappers/backgroundmattingv2_frame.py",
+      "--input",
+      inputFrame,
+      "--output",
+      join(tempDir, "missing-output.out.jpg"),
+      "--clean-plate",
+      cleanPlate,
+      "--command-template",
+      nodeSnippetCommand("process.exit(0)"),
+    ],
+    {
+      stderrIncludes: ["el wrapper no produjo output"],
+    },
+  );
 
   console.log("model wrappers smoke ok");
 } finally {
@@ -154,6 +225,34 @@ function smokeWrapper(label, args) {
   const output = args[args.indexOf("--output") + 1];
   const bytes = readFileSync(output);
   if (bytes.byteLength <= 0) fail(`${label} wrapper output is empty`);
+}
+
+function smokeWrapperFailure(label, args, { env = {}, stderrIncludes }) {
+  const result = spawnSync(python, args, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...env,
+    },
+  });
+
+  if (result.status === 0) {
+    fail(`${label} wrapper failure smoke exited with 0`);
+  }
+
+  const stderr = result.stderr || "";
+  for (const expected of stderrIncludes) {
+    if (!stderr.includes(expected)) {
+      fail(
+        `${label} wrapper failure did not include ${JSON.stringify(expected)}.\nStderr:\n${stderr}`,
+      );
+    }
+  }
+}
+
+function nodeSnippetCommand(source) {
+  return `${JSON.stringify(process.execPath)} -e ${JSON.stringify(source)}`;
 }
 
 function tinyJpeg() {

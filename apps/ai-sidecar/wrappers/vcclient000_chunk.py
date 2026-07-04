@@ -14,6 +14,7 @@ from shape_wrapper_common import (
     copy_passthrough,
     ensure_file,
     env_flag,
+    env_float,
     env_value,
     fail,
     run_checked,
@@ -32,7 +33,7 @@ def main():
     parser.add_argument("--command-template", default=env_value("VCCLIENT000_CHUNK_COMMAND"))
     parser.add_argument("--http-endpoint", default=env_value("VCCLIENT000_HTTP_ENDPOINT"))
     parser.add_argument("--http-mode", default=env_value("VCCLIENT000_HTTP_MODE", "auto"))
-    parser.add_argument("--timeout", type=float, default=float(env_value("VCCLIENT000_TIMEOUT_SECS", "10")))
+    parser.add_argument("--timeout", type=float, default=env_float("VCCLIENT000_TIMEOUT_SECS", "10", minimum=0.1))
     parser.add_argument("--passthrough-if-unavailable", action="store_true", default=env_flag("SHAPE_WRAPPER_PASSTHROUGH", False))
     args = parser.parse_args()
 

@@ -8,6 +8,7 @@ from shape_wrapper_common import (
     copy_passthrough,
     ensure_file,
     env_flag,
+    env_float,
     env_value,
     fail,
     run_checked,
@@ -28,7 +29,7 @@ def main():
     parser.add_argument("--execution-providers", default=env_value("FACEFUSION_EXECUTION_PROVIDERS", "cuda"))
     parser.add_argument("--extra-args", default=env_value("FACEFUSION_EXTRA_ARGS", ""))
     parser.add_argument("--command-template", default=env_value("FACEFUSION_COMMAND_TEMPLATE"))
-    parser.add_argument("--timeout", type=float, default=float(env_value("FACEFUSION_TIMEOUT_SECS", "30")))
+    parser.add_argument("--timeout", type=float, default=env_float("FACEFUSION_TIMEOUT_SECS", "30", minimum=0.1))
     parser.add_argument("--passthrough-if-unavailable", action="store_true", default=env_flag("SHAPE_WRAPPER_PASSTHROUGH", False))
     args = parser.parse_args()
 
