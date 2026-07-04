@@ -128,6 +128,7 @@ export function MeetingLauncher({
   nativeUrl: string | null;
 }) {
   const [stage, setStage] = useState<Stage>("prejoin");
+  const [hydrated, setHydrated] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [cameraEnabled, setCameraEnabled] = useState(true);
@@ -157,6 +158,10 @@ export function MeetingLauncher({
     camera: cameraEnabled,
     microphone: micEnabled,
   });
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   useEffect(() => {
     latestJoinInputRef.current = {
@@ -850,6 +855,7 @@ export function MeetingLauncher({
     <main
       className="meeting-launch-shell guest-room-shell"
       data-testid="web-guest-prejoin"
+      data-hydrated={hydrated ? "true" : "false"}
     >
       <section className="meeting-launch-panel guest-prejoin-panel">
         <div className="guest-prejoin-copy">

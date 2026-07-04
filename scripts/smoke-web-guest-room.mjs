@@ -94,7 +94,7 @@ async function main() {
       state: "visible",
       timeout: 10_000,
     });
-    await page.getByLabel("Nombre").fill(guestName);
+    await fillNameWhenHydrated(page, guestName);
     await page.getByRole("button", { name: "Entrar a la reunión" }).click();
     await page
       .locator(
@@ -206,6 +206,25 @@ function assertOk(label, result, expectedStatus = null) {
   }
 
   if (expectedStatus === null && !result.response.ok) fail(label, result);
+}
+
+async function fillNameWhenHydrated(page, name) {
+  // A pre-hydration fill survives in the DOM but React wipes it from state
+  // when hydration lands, so wait for the page to declare itself hydrated.
+  await page
+    .locator('[data-testid="web-guest-prejoin"][data-hydrated="true"]')
+    .waitFor({ state: "visible", timeout: 30_000 });
+
+  const input = page.getByLabel("Nombre");
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await input.fill(name);
+    await page.waitForTimeout(400);
+    if ((await input.inputValue()) === name) return;
+  }
+
+  throw new Error(
+    "El campo Nombre no retiene el valor: la página no terminó de hidratar.",
+  );
 }
 
 async function captureFailure(page) {
