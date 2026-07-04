@@ -164,6 +164,14 @@ export interface NativeIdentityArtifactCacheResult {
   uri: string | null;
   sha256: string | null;
   sizeBytes: number | null;
+  packageDir?: string | null;
+  packageManifest?: unknown;
+  faceSourcePath?: string | null;
+  voiceModelPath?: string | null;
+  voiceIndexPath?: string | null;
+  voiceConfigPath?: string | null;
+  backgroundAssetsPath?: string | null;
+  warnings?: string[];
   message: string;
 }
 
@@ -612,6 +620,7 @@ export async function cacheIdentityArtifact(
         uri: artifactUri,
         sha256: identity.artifactSha256 ?? null,
         sizeBytes: identity.artifactSizeBytes ?? null,
+        warnings: [],
         message: "Artefacto de desarrollo sin descarga local.",
       };
     }
@@ -623,6 +632,7 @@ export async function cacheIdentityArtifact(
       uri: artifactUri,
       sha256: identity.artifactSha256 ?? null,
       sizeBytes: identity.artifactSizeBytes ?? null,
+      warnings: [],
       message:
         error instanceof Error
           ? error.message
@@ -649,6 +659,7 @@ export async function evictIdentityArtifact(
       uri: null,
       sha256: null,
       sizeBytes: null,
+      warnings: [],
       message:
         error instanceof Error
           ? error.message

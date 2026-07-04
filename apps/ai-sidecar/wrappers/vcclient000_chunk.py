@@ -30,6 +30,9 @@ def main():
     parser.add_argument("--channels", default=env_value("SHAPE_AUDIO_CHANNELS", "1"))
     parser.add_argument("--format", default=env_value("SHAPE_AUDIO_FORMAT", "pcm_f32le"))
     parser.add_argument("--identity", default=env_value("SHAPE_IDENTITY_PATH") or env_value("SHAPE_IDENTITY_URI", ""))
+    parser.add_argument("--voice-model", default=env_value("SHAPE_VOICE_MODEL_PATH", ""))
+    parser.add_argument("--voice-index", default=env_value("SHAPE_VOICE_INDEX_PATH", ""))
+    parser.add_argument("--voice-config", default=env_value("SHAPE_VOICE_CONFIG_PATH", ""))
     parser.add_argument("--command-template", default=env_value("VCCLIENT000_CHUNK_COMMAND"))
     parser.add_argument("--http-endpoint", default=env_value("VCCLIENT000_HTTP_ENDPOINT"))
     parser.add_argument("--http-mode", default=env_value("VCCLIENT000_HTTP_MODE", "auto"))
@@ -51,6 +54,9 @@ def main():
                 "channels": args.channels,
                 "format": args.format,
                 "identity": args.identity,
+                "voice_model": args.voice_model,
+                "voice_index": args.voice_index,
+                "voice_config": args.voice_config,
                 "session_id": env_value("SHAPE_SESSION_ID", ""),
             },
         )
@@ -104,6 +110,9 @@ def call_shape_json_endpoint(args, input_path):
         "channels": int(args.channels),
         "format": args.format,
         "identity": args.identity,
+        "voiceModelPath": args.voice_model,
+        "voiceIndexPath": args.voice_index,
+        "voiceConfigPath": args.voice_config,
     }
     data = post_json(args.http_endpoint, payload, args.timeout, "vcclient000 HTTP")
 

@@ -249,6 +249,14 @@ struct IdentityArtifactCacheResult {
     uri: Option<String>,
     sha256: Option<String>,
     size_bytes: Option<u64>,
+    package_dir: Option<String>,
+    package_manifest: Option<Value>,
+    face_source_path: Option<String>,
+    voice_model_path: Option<String>,
+    voice_index_path: Option<String>,
+    voice_config_path: Option<String>,
+    background_assets_path: Option<String>,
+    warnings: Vec<String>,
     message: String,
 }
 
@@ -1421,7 +1429,7 @@ fn cache_identity_artifact_from_reader<R: Read>(
         return Err(format!("No se pudo finalizar cache de artefacto: {error}"));
     }
 
-    Ok(identity_artifact_result(
+    let mut result = identity_artifact_result(
         identity_id,
         true,
         Some(target_path),
@@ -1429,7 +1437,9 @@ fn cache_identity_artifact_from_reader<R: Read>(
         Some(&actual_sha),
         Some(size_bytes),
         "Artefacto cacheado y validado localmente.",
-    ))
+    );
+    attach_identity_package_metadata(&mut result, target_path)?;
+    Ok(result)
 }
 
 fn reusable_cached_artifact(
@@ -1463,7 +1473,7 @@ fn reusable_cached_artifact(
         }
     }
 
-    Ok(Some(identity_artifact_result(
+    let mut result = identity_artifact_result(
         identity_id,
         true,
         Some(target_path),
@@ -1471,7 +1481,9 @@ fn reusable_cached_artifact(
         actual_sha.as_deref().or(input.artifact_sha256.as_deref()),
         Some(metadata.len()),
         "Artefacto reutilizado desde cache local.",
-    )))
+    );
+    attach_identity_package_metadata(&mut result, target_path)?;
+    Ok(Some(result))
 }
 
 fn validate_artifact_integrity(
@@ -2635,7 +2647,181 @@ fn identity_artifact_result(
         uri: uri.map(str::to_string),
         sha256: sha256.map(str::to_string),
         size_bytes,
+        package_dir: None,
+        package_manifest: None,
+        face_source_path: None,
+        voice_model_path: None,
+        voice_index_path: None,
+        voice_config_path: None,
+        background_assets_path: None,
+        warnings: Vec::new(),
         message: message.to_string(),
+    }
+}
+
+fn attach_identity_package_metadata(
+    result: &mut IdentityArtifactCacheResult,
+    artifact_path: &Path,
+) -> Result<(), String> {
+    if artifact_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| !value.eq_ignore_ascii_case("zip"))
+        .unwrap_or(true)
+    {
+        return Ok(());
+    }
+
+    let package_dir = artifact_path.with_extension("package");
+    let manifest_path = package_dir.join("manifest.json");
+    if !manifest_path.exists() {
+        if package_dir.exists() {
+            fs::remove_dir_all(&package_dir)
+                .map_err(|error| format!("No se pudo limpiar paquete de identidad previo: {error}"))?;
+        }
+        fs::create_dir_all(&package_dir)
+            .map_err(|error| format!("No se pudo crear cache de paquete de identidad: {error}"))?;
+        extract_identity_package_zip(artifact_path, &package_dir)?;
+    }
+
+    result.package_dir = Some(package_dir.display().to_string());
+
+    if !manifest_path.exists() {
+        result
+            .warnings
+            .push("identity_package_manifest_missing".to_string());
+        return Ok(());
+    }
+
+    let manifest_text = fs::read_to_string(&manifest_path)
+        .map_err(|error| format!("No se pudo leer manifest de identidad: {error}"))?;
+    let manifest: Value = serde_json::from_str(&manifest_text)
+        .map_err(|error| format!("Manifest de identidad inválido: {error}"))?;
+
+    result.face_source_path = identity_package_path(
+        &package_dir,
+        first_manifest_string(
+            &manifest,
+            &[
+                "/engines/face/entry",
+                "/engines/face/source",
+                "/engines/face/sourcePath",
+            ],
+        ),
+    );
+    result.voice_model_path = identity_package_path(
+        &package_dir,
+        first_manifest_string(
+            &manifest,
+            &[
+                "/engines/voice/model",
+                "/engines/voice/modelPath",
+                "/engines/voice/pth",
+            ],
+        ),
+    );
+    result.voice_index_path = identity_package_path(
+        &package_dir,
+        first_manifest_string(
+            &manifest,
+            &[
+                "/engines/voice/index",
+                "/engines/voice/indexPath",
+            ],
+        ),
+    );
+    result.voice_config_path = identity_package_path(
+        &package_dir,
+        first_manifest_string(
+            &manifest,
+            &[
+                "/engines/voice/config",
+                "/engines/voice/configPath",
+            ],
+        ),
+    );
+    result.background_assets_path = identity_package_path(
+        &package_dir,
+        first_manifest_string(
+            &manifest,
+            &[
+                "/engines/background/assets",
+                "/engines/background/assetsPath",
+            ],
+        ),
+    );
+    result.package_manifest = Some(manifest);
+
+    Ok(())
+}
+
+fn extract_identity_package_zip(artifact_path: &Path, package_dir: &Path) -> Result<(), String> {
+    let file = File::open(artifact_path)
+        .map_err(|error| format!("No se pudo abrir paquete de identidad: {error}"))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|error| format!("ZIP de identidad inválido: {error}"))?;
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| format!("No se pudo leer entrada ZIP: {error}"))?;
+        let Some(enclosed_name) = entry.enclosed_name().map(PathBuf::from) else {
+            continue;
+        };
+        let target = package_dir.join(enclosed_name);
+        let relative_target = target
+            .strip_prefix(package_dir)
+            .map_err(|_| "Ruta ZIP fuera del paquete.".to_string())?;
+        if relative_target
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+        {
+            return Err("Paquete de identidad contiene ruta insegura.".to_string());
+        }
+
+        if entry.is_dir() {
+            fs::create_dir_all(&target)
+                .map_err(|error| format!("No se pudo crear carpeta del paquete: {error}"))?;
+            continue;
+        }
+
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("No se pudo crear carpeta del paquete: {error}"))?;
+        }
+        let mut output = File::create(&target)
+            .map_err(|error| format!("No se pudo extraer archivo del paquete: {error}"))?;
+        std::io::copy(&mut entry, &mut output)
+            .map_err(|error| format!("No se pudo escribir archivo del paquete: {error}"))?;
+    }
+
+    Ok(())
+}
+
+fn first_manifest_string<'a>(manifest: &'a Value, pointers: &[&str]) -> Option<&'a str> {
+    pointers
+        .iter()
+        .find_map(|pointer| manifest.pointer(pointer).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn identity_package_path(package_dir: &Path, relative_path: Option<&str>) -> Option<String> {
+    let relative_path = relative_path?;
+    let relative = PathBuf::from(relative_path);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+
+    let path = package_dir.join(relative);
+    if path.exists() {
+        Some(path.display().to_string())
+    } else {
+        None
     }
 }
 
@@ -4167,6 +4353,96 @@ mod tests {
             part_files.is_empty(),
             "invalid artifacts left temp files: {part_files:?}"
         );
+    }
+
+    #[test]
+    fn identity_artifact_cache_extracts_package_manifest_paths() {
+        let root = test_temp_dir("identity-package-cache");
+        let cache_dir = root.join("cache");
+        let package_path = root.join("shape-identity-package.zip");
+        write_identity_package_fixture(&package_path);
+        env::set_var("SHAPE_IDENTITY_CACHE_DIR", &cache_dir);
+
+        let package_bytes = fs::read(&package_path).expect("read package");
+        let sha = sha256_string(&package_bytes);
+        let cached = prepare_identity_artifact(CacheIdentityArtifactInput {
+            identity_id: "identity-package".to_string(),
+            artifact_uri: Some(package_path.display().to_string()),
+            artifact_sha256: Some(sha.clone()),
+            artifact_size_bytes: Some(package_bytes.len() as u64),
+        })
+        .expect("cache package artifact");
+
+        let package_dir = PathBuf::from(cached.package_dir.as_ref().expect("package dir"));
+        assert!(package_dir.join("manifest.json").exists());
+        assert_eq!(
+            fs::read(cached.face_source_path.as_ref().expect("face source"))
+                .expect("read face source"),
+            b"fixture-face"
+        );
+        assert_eq!(
+            fs::read(cached.voice_model_path.as_ref().expect("voice model"))
+                .expect("read voice model"),
+            b"fixture-pth"
+        );
+        assert_eq!(
+            fs::read(cached.voice_index_path.as_ref().expect("voice index"))
+                .expect("read voice index"),
+            b"fixture-index"
+        );
+        assert_eq!(
+            cached
+                .package_manifest
+                .as_ref()
+                .and_then(|manifest| manifest.pointer("/packageId"))
+                .and_then(Value::as_str),
+            Some("shape-fixture")
+        );
+
+        let reused = prepare_identity_artifact(CacheIdentityArtifactInput {
+            identity_id: "identity-package".to_string(),
+            artifact_uri: Some(package_path.display().to_string()),
+            artifact_sha256: Some(sha),
+            artifact_size_bytes: Some(package_bytes.len() as u64),
+        })
+        .expect("reuse package artifact");
+        assert_eq!(reused.package_dir, cached.package_dir);
+        assert_eq!(reused.face_source_path, cached.face_source_path);
+
+        fs::remove_dir_all(root).ok();
+        env::remove_var("SHAPE_IDENTITY_CACHE_DIR");
+    }
+
+    fn write_identity_package_fixture(path: &Path) {
+        let file = File::create(path).expect("create package fixture");
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        let manifest = r#"{
+          "schemaVersion": 1,
+          "packageId": "shape-fixture",
+          "packageVersion": "2026.07.04.test",
+          "engines": {
+            "face": { "kind": "facefusion_source", "entry": "face/source.jpg" },
+            "voice": {
+              "kind": "vcclient000_rvc",
+              "model": "voice/model.pth",
+              "index": "voice/model.index",
+              "config": "voice/config.json"
+            }
+          }
+        }"#;
+        for (name, content) in [
+            ("manifest.json", manifest.as_bytes()),
+            ("face/source.jpg", b"fixture-face".as_slice()),
+            ("voice/model.pth", b"fixture-pth".as_slice()),
+            ("voice/model.index", b"fixture-index".as_slice()),
+            ("voice/config.json", br#"{"sampleRate":48000}"#.as_slice()),
+        ] {
+            zip.start_file(name, options).expect("start zip file");
+            zip.write_all(content).expect("write zip file");
+        }
+        zip.finish().expect("finish package fixture");
     }
 
     fn test_temp_dir(label: &str) -> PathBuf {

@@ -160,7 +160,7 @@ def process_video(payload):
                     {
                         "input": input_path,
                         "output": output_path,
-                        "identity": identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
+                        "identity": identity_path_for_stage(identity, "face"),
                         "clean_plate": clean_plate_path or "",
                         "width": str(width),
                         "height": str(height),
@@ -173,8 +173,13 @@ def process_video(payload):
                         **command_context_env("video", payload, sequence, "video"),
                         "SHAPE_FRAME_INPUT_PATH": input_path,
                         "SHAPE_FRAME_OUTPUT_PATH": output_path,
-                        "SHAPE_IDENTITY_PATH": identity.get("localArtifactPath") or "",
+                        "SHAPE_IDENTITY_PATH": identity_path_for_stage(identity, "face"),
                         "SHAPE_IDENTITY_URI": identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
+                        "SHAPE_FACE_SOURCE_PATH": identity.get("faceSourcePath") or "",
+                        "SHAPE_VOICE_MODEL_PATH": identity.get("voiceModelPath") or "",
+                        "SHAPE_VOICE_INDEX_PATH": identity.get("voiceIndexPath") or "",
+                        "SHAPE_VOICE_CONFIG_PATH": identity.get("voiceConfigPath") or "",
+                        "SHAPE_IDENTITY_PACKAGE_DIR": identity.get("packageDir") or "",
                         "SHAPE_CLEAN_PLATE_PATH": clean_plate_path or "",
                         "SHAPE_TARGET_WIDTH": str(width),
                         "SHAPE_TARGET_HEIGHT": str(height),
@@ -241,7 +246,7 @@ def process_video(payload):
                             {
                                 "input": current_input_path,
                                 "output": output_path,
-                                "identity": identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
+                                "identity": identity_path_for_stage(identity, stage),
                                 "clean_plate": clean_plate_path or "",
                                 "width": str(width),
                                 "height": str(height),
@@ -255,8 +260,13 @@ def process_video(payload):
                                 "SHAPE_FRAME_INPUT_PATH": current_input_path,
                                 "SHAPE_FRAME_OUTPUT_PATH": output_path,
                                 "SHAPE_VIDEO_STAGE": stage,
-                                "SHAPE_IDENTITY_PATH": identity.get("localArtifactPath") or "",
+                                "SHAPE_IDENTITY_PATH": identity_path_for_stage(identity, stage),
                                 "SHAPE_IDENTITY_URI": identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
+                                "SHAPE_FACE_SOURCE_PATH": identity.get("faceSourcePath") or "",
+                                "SHAPE_VOICE_MODEL_PATH": identity.get("voiceModelPath") or "",
+                                "SHAPE_VOICE_INDEX_PATH": identity.get("voiceIndexPath") or "",
+                                "SHAPE_VOICE_CONFIG_PATH": identity.get("voiceConfigPath") or "",
+                                "SHAPE_IDENTITY_PACKAGE_DIR": identity.get("packageDir") or "",
                                 "SHAPE_CLEAN_PLATE_PATH": clean_plate_path or "",
                                 "SHAPE_TARGET_WIDTH": str(width),
                                 "SHAPE_TARGET_HEIGHT": str(height),
@@ -366,7 +376,7 @@ def process_audio(payload):
                         "session_id": session_id(payload),
                         "sequence": str(sequence),
                         "stage": command_stage,
-                        "identity": identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
+                        "identity": identity_path_for_stage(identity, "voice"),
                     },
                     {
                         **command_context_env("audio", payload, sequence, command_stage),
@@ -375,8 +385,13 @@ def process_audio(payload):
                         "SHAPE_AUDIO_SAMPLE_RATE": str(sample_rate),
                         "SHAPE_AUDIO_CHANNELS": str(channels),
                         "SHAPE_AUDIO_FORMAT": audio_format,
-                        "SHAPE_IDENTITY_PATH": identity.get("localArtifactPath") or "",
+                        "SHAPE_IDENTITY_PATH": identity_path_for_stage(identity, "voice"),
                         "SHAPE_IDENTITY_URI": identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
+                        "SHAPE_FACE_SOURCE_PATH": identity.get("faceSourcePath") or "",
+                        "SHAPE_VOICE_MODEL_PATH": identity.get("voiceModelPath") or "",
+                        "SHAPE_VOICE_INDEX_PATH": identity.get("voiceIndexPath") or "",
+                        "SHAPE_VOICE_CONFIG_PATH": identity.get("voiceConfigPath") or "",
+                        "SHAPE_IDENTITY_PACKAGE_DIR": identity.get("packageDir") or "",
                     },
                 )
                 warnings.extend(result["warnings"])
@@ -809,6 +824,16 @@ def voice_stage_endpoint(enabled):
 
 def prefix_warnings(stage, warnings):
     return [f"{stage}:{warning}" for warning in warnings]
+
+
+def identity_path_for_stage(identity, stage):
+    if not isinstance(identity, dict):
+        return ""
+    if stage == "face":
+        return identity.get("faceSourcePath") or identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or ""
+    if stage == "voice":
+        return identity.get("voiceModelPath") or identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or ""
+    return identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or ""
 
 
 def demo_effects_enabled():

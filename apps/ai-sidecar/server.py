@@ -312,6 +312,13 @@ def session_from_start_payload(payload, session_id=None):
             "artifactUri": payload.get("identityArtifactUri"),
             "cachedArtifactUri": payload.get("identityCachedArtifactUri"),
             "localArtifactPath": payload.get("identityLocalArtifactPath"),
+            "packageDir": payload.get("identityPackageDir"),
+            "packageManifest": payload.get("identityPackageManifest") if isinstance(payload.get("identityPackageManifest"), dict) else None,
+            "faceSourcePath": payload.get("identityFaceSourcePath"),
+            "voiceModelPath": payload.get("identityVoiceModelPath"),
+            "voiceIndexPath": payload.get("identityVoiceIndexPath"),
+            "voiceConfigPath": payload.get("identityVoiceConfigPath"),
+            "backgroundAssetsPath": payload.get("identityBackgroundAssetsPath"),
             "artifactSha256": payload.get("identityArtifactSha256"),
             "artifactSizeBytes": payload.get("identityArtifactSizeBytes"),
             "artifactCacheMessage": payload.get("identityArtifactCacheMessage"),
@@ -1345,8 +1352,20 @@ def session_warnings(session):
     identity = session.get("identity") or {}
     mode = ai_mode()
 
-    if enabled.get("face") and not (identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri")):
+    if enabled.get("face") and not (
+        identity.get("faceSourcePath")
+        or identity.get("localArtifactPath")
+        or identity.get("cachedArtifactUri")
+        or identity.get("artifactUri")
+    ):
         warnings.append("identity_artifact_missing")
+    if enabled.get("voice") and not (
+        identity.get("voiceModelPath")
+        or identity.get("localArtifactPath")
+        or identity.get("cachedArtifactUri")
+        or identity.get("artifactUri")
+    ):
+        warnings.append("voice_model_missing")
 
     background = session.get("background") if isinstance(session.get("background"), dict) else {}
     clean_plate = background.get("cleanPlate") if isinstance(background.get("cleanPlate"), dict) else {}

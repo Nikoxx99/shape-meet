@@ -20,6 +20,13 @@ export interface AiSessionStartInput {
   identityArtifactUri?: string | null;
   identityCachedArtifactUri?: string | null;
   identityLocalArtifactPath?: string | null;
+  identityPackageDir?: string | null;
+  identityPackageManifest?: unknown;
+  identityFaceSourcePath?: string | null;
+  identityVoiceModelPath?: string | null;
+  identityVoiceIndexPath?: string | null;
+  identityVoiceConfigPath?: string | null;
+  identityBackgroundAssetsPath?: string | null;
   identityArtifactSha256?: string | null;
   identityArtifactSizeBytes?: number | null;
   identityArtifactCacheMessage?: string | null;
@@ -48,6 +55,13 @@ export interface AiSession {
     artifactUri: string | null;
     cachedArtifactUri: string | null;
     localArtifactPath: string | null;
+    packageDir?: string | null;
+    packageManifest?: unknown;
+    faceSourcePath?: string | null;
+    voiceModelPath?: string | null;
+    voiceIndexPath?: string | null;
+    voiceConfigPath?: string | null;
+    backgroundAssetsPath?: string | null;
     artifactSha256: string | null;
     artifactSizeBytes: number | null;
     artifactCacheMessage: string | null;

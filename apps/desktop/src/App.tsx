@@ -1325,7 +1325,17 @@ async function runHostAiPreflight({
     identityArtifactUri: resolvedIdentity?.artifactUri ?? null,
     identityCachedArtifactUri:
       artifactCache?.uri ?? resolvedIdentity?.artifactUri ?? null,
-    identityLocalArtifactPath: artifactCache?.localPath ?? null,
+    identityLocalArtifactPath: identityLocalArtifactPathForEffects(
+      artifactCache,
+      { faceEnabled, voiceEnabled },
+    ),
+    identityPackageDir: artifactCache?.packageDir ?? null,
+    identityPackageManifest: artifactCache?.packageManifest ?? null,
+    identityFaceSourcePath: artifactCache?.faceSourcePath ?? null,
+    identityVoiceModelPath: artifactCache?.voiceModelPath ?? null,
+    identityVoiceIndexPath: artifactCache?.voiceIndexPath ?? null,
+    identityVoiceConfigPath: artifactCache?.voiceConfigPath ?? null,
+    identityBackgroundAssetsPath: artifactCache?.backgroundAssetsPath ?? null,
     identityArtifactSha256:
       artifactCache?.sha256 ?? resolvedIdentity?.artifactSha256 ?? null,
     identityArtifactSizeBytes:
@@ -1374,6 +1384,26 @@ function needsIdentityArtifact({
   voiceEnabled: boolean;
 }) {
   return faceEnabled || voiceEnabled;
+}
+
+function identityLocalArtifactPathForEffects(
+  artifactCache: NativeIdentityArtifactCacheResult | null,
+  {
+    faceEnabled,
+    voiceEnabled,
+  }: {
+    faceEnabled: boolean;
+    voiceEnabled: boolean;
+  },
+) {
+  if (!artifactCache) return null;
+  if (faceEnabled && artifactCache.faceSourcePath) {
+    return artifactCache.faceSourcePath;
+  }
+  if (voiceEnabled && artifactCache.voiceModelPath) {
+    return artifactCache.voiceModelPath;
+  }
+  return artifactCache.localPath ?? null;
 }
 
 function runtimeIdentityFor(
@@ -5640,7 +5670,17 @@ function ActiveCallScreen({
         identityArtifactUri: resolvedIdentity?.artifactUri ?? null,
         identityCachedArtifactUri:
           artifactCache?.uri ?? resolvedIdentity?.artifactUri ?? null,
-        identityLocalArtifactPath: artifactCache?.localPath ?? null,
+        identityLocalArtifactPath: identityLocalArtifactPathForEffects(
+          artifactCache,
+          { faceEnabled, voiceEnabled },
+        ),
+        identityPackageDir: artifactCache?.packageDir ?? null,
+        identityPackageManifest: artifactCache?.packageManifest ?? null,
+        identityFaceSourcePath: artifactCache?.faceSourcePath ?? null,
+        identityVoiceModelPath: artifactCache?.voiceModelPath ?? null,
+        identityVoiceIndexPath: artifactCache?.voiceIndexPath ?? null,
+        identityVoiceConfigPath: artifactCache?.voiceConfigPath ?? null,
+        identityBackgroundAssetsPath: artifactCache?.backgroundAssetsPath ?? null,
         identityArtifactSha256:
           artifactCache?.sha256 ?? resolvedIdentity?.artifactSha256 ?? null,
         identityArtifactSizeBytes:

@@ -333,7 +333,7 @@ def process_voice(payload):
 
 def run_video_wrapper(stage, input_path, output_path, identity, background):
     if stage == "face":
-        identity_path = identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri")
+        identity_path = identity_path_for_stage(identity, "face")
         if not identity_path:
             raise ValueError("face endpoint requiere identidad local o URI.")
         run_checked(
@@ -377,25 +377,40 @@ def run_video_wrapper(stage, input_path, output_path, identity, background):
 
 
 def run_voice_wrapper(input_path, output_path, identity, sample_rate, channels, audio_format):
-    run_checked(
-        [
-            wrapper_python(),
-            str(wrapper_path("vcclient000_chunk.py")),
-            "--input",
-            str(input_path),
-            "--output",
-            str(output_path),
-            "--sample-rate",
-            str(sample_rate),
-            "--channels",
-            str(channels),
-            "--format",
-            audio_format,
-            "--identity",
-            identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
-        ],
-        "voice wrapper",
-    )
+    args = [
+        wrapper_python(),
+        str(wrapper_path("vcclient000_chunk.py")),
+        "--input",
+        str(input_path),
+        "--output",
+        str(output_path),
+        "--sample-rate",
+        str(sample_rate),
+        "--channels",
+        str(channels),
+        "--format",
+        audio_format,
+        "--identity",
+        identity_path_for_stage(identity, "voice") or "",
+    ]
+    if isinstance(identity, dict):
+        if identity.get("voiceModelPath"):
+            args.extend(["--voice-model", str(identity["voiceModelPath"])])
+        if identity.get("voiceIndexPath"):
+            args.extend(["--voice-index", str(identity["voiceIndexPath"])])
+        if identity.get("voiceConfigPath"):
+            args.extend(["--voice-config", str(identity["voiceConfigPath"])])
+    run_checked(args, "voice wrapper")
+
+
+def identity_path_for_stage(identity, stage):
+    if not isinstance(identity, dict):
+        return ""
+    if stage == "face":
+        return identity.get("faceSourcePath") or identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or ""
+    if stage == "voice":
+        return identity.get("voiceModelPath") or identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or ""
+    return identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or ""
 
 
 def run_checked(args, label):
