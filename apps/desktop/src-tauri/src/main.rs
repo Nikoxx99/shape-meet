@@ -149,9 +149,18 @@ struct SaveAiRuntimeEnvInput {
 
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+struct PrepareDemoAiRuntimeEnvInput {
+    video_processor_port: Option<String>,
+    audio_processor_port: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 struct PrepareModelAiRuntimeEnvInput {
     workstation_profile: Option<String>,
     wrapper_passthrough: Option<bool>,
+    video_processor_port: Option<String>,
+    audio_processor_port: Option<String>,
     facefusion_dir: Option<String>,
     facefusion_python: Option<String>,
     facefusion_providers: Option<String>,
@@ -275,8 +284,18 @@ fn save_ai_runtime_env(input: SaveAiRuntimeEnvInput) -> Result<AiRuntimeEnvFile,
 }
 
 #[tauri::command]
-fn prepare_demo_ai_runtime_env() -> Result<AiRuntimeEnvFile, String> {
-    let content = demo_ai_runtime_env_content(&processor_command_for_demo()?);
+fn prepare_demo_ai_runtime_env(
+    input: Option<PrepareDemoAiRuntimeEnvInput>,
+) -> Result<AiRuntimeEnvFile, String> {
+    let ports = ai_runtime_processor_ports(
+        input
+            .as_ref()
+            .and_then(|value| value.video_processor_port.as_deref()),
+        input
+            .as_ref()
+            .and_then(|value| value.audio_processor_port.as_deref()),
+    )?;
+    let content = demo_ai_runtime_env_content(&processor_command_for_demo()?, ports);
     write_ai_runtime_env_file(&content)?;
     read_ai_runtime_env_file()
 }
@@ -1466,7 +1485,44 @@ fn default_ai_runtime_env_template() -> String {
     .join("\n")
 }
 
-fn demo_ai_runtime_env_content(processor_command: &str) -> String {
+#[derive(Clone, Copy)]
+struct AiRuntimeProcessorPorts {
+    video: u16,
+    audio: u16,
+}
+
+fn ai_runtime_processor_ports(
+    video_value: Option<&str>,
+    audio_value: Option<&str>,
+) -> Result<AiRuntimeProcessorPorts, String> {
+    let video = ai_runtime_processor_port(video_value, 7860, "Video")?;
+    let audio = ai_runtime_processor_port(audio_value, 7861, "Audio")?;
+    if video == audio {
+        return Err("Los puertos de procesador de video y audio deben ser diferentes.".to_string());
+    }
+
+    Ok(AiRuntimeProcessorPorts { video, audio })
+}
+
+fn ai_runtime_processor_port(
+    value: Option<&str>,
+    default: u16,
+    label: &str,
+) -> Result<u16, String> {
+    let Some(value) = trimmed_model_input_value(value) else {
+        return Ok(default);
+    };
+    let port = value
+        .parse::<u16>()
+        .map_err(|_| format!("Puerto {label}: usa un número entre 1 y 65535."))?;
+    if port == 0 {
+        return Err(format!("Puerto {label}: usa un número entre 1 y 65535."));
+    }
+
+    Ok(port)
+}
+
+fn demo_ai_runtime_env_content(processor_command: &str, ports: AiRuntimeProcessorPorts) -> String {
     [
         "# Shape Meet demo AI runtime",
         "# Procesadores locales para validar el pipeline sin modelos reales.",
@@ -1477,15 +1533,29 @@ fn demo_ai_runtime_env_content(processor_command: &str) -> String {
         "SHAPE_PROCESSOR_DEMO_EFFECTS=true",
         "SHAPE_PROCESSOR_TIMEOUT_SECS=2",
         &format!(
-            "SHAPE_VIDEO_PROCESSOR_COMMAND={processor_command} --kind video --host 127.0.0.1 --port 7860"
+            "SHAPE_VIDEO_PROCESSOR_COMMAND={processor_command} --kind video --host 127.0.0.1 --port {}",
+            ports.video
         ),
-        "SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame",
-        "SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7860/health",
         &format!(
-            "SHAPE_AUDIO_PROCESSOR_COMMAND={processor_command} --kind audio --host 127.0.0.1 --port 7861"
+            "SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:{}/process-frame",
+            ports.video
         ),
-        "SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio",
-        "SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health",
+        &format!(
+            "SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:{}/health",
+            ports.video
+        ),
+        &format!(
+            "SHAPE_AUDIO_PROCESSOR_COMMAND={processor_command} --kind audio --host 127.0.0.1 --port {}",
+            ports.audio
+        ),
+        &format!(
+            "SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:{}/process-audio",
+            ports.audio
+        ),
+        &format!(
+            "SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:{}/health",
+            ports.audio
+        ),
         "",
     ]
     .join("\n")
@@ -1518,6 +1588,10 @@ fn model_ai_runtime_env_content(
     let model_timeout =
         trimmed_model_input_value(input.and_then(|value| value.model_timeout_secs.as_deref()))
             .unwrap_or_else(|| "8".to_string());
+    let ports = ai_runtime_processor_ports(
+        input.and_then(|value| value.video_processor_port.as_deref()),
+        input.and_then(|value| value.audio_processor_port.as_deref()),
+    )?;
 
     let mut lines = vec![
         "# Shape Meet model AI runtime".to_string(),
@@ -1544,10 +1618,17 @@ fn model_ai_runtime_env_content(
             render_env_value(&model_timeout)
         ),
         format!(
-            "SHAPE_VIDEO_PROCESSOR_COMMAND={processor_command} --kind video --host 127.0.0.1 --port 7860"
+            "SHAPE_VIDEO_PROCESSOR_COMMAND={processor_command} --kind video --host 127.0.0.1 --port {}",
+            ports.video
         ),
-        "SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:7860/process-frame".to_string(),
-        "SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7860/health".to_string(),
+        format!(
+            "SHAPE_VIDEO_PROCESSOR_ENDPOINT=http://127.0.0.1:{}/process-frame",
+            ports.video
+        ),
+        format!(
+            "SHAPE_VIDEO_PROCESSOR_HEALTH_URL=http://127.0.0.1:{}/health",
+            ports.video
+        ),
         format!(
             "SHAPE_FACE_COMMAND={python} {} --input {{input}} --output {{output}} --identity {{identity}}",
             shell_quote_path(&face_wrapper)
@@ -1557,10 +1638,17 @@ fn model_ai_runtime_env_content(
             shell_quote_path(&background_wrapper)
         ),
         format!(
-            "SHAPE_AUDIO_PROCESSOR_COMMAND={processor_command} --kind audio --host 127.0.0.1 --port 7861"
+            "SHAPE_AUDIO_PROCESSOR_COMMAND={processor_command} --kind audio --host 127.0.0.1 --port {}",
+            ports.audio
         ),
-        "SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:7861/process-audio".to_string(),
-        "SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:7861/health".to_string(),
+        format!(
+            "SHAPE_AUDIO_PROCESSOR_ENDPOINT=http://127.0.0.1:{}/process-audio",
+            ports.audio
+        ),
+        format!(
+            "SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:{}/health",
+            ports.audio
+        ),
         format!(
             "SHAPE_VOICE_COMMAND={python} {} --input {{input}} --output {{output}} --sample-rate {{sample_rate}} --channels {{channels}} --format {{format}}",
             shell_quote_path(&voice_wrapper)
@@ -2586,7 +2674,13 @@ mod tests {
 
     #[test]
     fn demo_ai_runtime_env_is_parseable() {
-        let content = demo_ai_runtime_env_content("python3 /tmp/shape_processor_command.py");
+        let content = demo_ai_runtime_env_content(
+            "python3 /tmp/shape_processor_command.py",
+            AiRuntimeProcessorPorts {
+                video: 7860,
+                audio: 7861,
+            },
+        );
         let parsed = parse_ai_runtime_env(&content);
 
         assert!(parsed.errors.is_empty());
@@ -2605,6 +2699,13 @@ mod tests {
                 && value.contains("--kind audio")
                 && value.contains("--port 7861")
         }));
+    }
+
+    #[test]
+    fn ai_runtime_processor_ports_reject_invalid_values() {
+        assert!(ai_runtime_processor_ports(Some("abc"), Some("7861")).is_err());
+        assert!(ai_runtime_processor_ports(Some("7860"), Some("7860")).is_err());
+        assert!(ai_runtime_processor_ports(Some("0"), Some("7861")).is_err());
     }
 
     #[test]
@@ -2635,6 +2736,8 @@ mod tests {
         let input = PrepareModelAiRuntimeEnvInput {
             workstation_profile: Some("windows-nvidia".to_string()),
             wrapper_passthrough: Some(false),
+            video_processor_port: Some("7960".to_string()),
+            audio_processor_port: Some("7961".to_string()),
             facefusion_dir: Some(r"C:\models\FaceFusion".to_string()),
             facefusion_python: Some(r"C:\models\FaceFusion\.venv\Scripts\python.exe".to_string()),
             facefusion_providers: Some("cuda".to_string()),
@@ -2670,6 +2773,14 @@ mod tests {
             .values
             .iter()
             .any(|(key, value)| key == "SHAPE_WRAPPER_PASSTHROUGH" && value == "false"));
+        assert!(parsed.values.iter().any(|(key, value)| {
+            key == "SHAPE_VIDEO_PROCESSOR_COMMAND" && value.contains("--port 7960")
+        }));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_AUDIO_PROCESSOR_ENDPOINT"
+                && value == "http://127.0.0.1:7961/process-audio"));
         assert!(parsed
             .values
             .iter()

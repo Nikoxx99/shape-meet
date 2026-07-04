@@ -521,6 +521,10 @@ function modelRuntimeInputFromContent(
         envContentValue(content, "SHAPE_WRAPPER_PASSTHROUGH") ?? "true"
       ).toLowerCase(),
     ),
+    videoProcessorPort:
+      envContentUrlPort(content, "SHAPE_VIDEO_PROCESSOR_ENDPOINT") ?? "7860",
+    audioProcessorPort:
+      envContentUrlPort(content, "SHAPE_AUDIO_PROCESSOR_ENDPOINT") ?? "7861",
     facefusionDir: envContentValue(content, "FACEFUSION_DIR") ?? "",
     facefusionPython: envContentValue(content, "FACEFUSION_PYTHON") ?? "",
     facefusionProviders:
@@ -551,6 +555,8 @@ function normalizeModelRuntimeInput(
   return {
     workstationProfile: input.workstationProfile?.trim() || null,
     wrapperPassthrough: input.wrapperPassthrough,
+    videoProcessorPort: input.videoProcessorPort?.trim() || null,
+    audioProcessorPort: input.audioProcessorPort?.trim() || null,
     facefusionDir: input.facefusionDir?.trim() || null,
     facefusionPython: input.facefusionPython?.trim() || null,
     facefusionProviders: input.facefusionProviders?.trim() || null,
@@ -565,6 +571,13 @@ function normalizeModelRuntimeInput(
     vcclient000HttpMode: input.vcclient000HttpMode?.trim() || null,
     modelTimeoutSecs: input.modelTimeoutSecs?.trim() || null,
     processorTimeoutSecs: input.processorTimeoutSecs?.trim() || null,
+  };
+}
+
+function normalizeRuntimeProcessorPorts(input: NativeModelAiRuntimeInput) {
+  return {
+    videoProcessorPort: input.videoProcessorPort?.trim() || null,
+    audioProcessorPort: input.audioProcessorPort?.trim() || null,
   };
 }
 
@@ -632,6 +645,18 @@ function envContentValue(content: string, key: string) {
   }
 
   return null;
+}
+
+function envContentUrlPort(content: string, key: string) {
+  const value = envContentValue(content, key);
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    return url.port || null;
+  } catch {
+    return value.match(/:(\d{1,5})(?:\/|$)/)?.[1] ?? null;
+  }
 }
 
 type AgendaFilter = "today" | "week" | "all";
@@ -3066,6 +3091,8 @@ function AiRuntimeScreen({
     useState<NativeModelAiRuntimeInput>({
       workstationProfile: "manual",
       wrapperPassthrough: true,
+      videoProcessorPort: "7860",
+      audioProcessorPort: "7861",
       facefusionDir: "",
       facefusionPython: "",
       facefusionProviders: "cuda",
@@ -3131,7 +3158,9 @@ function AiRuntimeScreen({
     setSaving(true);
     setRuntimeMessage(null);
     try {
-      const prepared = await prepareDemoAiRuntimeEnv();
+      const prepared = await prepareDemoAiRuntimeEnv(
+        normalizeRuntimeProcessorPorts(modelRuntimeInput),
+      );
       setEnvFile(prepared);
       setContent(prepared.content);
       setRuntimeError(null);
@@ -3345,6 +3374,30 @@ function AiRuntimeScreen({
                   wrapperPassthrough: !current.wrapperPassthrough,
                 }))
               }
+            />
+            <TextField
+              label="Puerto video"
+              icon={<Video />}
+              value={modelRuntimeInput.videoProcessorPort ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  videoProcessorPort: value,
+                }))
+              }
+              type="number"
+            />
+            <TextField
+              label="Puerto audio"
+              icon={<Mic />}
+              value={modelRuntimeInput.audioProcessorPort ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  audioProcessorPort: value,
+                }))
+              }
+              type="number"
             />
             <TextField
               label="Carpeta FaceFusion"

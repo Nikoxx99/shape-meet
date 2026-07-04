@@ -95,9 +95,16 @@ export interface NativeAiRuntimeEnvFile {
   warnings: string[];
 }
 
+export interface NativeDemoAiRuntimeInput {
+  videoProcessorPort?: string | null;
+  audioProcessorPort?: string | null;
+}
+
 export interface NativeModelAiRuntimeInput {
   workstationProfile?: string | null;
   wrapperPassthrough: boolean;
+  videoProcessorPort?: string | null;
+  audioProcessorPort?: string | null;
   facefusionDir?: string | null;
   facefusionPython?: string | null;
   facefusionProviders?: string | null;
@@ -279,9 +286,13 @@ export async function saveAiRuntimeEnv(
   }
 }
 
-export async function prepareDemoAiRuntimeEnv(): Promise<NativeAiRuntimeEnvFile> {
+export async function prepareDemoAiRuntimeEnv(
+  input?: NativeDemoAiRuntimeInput,
+): Promise<NativeAiRuntimeEnvFile> {
   try {
-    return await invoke<NativeAiRuntimeEnvFile>("prepare_demo_ai_runtime_env");
+    return await invoke<NativeAiRuntimeEnvFile>("prepare_demo_ai_runtime_env", {
+      input: input ?? null,
+    });
   } catch (error) {
     return {
       path: "",
