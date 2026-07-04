@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 
 const apiUrl = (
@@ -64,7 +65,10 @@ async function main() {
       invitedEmails: [],
     }),
   });
-  if (!smokeMeeting.response.ok || smokeMeeting.data.meeting?.status !== "SCHEDULED") {
+  if (
+    !smokeMeeting.response.ok ||
+    smokeMeeting.data.meeting?.status !== "SCHEDULED"
+  ) {
     printFailure("meeting create", smokeMeeting);
     process.exit(1);
   }
@@ -77,7 +81,10 @@ async function main() {
       headers: { authorization: `Bearer ${token}` },
     },
   );
-  if (!endedMeeting.response.ok || endedMeeting.data.meeting?.status !== "ENDED") {
+  if (
+    !endedMeeting.response.ok ||
+    endedMeeting.data.meeting?.status !== "ENDED"
+  ) {
     printFailure("meeting end", endedMeeting);
     process.exit(1);
   }
@@ -140,6 +147,7 @@ async function main() {
   console.log("identity incomplete push rejected ok");
 
   const identityForm = new FormData();
+  const artifactPayload = `shape-smoke-artifact:${suffix}`;
   identityForm.set("userId", createdUser.data.user.id);
   identityForm.set("name", `Smoke artifact ${suffix}`);
   identityForm.set("kind", "PHOTO_IDENTITY");
@@ -147,7 +155,7 @@ async function main() {
   identityForm.set("version", "smoke");
   identityForm.set(
     "artifactFile",
-    new Blob([`shape-smoke-artifact:${suffix}`], {
+    new Blob([artifactPayload], {
       type: "application/octet-stream",
     }),
     "smoke-identity.bin",
@@ -179,6 +187,13 @@ async function main() {
     process.exit(1);
   }
   console.log("identity push ok");
+
+  await assertHostArtifactDelivery(
+    token,
+    pushedIdentity.data.identity,
+    artifactPayload,
+  );
+  console.log("identity host artifact download ok");
 
   const unpushedIdentity = await patchIdentityDelivery(
     completeIdentity.data.identity.id,
@@ -226,14 +241,72 @@ function patchUserStatus(userId, status, token) {
 }
 
 function patchIdentityDelivery(identityId, action, token) {
-  return request(`/api/admin/identities/${encodeURIComponent(identityId)}/delivery`, {
-    method: "PATCH",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
+  return request(
+    `/api/admin/identities/${encodeURIComponent(identityId)}/delivery`,
+    {
+      method: "PATCH",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ action }),
     },
-    body: JSON.stringify({ action }),
+  );
+}
+
+async function assertHostArtifactDelivery(token, identity, expectedPayload) {
+  const hostIdentities = await request("/api/host/identities", {
+    headers: { authorization: `Bearer ${token}` },
   });
+  if (
+    !hostIdentities.response.ok ||
+    !hostIdentities.data.identities?.some((item) => item.id === identity.id)
+  ) {
+    printFailure("host identities delivery", hostIdentities);
+    process.exit(1);
+  }
+
+  const artifact = await request(
+    `/api/host/identities/${encodeURIComponent(identity.id)}/artifact`,
+    {
+      headers: { authorization: `Bearer ${token}` },
+    },
+  );
+  if (!artifact.response.ok || !artifact.data.artifact?.downloadUrl) {
+    printFailure("host identity artifact", artifact);
+    process.exit(1);
+  }
+
+  const download = await fetch(artifact.data.artifact.downloadUrl);
+  const downloaded = Buffer.from(await download.arrayBuffer());
+  const expectedSha = createHash("sha256")
+    .update(expectedPayload)
+    .digest("hex");
+  const actualSha = createHash("sha256").update(downloaded).digest("hex");
+
+  if (
+    !download.ok ||
+    downloaded.toString("utf8") !== expectedPayload ||
+    actualSha !== expectedSha ||
+    download.headers.get("x-shape-artifact-sha256") !== expectedSha
+  ) {
+    console.error(
+      `host identity artifact download failed: HTTP ${download.status}`,
+    );
+    console.error(
+      JSON.stringify(
+        {
+          expectedSha,
+          actualSha,
+          headerSha: download.headers.get("x-shape-artifact-sha256"),
+          size: downloaded.byteLength,
+        },
+        null,
+        2,
+      ),
+    );
+    process.exit(1);
+  }
 }
 
 async function request(path, init = {}) {

@@ -152,10 +152,13 @@ pnpm smoke:meeting-flow
 ```
 
 `pnpm demo:prepare` deja el demo local en un estado presentable: limpia datos
-locales conocidos de smoke/demo en el contenedor `shape-meet-local`, crea o
-publica la identidad `Rostro demo aprobado`, crea una reunión pública
-`Demo Shape Meet` y muestra el código/enlace para entrar. Usa `--no-reset` si
-quieres conservar reuniones anteriores. El flujo esperado para enseñar es:
+locales conocidos de smoke/demo en el contenedor `shape-meet-local`, sube y
+publica la identidad `Rostro demo aprobado` como artefacto almacenado por el
+admin, crea una reunión pública `Demo Shape Meet` y muestra el código/enlace
+para entrar. Puedes pasar una foto/modelo real con
+`--identity-artifact-file ./ruta/host.jpg` o `SHAPE_DEMO_IDENTITY_ARTIFACT_FILE`.
+Usa `--no-reset` si quieres conservar reuniones anteriores. El flujo esperado
+para enseñar es:
 
 1. Host entra en [http://localhost:1420](http://localhost:1420) con
    `admin@shape.test` / `ChangeMe123!`.
@@ -530,8 +533,9 @@ Para iniciar face swap, la desktop puede refrescar una identidad concreta con
 sea host/admin, que la identidad esté publicada y devuelve la URL de descarga
 actual. En Tauri, `cache_identity_artifact` descarga o copia artefactos
 `http(s)`/`file://` a una cache local por identidad y valida `sha256`/tamaño
-cuando están definidos. Los artefactos `shape://demo/...` se conservan como
-referencias de desarrollo sin descarga.
+cuando están definidos. `demo:prepare` usa este flujo con un artefacto subido al
+admin. Los artefactos `shape://demo/...` se conservan solo como referencias de
+desarrollo sin descarga.
 
 La desktop consulta `SHAPE_AI_SERVICE_URL` desde Tauri para detectar el sidecar
 local de IA. En desarrollo el sidecar liviano responde en `http://127.0.0.1:7851`
