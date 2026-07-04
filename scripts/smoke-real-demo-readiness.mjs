@@ -35,6 +35,9 @@ try {
       envPath,
       "--timeout-ms",
       "45000",
+      "--remote-api-flow",
+      "--remote-timeout-ms",
+      "8000",
     ],
     {
       cwd: process.cwd(),
@@ -52,6 +55,10 @@ try {
 
   const report = JSON.parse(result.stdout);
   assert(report.ok === true, "readiness report was not ok");
+  assert(
+    report.remoteApiFlow === true,
+    "readiness report did not preserve remote api flow option",
+  );
   assert(
     report.steps?.modelDoctor?.ok === true,
     "readiness report did not pass model doctor",

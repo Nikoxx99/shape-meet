@@ -21,6 +21,13 @@ const remoteEnvFile = argValue("--remote-env-file");
 const profile =
   argValue("--profile") ?? process.env.SHAPE_MODEL_WORKSTATION_PROFILE;
 const timeoutMs = argValue("--timeout-ms");
+const remoteTimeoutMs =
+  argValue("--remote-timeout-ms") ??
+  argValue("--remote-request-timeout-ms") ??
+  process.env.SHAPE_REMOTE_DEMO_TIMEOUT_MS;
+const remoteCommandTimeoutMs = argValue("--remote-command-timeout-ms");
+const remoteApiFlow =
+  args.includes("--remote-api-flow") || args.includes("--api-flow");
 const outputPath = argValue("--output");
 
 const report = {
@@ -32,6 +39,7 @@ const report = {
   runtimeEnvFile,
   remoteEnvFile,
   profile: profile ?? null,
+  remoteApiFlow,
   steps: {},
   nextSteps: [],
 };
@@ -157,10 +165,11 @@ function runRemoteDemoCheck() {
 
   const commandArgs = ["demo:remote:check", "--", "--env-file", remoteEnvFile];
   if (strict) commandArgs.push("--strict");
-  if (args.includes("--remote-api-flow") || args.includes("--api-flow")) {
-    commandArgs.push("--api-flow");
-  }
-  return commandStep("Demo remoto", commandArgs, { timeout: 30_000 });
+  if (remoteTimeoutMs) commandArgs.push("--timeout-ms", remoteTimeoutMs);
+  if (remoteApiFlow) commandArgs.push("--api-flow");
+  return commandStep("Demo remoto", commandArgs, {
+    timeout: remoteDemoCommandTimeout(),
+  });
 }
 
 function inspectRealModels() {
@@ -447,6 +456,12 @@ function argValue(name) {
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function remoteDemoCommandTimeout() {
+  const perCheckTimeout = positiveInteger(remoteTimeoutMs, 5000);
+  const fallback = perCheckTimeout * (remoteApiFlow ? 14 : 10) + 15_000;
+  return positiveInteger(remoteCommandTimeoutMs, fallback);
 }
 
 function trimOutput(value) {

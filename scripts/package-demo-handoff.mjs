@@ -40,6 +40,7 @@ const runtimeEnvFile =
   argValue("--env-file") ?? process.env.SHAPE_AI_RUNTIME_ENV_FILE ?? null;
 const remoteEnvFile = argValue("--remote-env-file") ?? null;
 const timeoutMs = argValue("--timeout-ms") ?? "45000";
+const remoteTimeoutMs = argValue("--remote-timeout-ms") ?? null;
 
 const report = {
   generatedAt,
@@ -53,6 +54,7 @@ const report = {
     runtimeEnvFile,
     remoteEnvFile,
     timeoutMs,
+    remoteTimeoutMs,
   },
   steps: {},
   artifacts: {},
@@ -169,7 +171,11 @@ function runRealReadinessStep() {
 
   if (runtimeEnvFile) commandArgs.push("--env-file", runtimeEnvFile);
   if (remoteEnvFile) commandArgs.push("--remote-env-file", remoteEnvFile);
+  if (remoteTimeoutMs) commandArgs.push("--remote-timeout-ms", remoteTimeoutMs);
   if (profile) commandArgs.push("--profile", profile);
+  forwardFlag(commandArgs, "--remote-api-flow");
+  forwardFlag(commandArgs, "--api-flow");
+  forwardValue(commandArgs, "--remote-command-timeout-ms");
   forwardFlag(commandArgs, "--require-real-models");
   forwardFlag(commandArgs, "--skip-sentry");
   forwardFlag(commandArgs, "--skip-model-doctor");

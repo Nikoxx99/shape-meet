@@ -151,6 +151,7 @@ una máquina fuera del servidor:
 pnpm demo:remote:check -- \
   --env-file infra/shape-meet.production.env \
   --api-flow \
+  --timeout-ms 8000 \
   --strict \
   --output output/remote-demo/shape-remote-demo.json
 ```
@@ -171,6 +172,7 @@ La compuerta completa puede reenviar el mismo flujo remoto:
 pnpm demo:real:check -- \
   --remote-env-file infra/shape-meet.production.env \
   --remote-api-flow \
+  --remote-timeout-ms 8000 \
   --include-desktop \
   --strict
 ```
