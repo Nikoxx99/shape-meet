@@ -15,6 +15,11 @@ const sentryOrg = argValue("--sentry-org") ?? "";
 const sentryProject = argValue("--sentry-project") ?? "";
 const sentryAuthToken = argValue("--sentry-auth-token") ?? "";
 const turnTlsPort = argValue("--turn-tls-port") ?? "5349";
+const adminHttpPort = argValue("--admin-http-port") ?? "3000";
+const livekitHttpPort = argValue("--livekit-http-port") ?? "7880";
+const livekitRtcTcpPort = argValue("--livekit-rtc-tcp-port") ?? "7881";
+const livekitRtcUdpPort = argValue("--livekit-rtc-udp-port") ?? "7882";
+const turnUdpPort = argValue("--turn-udp-port") ?? "3478";
 const relayStart = argValue("--relay-start") ?? "30000";
 const relayEnd = argValue("--relay-end") ?? "30100";
 const releaseSuffix = argValue("--release") ?? "0.1.0";
@@ -29,6 +34,14 @@ validateDomain("turn-domain", turnDomain);
 validatePublicIp(publicIp);
 validateBoolean("run-seed", runSeed);
 validateBoolean("debug-errors", debugErrors);
+validatePort("admin-http-port", adminHttpPort);
+validatePort("livekit-http-port", livekitHttpPort);
+validatePort("livekit-rtc-tcp-port", livekitRtcTcpPort);
+validatePort("livekit-rtc-udp-port", livekitRtcUdpPort);
+validatePort("turn-udp-port", turnUdpPort);
+validatePort("turn-tls-port", turnTlsPort);
+validatePort("relay-start", relayStart);
+validatePort("relay-end", relayEnd);
 
 const adminUrl = `https://${adminDomain}`;
 const meetingUrl = `https://${meetingDomain}`;
@@ -57,7 +70,7 @@ const env = [
   ["LIVEKIT_URL", livekitUrl],
   ["LIVEKIT_API_KEY", randomToken("lk")],
   ["LIVEKIT_API_SECRET", randomHex(32)],
-  ["LIVEKIT_HTTP_PORT", "7880"],
+  ["LIVEKIT_HTTP_PORT", livekitHttpPort],
   ["LIVEKIT_TURN_DOMAIN", turnDomain],
   ["LIVEKIT_TURN_REALM", "shape-meet"],
   ["LIVEKIT_TURN_SHARED_SECRET", randomHex(32)],
@@ -65,14 +78,15 @@ const env = [
   ["LIVEKIT_TURN_EXTERNAL_IP", publicIp],
   ["LIVEKIT_STUN_SERVER", "stun.l.google.com:19302"],
   ["LIVEKIT_USE_EXTERNAL_IP", "true"],
-  ["LIVEKIT_RTC_TCP_PORT", "7881"],
-  ["LIVEKIT_RTC_UDP_PORT", "7882"],
-  ["LIVEKIT_TURN_UDP_PORT", "3478"],
+  ["LIVEKIT_RTC_TCP_PORT", livekitRtcTcpPort],
+  ["LIVEKIT_RTC_UDP_PORT", livekitRtcUdpPort],
+  ["LIVEKIT_TURN_UDP_PORT", turnUdpPort],
   ["LIVEKIT_TURN_TLS_PORT", turnTlsPort],
   ["LIVEKIT_TURN_RELAY_RANGE_START", relayStart],
   ["LIVEKIT_TURN_RELAY_RANGE_END", relayEnd],
   ["NEXT_PUBLIC_APP_URL", adminUrl],
-  ["ADMIN_HTTP_PORT", "3000"],
+  ["ADMIN_HTTP_PORT", adminHttpPort],
+  ["SHAPE_ADMIN_BUILD_CONTEXT", "."],
   ["VITE_SHAPE_API_URL", adminUrl],
   ["VITE_SHAPE_APP_URL", meetingUrl],
   ["VITE_SHAPE_MEETING_URL", meetingUrl],
@@ -165,6 +179,19 @@ function validatePublicIp(value) {
 function validateBoolean(label, value) {
   if (!["true", "false"].includes(String(value).toLowerCase())) {
     console.error(`--${label} must be true or false`);
+    process.exit(1);
+  }
+}
+
+function validatePort(label, value) {
+  if (!/^\d+$/.test(String(value))) {
+    console.error(`--${label} must be a TCP/UDP port number`);
+    process.exit(1);
+  }
+
+  const port = Number(value);
+  if (port < 1 || port > 65535) {
+    console.error(`--${label} must be between 1 and 65535`);
     process.exit(1);
   }
 }

@@ -29,6 +29,7 @@
     "sentry:configure": "node scripts/configure-sentry-local.mjs",
     "coolify:env": "node scripts/render-coolify-env.mjs",
     "coolify:handoff": "node scripts/prepare-coolify-handoff.mjs",
+    "coolify:deploy": "node scripts/deploy-coolify-app.mjs",
     "demo:check": "node scripts/smoke-local-demo.mjs",
     "demo:debug": "node scripts/export-demo-debug-bundle.mjs",
     "demo:configure-local": "node scripts/configure-local-demo-env.mjs",

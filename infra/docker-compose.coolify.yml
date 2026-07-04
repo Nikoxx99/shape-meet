@@ -123,7 +123,7 @@ services:
 
   shape-admin:
     build:
-      context: ..
+      context: ${SHAPE_ADMIN_BUILD_CONTEXT:-..}
       dockerfile: apps/admin/Dockerfile
     restart: unless-stopped
     environment:
