@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import html
 import json
+import math
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -127,12 +130,15 @@ def process_video(stage, payload):
 
         if passthrough_enabled():
             copy_file(input_path, output_path)
+            output_data_url = file_to_data_url(output_path, "image/jpeg")
             warnings.append(f"{stage}_endpoint_passthrough")
         elif demo_effects_enabled():
-            copy_file(input_path, output_path)
-            warnings.append(f"{stage}_endpoint_demo")
+            output_data_url = demo_video_data_url(stage, payload, frame, identity, background, width, height, sequence)
+            write_data_url(output_data_url, output_path)
+            warnings.append(f"{stage}_endpoint_demo_effect")
         else:
             run_video_wrapper(stage, input_path, output_path, identity, background)
+            output_data_url = file_to_data_url(output_path, "image/jpeg")
 
         latency_ms = elapsed_ms(started)
         update_state(latency_ms, warnings[-1] if warnings else None)
@@ -141,10 +147,10 @@ def process_video(stage, payload):
             "status": "processed",
             "processor": f"shape-{stage}-endpoint-server",
             "frame": {
-                "dataUrl": file_to_data_url(output_path, "image/jpeg"),
+                "dataUrl": output_data_url,
                 "width": width,
                 "height": height,
-                "format": "image/jpeg",
+                "format": "image/svg+xml" if output_data_url.startswith("data:image/svg+xml") else "image/jpeg",
             },
             "metrics": {
                 "latencyMs": latency_ms,
@@ -176,13 +182,25 @@ def process_voice(payload):
             audio.get("outputPath"), Path(workdir) / f"output.{audio_extension(audio_format)}"
         )
 
-        if passthrough_enabled() or demo_effects_enabled():
+        if passthrough_enabled():
             copy_file(input_path, output_path)
             warnings.append("voice_endpoint_passthrough")
+            output_base64 = file_to_base64(output_path)
+        elif demo_effects_enabled():
+            demo_audio = demo_audio_payload(
+                file_to_base64(input_path),
+                sample_rate,
+                channels,
+                audio_format,
+                sequence,
+            )
+            write_base64(demo_audio["audioDataBase64"], output_path)
+            warnings.extend(demo_audio["warnings"])
+            output_base64 = demo_audio["audioDataBase64"]
         else:
             run_voice_wrapper(input_path, output_path, identity, sample_rate, channels, audio_format)
+            output_base64 = file_to_base64(output_path)
 
-        output_base64 = file_to_base64(output_path)
         latency_ms = elapsed_ms(started)
         update_state(latency_ms, warnings[-1] if warnings else None)
         return {
@@ -336,12 +354,183 @@ def copy_file(input_path, output_path):
     shutil.copyfile(input_path, output_path)
 
 
+def demo_video_data_url(stage, payload, frame, identity, background, width, height, sequence):
+    enabled = payload.get("enabled") if isinstance(payload.get("enabled"), dict) else {}
+    clean_plate = background.get("cleanPlate") if isinstance(background.get("cleanPlate"), dict) else {}
+    identity_label = identity.get("version") or identity.get("id") or "identidad demo"
+    effects = [
+        label
+        for enabled_flag, label in (
+            (enabled.get("face") or stage == "face", "rostro"),
+            (enabled.get("background") or stage == "background", "fondo"),
+            (enabled.get("voice"), "voz"),
+        )
+        if enabled_flag
+    ]
+    effect_label = " + ".join(effects) if effects else stage
+    plate_label = "clean plate" if clean_plate.get("ready") or clean_plate.get("dataUrl") or background.get("cleanPlatePath") else "sin clean plate"
+    frame_data_url = frame.get("dataUrl") or frame.get("frameDataUrl") or ""
+    safe_frame = html.escape(str(frame_data_url), quote=True)
+    safe_identity = html.escape(str(identity_label), quote=True)
+    safe_effects = html.escape(effect_label, quote=True)
+    safe_stage = html.escape(stage, quote=True)
+    safe_plate = html.escape(plate_label, quote=True)
+    safe_resolution = html.escape(f"{width}x{height}", quote=True)
+    pulse_x = 58 + (sequence % 18) * 6
+    accent = "#2563eb" if stage == "face" else "#14b8a6"
+
+    svg = f"""
+<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+  <defs>
+    <linearGradient id="shape-demo-glow" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="{accent}" stop-opacity="0.22"/>
+      <stop offset="0.62" stop-color="#0f172a" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#111827" stop-opacity="0.20"/>
+    </linearGradient>
+  </defs>
+  <rect width="{width}" height="{height}" fill="#0f172a"/>
+  <image href="{safe_frame}" width="{width}" height="{height}" preserveAspectRatio="xMidYMid slice"/>
+  <rect width="{width}" height="{height}" fill="url(#shape-demo-glow)"/>
+  <ellipse cx="{int(width * 0.5)}" cy="{int(height * 0.42)}" rx="{int(width * 0.18)}" ry="{int(height * 0.27)}" fill="none" stroke="{accent}" stroke-width="5" stroke-opacity="0.78"/>
+  <rect x="28" y="28" width="324" height="94" rx="14" fill="#020617" fill-opacity="0.74"/>
+  <circle cx="{pulse_x}" cy="75" r="12" fill="#22c55e"/>
+  <text x="86" y="66" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">Endpoint IA demo</text>
+  <text x="86" y="95" fill="#bfdbfe" font-family="Inter, Arial, sans-serif" font-size="14">{safe_stage} · {safe_effects}</text>
+  <rect x="28" y="{height - 116}" width="{width - 56}" height="88" rx="16" fill="#020617" fill-opacity="0.74"/>
+  <text x="56" y="{height - 74}" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700">{safe_identity}</text>
+  <text x="56" y="{height - 44}" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="14">{safe_resolution} · {safe_plate} · frame {sequence}</text>
+</svg>
+""".strip()
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
+def demo_audio_payload(input_base64, sample_rate, channels, audio_format, sequence):
+    try:
+        raw = base64.b64decode(input_base64)
+    except Exception:
+        return {
+            "audioDataBase64": input_base64,
+            "warnings": ["voice_endpoint_demo_decode_failed"],
+        }
+
+    normalized = str(audio_format or "pcm_f32le").lower()
+    channels = max(1, min(2, safe_int(channels) or 1))
+    sample_rate = max(8000, safe_int(sample_rate) or 48000)
+
+    if normalized in {"pcm_f32le", "f32le", "float32"}:
+        output = demo_audio_f32(raw, sample_rate, channels, sequence)
+    elif normalized in {"pcm_s16le", "s16le", "int16"}:
+        output = demo_audio_s16(raw, sample_rate, channels, sequence)
+    elif normalized in {"uint8-time-domain", "u8"}:
+        output = demo_audio_u8(raw, sample_rate, channels, sequence)
+    else:
+        return {
+            "audioDataBase64": input_base64,
+            "warnings": [f"voice_endpoint_demo_unsupported_format:{normalized}"],
+        }
+
+    if output is None:
+        return {
+            "audioDataBase64": input_base64,
+            "warnings": ["voice_endpoint_demo_empty_payload"],
+        }
+
+    return {
+        "audioDataBase64": base64.b64encode(output).decode("ascii"),
+        "warnings": ["voice_endpoint_demo_effect"],
+    }
+
+
+def demo_audio_f32(raw, sample_rate, channels, sequence):
+    frame_count = len(raw) // (4 * channels)
+    if frame_count <= 0:
+        return None
+
+    output = bytearray(frame_count * channels * 4)
+    previous = [0.0 for _ in range(channels)]
+
+    for frame_index in range(frame_count):
+        mod = demo_audio_modulator(frame_index, sample_rate, sequence)
+        for channel in range(channels):
+            offset = (frame_index * channels + channel) * 4
+            sample = struct.unpack_from("<f", raw, offset)[0]
+            processed = demo_audio_sample(sample, previous[channel], mod)
+            previous[channel] = processed
+            struct.pack_into("<f", output, offset, processed)
+
+    return bytes(output)
+
+
+def demo_audio_s16(raw, sample_rate, channels, sequence):
+    frame_count = len(raw) // (2 * channels)
+    if frame_count <= 0:
+        return None
+
+    output = bytearray(frame_count * channels * 2)
+    previous = [0.0 for _ in range(channels)]
+
+    for frame_index in range(frame_count):
+        mod = demo_audio_modulator(frame_index, sample_rate, sequence)
+        for channel in range(channels):
+            offset = (frame_index * channels + channel) * 2
+            sample = struct.unpack_from("<h", raw, offset)[0] / 32768.0
+            processed = demo_audio_sample(sample, previous[channel], mod)
+            previous[channel] = processed
+            struct.pack_into(
+                "<h",
+                output,
+                offset,
+                int(max(-1.0, min(0.999969, processed)) * 32768),
+            )
+
+    return bytes(output)
+
+
+def demo_audio_u8(raw, sample_rate, channels, sequence):
+    frame_count = len(raw) // channels
+    if frame_count <= 0:
+        return None
+
+    output = bytearray(frame_count * channels)
+    previous = [0.0 for _ in range(channels)]
+
+    for frame_index in range(frame_count):
+        mod = demo_audio_modulator(frame_index, sample_rate, sequence)
+        for channel in range(channels):
+            offset = frame_index * channels + channel
+            sample = (raw[offset] - 128) / 128.0
+            processed = demo_audio_sample(sample, previous[channel], mod)
+            previous[channel] = processed
+            output[offset] = max(0, min(255, int(processed * 128 + 128)))
+
+    return bytes(output)
+
+
+def demo_audio_modulator(frame_index, sample_rate, sequence):
+    phase_frame = frame_index + sequence * 2048
+    slow = math.sin(2 * math.pi * 38 * phase_frame / sample_rate)
+    robot = math.sin(2 * math.pi * 92 * phase_frame / sample_rate)
+    return 0.72 + 0.18 * robot + 0.10 * slow
+
+
+def demo_audio_sample(sample, previous, mod):
+    shaped = math.tanh((sample * mod + previous * 0.18) * 1.35)
+    return max(-1.0, min(1.0, shaped))
+
+
 def write_data_url(data_url, path):
     try:
         _, encoded = data_url.split(",", 1)
     except ValueError as error:
         raise ValueError("invalid_data_url") from error
 
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(base64.b64decode(encoded))
+
+
+def write_base64(encoded, path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(base64.b64decode(encoded))

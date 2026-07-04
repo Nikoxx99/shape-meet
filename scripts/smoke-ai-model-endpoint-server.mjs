@@ -26,7 +26,7 @@ try {
       String(endpointPort),
       "--python",
       python,
-      "--passthrough",
+      "--demo-effects",
     ],
     {
       cwd: process.cwd(),
@@ -40,6 +40,7 @@ try {
 
   const endpointOutput = captureProcessOutput(endpointServer);
   await waitForEndpoint(endpointOutput);
+  await assertEndpointDemoEffects();
   renderRuntimeEnv();
   assertLocalEndpointRuntimeEnv();
 
@@ -65,6 +66,18 @@ try {
     "audio preflight did not use voice endpoint adapter",
   );
   assert(
+    report.preflight?.warnings?.some((warning) =>
+      warning.includes("endpoint_demo_effect"),
+    ),
+    "video endpoint demo effect warning was not reported",
+  );
+  assert(
+    report.preflight?.warnings?.some((warning) =>
+      warning.includes("voice_endpoint_demo_effect"),
+    ),
+    "voice endpoint demo effect warning was not reported",
+  );
+  assert(
     report.health?.diagnostics?.engines?.some(
       (engine) => engine.id === "face" && engine.status === "ready",
     ),
@@ -75,6 +88,74 @@ try {
 } finally {
   if (endpointServer) endpointServer.kill();
   rmSync(tempDir, { recursive: true, force: true });
+}
+
+async function assertEndpointDemoEffects() {
+  const face = await postEndpointJson("/face", {
+    sequence: 12,
+    frame: {
+      sequence: 12,
+      width: 1280,
+      height: 720,
+      frameDataUrl: tinyJpegDataUrl(),
+    },
+    identity: {
+      id: "identity_endpoint_demo",
+      version: "endpoint-demo",
+    },
+    enabled: {
+      face: true,
+      background: true,
+      voice: true,
+    },
+    target: {
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+  assert(
+    face.frame?.dataUrl?.startsWith("data:image/svg+xml;base64,"),
+    "endpoint demo video did not return an SVG data URL",
+  );
+  assert(
+    face.warnings?.includes("face_endpoint_demo_effect"),
+    "endpoint demo video warning missing",
+  );
+
+  const voice = await postEndpointJson("/voice", {
+    sequence: 7,
+    audio: {
+      sequence: 7,
+      sampleRate: 48000,
+      channels: 1,
+      format: "pcm_f32le",
+      audioDataBase64: Buffer.alloc(480 * 4, 0).toString("base64"),
+    },
+    identity: {
+      id: "identity_endpoint_demo",
+    },
+  });
+  assert(
+    voice.audio?.audioDataBase64,
+    "endpoint demo voice did not return audio",
+  );
+  assert(
+    voice.warnings?.includes("voice_endpoint_demo_effect"),
+    "endpoint demo voice warning missing",
+  );
+}
+
+async function postEndpointJson(path, body) {
+  const response = await fetch(`http://127.0.0.1:${endpointPort}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+  assert(response.ok, `${path} returned HTTP ${response.status}: ${text}`);
+  return data;
 }
 
 function renderRuntimeEnv() {
@@ -221,6 +302,13 @@ async function getFreePort() {
   );
   assert(port, "could not allocate a free port");
   return port;
+}
+
+function tinyJpegDataUrl() {
+  return (
+    "data:image/jpeg;base64," +
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QH//Z"
+  );
 }
 
 function assert(condition, message) {

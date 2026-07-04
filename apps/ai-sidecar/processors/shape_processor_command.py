@@ -229,6 +229,7 @@ def process_video(payload):
                 clean_plate_path = write_clean_plate(background, workdir)
                 write_data_url(input_data_url, input_path)
                 current_input_path = input_path
+                current_data_url = input_data_url
                 completed_stages = []
                 stage_failed = False
 
@@ -267,7 +268,7 @@ def process_video(payload):
                             stage_endpoint,
                             payload,
                             stage,
-                            file_to_data_url(current_input_path, "image/jpeg"),
+                            current_data_url or file_to_data_url(current_input_path, "image/jpeg"),
                             current_input_path,
                             output_path,
                             clean_plate_path,
@@ -281,6 +282,7 @@ def process_video(payload):
 
                     if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                         current_input_path = output_path
+                        current_data_url = result.get("dataUrl")
                         completed_stages.append(stage)
                         continue
 
@@ -290,7 +292,7 @@ def process_video(payload):
                     break
 
                 if completed_stages:
-                    output_data_url = file_to_data_url(current_input_path, "image/jpeg")
+                    output_data_url = current_data_url or file_to_data_url(current_input_path, "image/jpeg")
                     status = "error" if stage_failed else "processed"
                     processor = "shape-video-model-chain:" + "+".join(completed_stages)
                 elif stage_failed:
@@ -538,6 +540,7 @@ def call_video_endpoint(
     data_url = extract_frame_data_url(response["data"])
     if data_url:
         write_data_url(data_url, output_path)
+        response["dataUrl"] = data_url
     if endpoint_status(response["data"]) == "error":
         response["warnings"].append("video_endpoint_error_status")
         response["ok"] = False
