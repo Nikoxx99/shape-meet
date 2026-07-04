@@ -19,27 +19,138 @@ let adminLivekitHealth = {
   urlConfigured: true,
   credentialsConfigured: true,
 };
+const hostEmail = "admin@shape.test";
+const hostPassword = "RemoteCheck123!";
+const hostToken = "remote-check-host-token";
+const meetings = new Map();
+let livekitUrlForToken = null;
 
 try {
-  const admin = await listenHttp((request, response) => {
-    if (request.url === "/api/health") {
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(
-        JSON.stringify({
-          ok: true,
-          database: "ok",
-          livekit: adminLivekitHealth,
-        }),
+  const admin = await listenHttp(async (request, response) => {
+    try {
+      if (request.url === "/api/health") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            ok: true,
+            database: "ok",
+            livekit: adminLivekitHealth,
+          }),
+        );
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/auth/host/login") {
+        const body = await readJson(request);
+        if (body.identifier !== hostEmail || body.password !== hostPassword) {
+          response.writeHead(401, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Credenciales inválidas." }));
+          return;
+        }
+
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            session: {
+              token: hostToken,
+              user: {
+                id: "host_remote_check",
+                email: hostEmail,
+                username: "Host Remote Check",
+                rank: "ADMIN",
+              },
+            },
+          }),
+        );
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/meetings") {
+        if (!hasBearer(request, hostToken)) {
+          response.writeHead(401, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Sesión inválida." }));
+          return;
+        }
+
+        const body = await readJson(request);
+        const code = "SM-555-121";
+        const meeting = {
+          id: "meeting_remote_check",
+          title: body.title,
+          code,
+          startsAt: body.startsAt,
+          status: "SCHEDULED",
+          maxParticipants: body.maxParticipants,
+          participants: [],
+        };
+        meetings.set(code, meeting);
+        response.writeHead(201, { "content-type": "application/json" });
+        response.end(JSON.stringify({ meeting }));
+        return;
+      }
+
+      const joinMatch = request.url?.match(
+        /^\/api\/meetings\/([^/]+)\/join-token$/,
       );
-      return;
+      if (request.method === "POST" && joinMatch) {
+        if (!hasBearer(request, hostToken)) {
+          response.writeHead(401, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Sesión inválida." }));
+          return;
+        }
+
+        const code = decodeURIComponent(joinMatch[1]);
+        const meeting = meetings.get(code);
+        if (!meeting) {
+          response.writeHead(404, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Reunión no encontrada." }));
+          return;
+        }
+
+        meeting.status = "LIVE";
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            meeting,
+            livekit: {
+              url: livekitUrlForToken,
+              token: "livekit.jwt.remote.check",
+              room: code,
+              identity: "participant_remote_check",
+            },
+          }),
+        );
+        return;
+      }
+
+      const endMatch = request.url?.match(/^\/api\/meetings\/([^/]+)\/end$/);
+      if (request.method === "POST" && endMatch) {
+        if (!hasBearer(request, hostToken)) {
+          response.writeHead(401, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: "Sesión inválida." }));
+          return;
+        }
+
+        const code = decodeURIComponent(endMatch[1]);
+        const meeting = meetings.get(code);
+        if (meeting) meeting.status = "ENDED";
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ meeting }));
+        return;
+      }
+
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("ok");
+    } catch (error) {
+      response.writeHead(500, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: String(error) }));
     }
-    response.writeHead(200);
-    response.end("ok");
   });
   const livekit = await listenHttp((_request, response) => {
     response.writeHead(200);
     response.end("livekit");
   });
+  livekitUrlForToken = `ws://127.0.0.1:${livekit.port}`;
   const rtcTcp = await listenTcp();
   const turnTcp = await listenTcp();
   const turnTls = await listenTcp();
@@ -56,6 +167,8 @@ try {
       "LIVEKIT_TURN_DOMAIN=127.0.0.1",
       "LIVEKIT_TURN_SHARED_SECRET=remote-check-secret",
       "LIVEKIT_TURN_TTL_SECONDS=14400",
+      `HOST_BOOTSTRAP_EMAIL=${hostEmail}`,
+      `HOST_BOOTSTRAP_PASSWORD=${hostPassword}`,
       `LIVEKIT_RTC_TCP_PORT=${rtcTcp.port}`,
       `LIVEKIT_TURN_UDP_PORT=${turnUdp.port}`,
       `LIVEKIT_TURN_TLS_PORT=${turnTls.port}`,
@@ -85,6 +198,10 @@ try {
   assertCheck(report, "network.turn-tls-tcp", "ok");
   assertCheck(report, "network.turn-stun-udp", "ok");
   assertCheck(report, "network.turn-auth", "skipped");
+  assertCheck(report, "api.host-login", "ok");
+  assertCheck(report, "api.meeting-create", "ok");
+  assertCheck(report, "api.livekit-token", "ok");
+  assertCheck(report, "api.meeting-end", "ok");
 
   adminLivekitHealth = {
     status: "unconfigured",
@@ -114,6 +231,7 @@ function runRemoteCheck(envPath, outputPath = null) {
     envPath,
     "--strict",
     "--skip-turnutils",
+    "--api-flow",
     "--timeout-ms",
     "2000",
     ...outputArgs,
@@ -195,6 +313,26 @@ function closeServer(server) {
     }
     resolve();
   });
+}
+
+function readJson(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("error", reject);
+    request.on("end", () => {
+      try {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+function hasBearer(request, token) {
+  return request.headers.authorization === `Bearer ${token}`;
 }
 
 function assert(condition, message) {

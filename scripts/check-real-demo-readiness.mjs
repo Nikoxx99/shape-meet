@@ -157,6 +157,9 @@ function runRemoteDemoCheck() {
 
   const commandArgs = ["demo:remote:check", "--", "--env-file", remoteEnvFile];
   if (strict) commandArgs.push("--strict");
+  if (args.includes("--remote-api-flow") || args.includes("--api-flow")) {
+    commandArgs.push("--api-flow");
+  }
   return commandStep("Demo remoto", commandArgs, { timeout: 30_000 });
 }
 

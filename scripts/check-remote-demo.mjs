@@ -11,6 +11,8 @@ const strict = args.includes("--strict");
 const json = args.includes("--json");
 const skipNetwork = args.includes("--skip-network");
 const skipTurnutils = args.includes("--skip-turnutils");
+const apiFlow =
+  args.includes("--api-flow") || args.includes("--check-api-flow");
 const timeoutMs = Number(argValue("--timeout-ms") ?? "5000");
 const envFile = argValue("--env-file");
 const outputPath = argValue("--output");
@@ -52,6 +54,17 @@ const turnTtlSeconds = parsePositiveInteger(
   "LIVEKIT_TURN_TTL_SECONDS",
 );
 const turnSecret = env.LIVEKIT_TURN_SHARED_SECRET;
+const hostIdentifier =
+  argValue("--host-identifier") ??
+  argValue("--host-email") ??
+  env.SHAPE_REMOTE_HOST_IDENTIFIER ??
+  env.SHAPE_REMOTE_HOST_EMAIL ??
+  env.HOST_BOOTSTRAP_EMAIL ??
+  env.VITE_SHAPE_HOST_IDENTIFIER;
+const hostPassword =
+  argValue("--host-password") ??
+  env.SHAPE_REMOTE_HOST_PASSWORD ??
+  env.HOST_BOOTSTRAP_PASSWORD;
 
 await main();
 
@@ -61,6 +74,7 @@ async function main() {
 
   if (!skipNetwork && issues.length === 0) {
     await runNetworkChecks();
+    if (apiFlow) await checkAdminApiFlow();
   }
 
   const status =
@@ -120,6 +134,21 @@ function checkRequiredConfig() {
   if (!turnHost)
     issue("config.turn", "Falta LIVEKIT_TURN_DOMAIN o --turn-host.");
   else ok("config.turn", `TURN: ${turnHost}`);
+
+  if (apiFlow) {
+    if (!hostIdentifier) {
+      issue(
+        "config.api-flow-host",
+        "Falta HOST_BOOTSTRAP_EMAIL, VITE_SHAPE_HOST_IDENTIFIER o --host-identifier para --api-flow.",
+      );
+    }
+    if (!hostPassword) {
+      issue(
+        "config.api-flow-password",
+        "Falta HOST_BOOTSTRAP_PASSWORD o --host-password para --api-flow.",
+      );
+    }
+  }
 }
 
 function checkProtocols() {
@@ -393,11 +422,154 @@ async function checkTurnRestAuth() {
   );
 }
 
-async function fetchWithTimeout(url, timeout) {
+async function checkAdminApiFlow() {
+  const loginStarted = Date.now();
+  let token = null;
+  let displayName = "Remote Check Host";
+  let meetingCode = null;
+
+  try {
+    const login = await postAdminJson("/api/auth/host/login", {
+      identifier: hostIdentifier,
+      password: hostPassword,
+    });
+    token = login?.session?.token;
+    displayName = login?.session?.user?.username ?? displayName;
+
+    if (!token) {
+      issue(
+        "api.host-login",
+        "Login host no devolvió session.token.",
+        loginStarted,
+      );
+      return;
+    }
+
+    ok("api.host-login", "Login host remoto ok.", loginStarted);
+  } catch (error) {
+    issue("api.host-login", errorMessage(error), loginStarted);
+    return;
+  }
+
+  const createStarted = Date.now();
+  try {
+    const created = await postAdminJson(
+      "/api/meetings",
+      {
+        title: `Remote readiness ${new Date().toISOString()}`,
+        startsAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+        access: "PUBLIC_LINK",
+        maxParticipants: 4,
+        invitedEmails: [],
+      },
+      token,
+    );
+    meetingCode = created?.meeting?.code;
+
+    if (!meetingCode) {
+      issue(
+        "api.meeting-create",
+        "Create meeting no devolvió meeting.code.",
+        createStarted,
+      );
+      return;
+    }
+
+    ok(
+      "api.meeting-create",
+      `Reunión remota creada: ${meetingCode}.`,
+      createStarted,
+    );
+  } catch (error) {
+    issue("api.meeting-create", errorMessage(error), createStarted);
+    return;
+  }
+
+  const tokenStarted = Date.now();
+  try {
+    const joined = await postAdminJson(
+      `/api/meetings/${encodeURIComponent(meetingCode)}/join-token`,
+      {
+        displayName,
+        camera: false,
+        microphone: false,
+      },
+      token,
+    );
+    const livekit = joined?.livekit;
+
+    if (!livekit?.token || !livekit?.room || !livekit?.identity) {
+      issue(
+        "api.livekit-token",
+        "Join-token no devolvió token/room/identity de LiveKit.",
+        tokenStarted,
+      );
+    } else if (livekitUrl && livekit.url !== livekitUrl) {
+      issue(
+        "api.livekit-token",
+        `Join-token usa LiveKit URL distinta: ${livekit.url ?? "sin url"}.`,
+        tokenStarted,
+      );
+    } else {
+      ok(
+        "api.livekit-token",
+        `Token LiveKit emitido para room ${livekit.room}.`,
+        tokenStarted,
+      );
+    }
+  } catch (error) {
+    issue("api.livekit-token", errorMessage(error), tokenStarted);
+  } finally {
+    const endStarted = Date.now();
+    try {
+      await postAdminJson(
+        `/api/meetings/${encodeURIComponent(meetingCode)}/end`,
+        {},
+        token,
+      );
+      ok(
+        "api.meeting-end",
+        `Reunión remota cerrada: ${meetingCode}.`,
+        endStarted,
+      );
+    } catch (error) {
+      warning(
+        "api.meeting-end",
+        `No se pudo cerrar la reunión remota ${meetingCode}: ${errorMessage(error)}`,
+        endStarted,
+      );
+    }
+  }
+}
+
+async function postAdminJson(path, body, token = null) {
+  const response = await fetchWithTimeout(`${adminUrl}${path}`, timeoutMs, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  const data = parseJson(text) ?? {};
+
+  if (!response.ok) {
+    const detail = data?.code
+      ? `${data.code}: ${data.error ?? text.slice(0, 180)}`
+      : (data?.error ?? text.slice(0, 180) ?? `HTTP ${response.status}`);
+    throw new Error(`HTTP ${response.status}: ${detail}`);
+  }
+
+  return data;
+}
+
+async function fetchWithTimeout(url, timeout, init = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timeoutId);
   }
@@ -613,7 +785,7 @@ function errorMessage(error) {
 
 function redact(value) {
   let output = String(value);
-  for (const secret of [turnSecret].filter(Boolean)) {
+  for (const secret of [turnSecret, hostPassword].filter(Boolean)) {
     output = output.replaceAll(secret, "[redacted]");
   }
   return output;
