@@ -32,6 +32,10 @@ const sidecarUrl = `http://${sidecarHost}:${sidecarPort}`;
 const timeoutMs = positiveInteger(argValue("--timeout-ms"), 45_000);
 const tempDir = mkdtempSync(join(tmpdir(), "shape-model-preflight-"));
 let sidecar = null;
+let modelEndpoint = null;
+let modelEndpointOutput = null;
+let modelEndpointStarted = false;
+let modelEndpointTarget = null;
 
 try {
   const report = await main();
@@ -47,6 +51,7 @@ try {
   }
 } finally {
   if (!keepSidecar) await stopSidecar();
+  if (!keepSidecar) await stopModelEndpoint();
   rmSync(tempDir, { recursive: true, force: true });
 }
 
@@ -62,6 +67,11 @@ async function main() {
 
   const runtimeEnv = readEnvFile(runtimeEnvPath);
   const assets = prepareAssets();
+  modelEndpointTarget = endpointRuntimeTarget(runtimeEnv);
+  if (modelEndpointTarget?.managed) {
+    await ensureModelEndpoint(runtimeEnv, modelEndpointTarget);
+  }
+
   sidecar = spawn(
     sidecarPython,
     [
@@ -98,6 +108,24 @@ async function main() {
     runtimeEnvPath,
     sidecarUrl,
     sidecarPid: sidecar.pid,
+    modelEndpoint: modelEndpointTarget
+      ? {
+          url: modelEndpointTarget.url,
+          managed: modelEndpointTarget.managed,
+          started: modelEndpointStarted,
+          pid: modelEndpoint?.pid ?? null,
+          stdout: modelEndpointOutput?.stdout
+            .trim()
+            .split(/\r?\n/)
+            .filter(Boolean)
+            .slice(-8),
+          stderr: modelEndpointOutput?.stderr
+            .trim()
+            .split(/\r?\n/)
+            .filter(Boolean)
+            .slice(-8),
+        }
+      : null,
     health,
     preflight: preflight.preflight,
     stdout: output.stdout.trim().split(/\r?\n/).filter(Boolean).slice(-8),
@@ -246,6 +274,134 @@ function processorReady(diagnostics, kind, required) {
   return health.status === "ready" || health.status === "not-configured";
 }
 
+async function ensureModelEndpoint(runtimeEnv, target) {
+  if (await endpointHealthy(target.healthUrl)) return;
+
+  const commandArgs = [
+    "scripts/run-model-endpoint-server.mjs",
+    "--host",
+    target.host,
+    "--port",
+    String(target.port),
+  ];
+  const demoEffects = envFlag(runtimeEnv.SHAPE_MODEL_ENDPOINT_DEMO_EFFECTS);
+  if (demoEffects) commandArgs.push("--demo-effects");
+  if (
+    !demoEffects &&
+    (envFlag(runtimeEnv.SHAPE_MODEL_ENDPOINT_PASSTHROUGH) ||
+      envFlag(runtimeEnv.SHAPE_WRAPPER_PASSTHROUGH))
+  ) {
+    commandArgs.push("--passthrough");
+  }
+
+  modelEndpoint = spawn(process.execPath, commandArgs, {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ...runtimeEnv,
+      SENTRY_DSN: "",
+      SHAPE_MODEL_ENDPOINT_ACCESS_LOG: "false",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  modelEndpointOutput = captureProcessOutput(modelEndpoint);
+  modelEndpointStarted = true;
+
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    if (modelEndpoint.exitCode !== null) {
+      throw new Error(
+        [
+          `Servidor endpoint IA terminó antes del preflight con código ${modelEndpoint.exitCode}.`,
+          modelEndpointOutput.stdout.trim(),
+          modelEndpointOutput.stderr.trim(),
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+    }
+
+    try {
+      if (await endpointHealthy(target.healthUrl)) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(500);
+  }
+
+  throw new Error(
+    [
+      `Servidor endpoint IA no quedó listo dentro de ${timeoutMs}ms: ${target.healthUrl}`,
+      lastError instanceof Error ? lastError.message : null,
+      modelEndpointOutput.stdout.trim(),
+      modelEndpointOutput.stderr.trim(),
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+}
+
+async function endpointHealthy(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return false;
+    const data = await response.json().catch(() => null);
+    return data?.status === "ready";
+  } catch {
+    return false;
+  }
+}
+
+function endpointRuntimeTarget(runtimeEnv) {
+  const url =
+    endpointUrlFromHostPort(
+      runtimeEnv.SHAPE_MODEL_ENDPOINT_HOST,
+      runtimeEnv.SHAPE_MODEL_ENDPOINT_PORT,
+    ) ??
+    runtimeEnv.SHAPE_VIDEO_FRAME_ENDPOINT ??
+    runtimeEnv.SHAPE_FACE_ENDPOINT ??
+    runtimeEnv.SHAPE_BACKGROUND_ENDPOINT ??
+    runtimeEnv.SHAPE_AUDIO_CHUNK_ENDPOINT ??
+    runtimeEnv.SHAPE_VOICE_ENDPOINT;
+
+  if (!url) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return null;
+  }
+
+  const port =
+    Number(runtimeEnv.SHAPE_MODEL_ENDPOINT_PORT) ||
+    Number(parsed.port) ||
+    (parsed.protocol === "https:" ? 443 : 80);
+  const host = runtimeEnv.SHAPE_MODEL_ENDPOINT_HOST || parsed.hostname;
+  const baseUrl = `${parsed.protocol}//${host}:${port}`;
+  const managed =
+    ["127.0.0.1", "localhost", "::1"].includes(host) &&
+    parsed.protocol === "http:";
+
+  return {
+    url: baseUrl,
+    healthUrl: `${baseUrl}/health`,
+    host,
+    port,
+    managed,
+  };
+}
+
+function endpointUrlFromHostPort(host, port) {
+  if (!host || !port) return null;
+  return `http://${host}:${port}`;
+}
+
 async function requestJson(path, options = {}) {
   const response = await fetch(`${sidecarUrl}${path}`, {
     method: options.method ?? "GET",
@@ -296,6 +452,27 @@ async function stopSidecar() {
   });
 }
 
+async function stopModelEndpoint() {
+  if (
+    !modelEndpoint ||
+    modelEndpoint.exitCode !== null ||
+    modelEndpoint.signalCode
+  ) {
+    return;
+  }
+
+  await new Promise((resolve) => {
+    const forceTimer = setTimeout(() => {
+      if (modelEndpoint.exitCode === null) modelEndpoint.kill("SIGTERM");
+    }, 2500);
+    modelEndpoint.once("exit", () => {
+      clearTimeout(forceTimer);
+      resolve();
+    });
+    modelEndpoint.kill("SIGINT");
+  });
+}
+
 function printReport(report) {
   if (json) {
     console.log(JSON.stringify(report, null, 2));
@@ -305,6 +482,11 @@ function printReport(report) {
   console.log("Shape Meet model runtime preflight");
   console.log(`Runtime env: ${report.runtimeEnvPath}`);
   console.log(`Sidecar: ${report.sidecarUrl}`);
+  if (report.modelEndpoint) {
+    console.log(
+      `Endpoint modelos: ${report.modelEndpoint.url} (${report.modelEndpoint.started ? "arrancado" : "existente"})`,
+    );
+  }
   console.log(`Estado: ${report.preflight.status}`);
   for (const check of report.preflight.checks) {
     const latency = check.latencyMs ? `${check.latencyMs}ms` : "sin latencia";
@@ -397,6 +579,10 @@ function tinyJpeg() {
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function envFlag(value) {
+  return /^(1|true|yes|on)$/i.test(String(value ?? ""));
 }
 
 function sleep(ms) {

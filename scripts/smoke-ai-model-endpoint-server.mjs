@@ -12,8 +12,12 @@ const tempDir = mkdtempSync(join(tmpdir(), "shape-model-endpoint-smoke-"));
 const endpointPort = await getFreePort();
 const videoPort = await getFreePort();
 const audioPort = await getFreePort();
+const managedEndpointPort = await getFreePort();
+const managedVideoPort = await getFreePort();
+const managedAudioPort = await getFreePort();
 const envPath = join(tempDir, "shape-ai-runtime.env");
 const stageEnvPath = join(tempDir, "shape-ai-runtime-stage.env");
+const managedEnvPath = join(tempDir, "shape-ai-runtime-managed.env");
 let endpointServer = null;
 
 try {
@@ -117,6 +121,46 @@ try {
     "stage video endpoint demo effect warning was not reported",
   );
 
+  renderManagedRuntimeEnv();
+  assertManagedRuntimeEnv();
+  assertLocalEndpointRuntimeEnv(managedEnvPath, { allowPassthrough: true });
+  const managedReport = runPreflight(managedEnvPath);
+  assert(
+    managedReport.modelEndpoint?.started === true,
+    "preflight did not start the managed model endpoint",
+  );
+  assert(
+    managedReport.modelEndpoint?.url ===
+      `http://127.0.0.1:${managedEndpointPort}`,
+    "managed model endpoint URL mismatch",
+  );
+  assert(
+    managedReport.preflight?.status === "passed",
+    "managed endpoint preflight did not pass",
+  );
+  assert(
+    managedReport.preflight?.checks?.some(
+      (check) =>
+        check.id === "video" &&
+        check.processor === "shape-video-endpoint-adapter",
+    ),
+    "managed video preflight did not use the endpoint adapter",
+  );
+  assert(
+    managedReport.preflight?.checks?.some(
+      (check) =>
+        check.id === "audio" &&
+        check.processor === "shape-audio-endpoint-adapter",
+    ),
+    "managed audio preflight did not use the endpoint adapter",
+  );
+  assert(
+    managedReport.preflight?.warnings?.some((warning) =>
+      warning.includes("video_frame_endpoint_passthrough"),
+    ),
+    "managed video endpoint passthrough warning was not reported",
+  );
+
   console.log("model endpoint server smoke ok");
 } finally {
   if (endpointServer) endpointServer.kill();
@@ -160,6 +204,20 @@ function assertStageRuntimeEnv() {
       `SHAPE_BACKGROUND_ENDPOINT=http://127.0.0.1:${endpointPort}/background`,
     ),
     "stage runtime did not include background endpoint",
+  );
+}
+
+function assertManagedRuntimeEnv() {
+  const content = readFileSync(managedEnvPath, "utf8");
+  assert(
+    content.includes(
+      `SHAPE_MODEL_ENDPOINT_PORT=${managedEndpointPort}`,
+    ),
+    "managed runtime did not include model endpoint port",
+  );
+  assert(
+    content.includes("SHAPE_WRAPPER_PASSTHROUGH=true"),
+    "managed runtime did not enable wrapper passthrough",
   );
 }
 
@@ -343,7 +401,41 @@ function renderStageRuntimeEnv() {
   );
 }
 
-function assertLocalEndpointRuntimeEnv(targetEnvPath = envPath) {
+function renderManagedRuntimeEnv() {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "scripts/prepare-ai-runtime-models.mjs",
+      "--out",
+      managedEnvPath,
+      "--preset",
+      "local-endpoints",
+      "--passthrough",
+      "--video-port",
+      String(managedVideoPort),
+      "--audio-port",
+      String(managedAudioPort),
+      "--model-endpoint-host",
+      "127.0.0.1",
+      "--model-endpoint-port",
+      String(managedEndpointPort),
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: process.env,
+    },
+  );
+
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  assert(
+    result.status === 0,
+    `managed runtime generation failed with ${result.status}`,
+  );
+}
+
+function assertLocalEndpointRuntimeEnv(targetEnvPath = envPath, options = {}) {
   const report = spawnSync(
     process.execPath,
     [
@@ -364,6 +456,21 @@ function assertLocalEndpointRuntimeEnv(targetEnvPath = envPath) {
   if (report.stderr) process.stderr.write(report.stderr);
   assert(report.status === 0, `models doctor failed with ${report.status}`);
   const parsed = JSON.parse(report.stdout);
+  if (options.allowPassthrough) {
+    assert(parsed.ok === true, "endpoint runtime doctor was not ok");
+    assert(
+      parsed.realModelReadiness?.blockers?.length === 0,
+      "endpoint runtime had blockers",
+    );
+    assert(
+      parsed.realModelReadiness?.stages?.every(
+        (stage) => stage.status === "ready",
+      ),
+      "endpoint runtime stages were not ready",
+    );
+    return;
+  }
+
   assert(
     parsed.realModelReadiness?.ready === true,
     "endpoint runtime was not ready",
