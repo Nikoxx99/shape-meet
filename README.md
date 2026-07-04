@@ -134,6 +134,7 @@ Prepara datos y valida el demo:
 
 ```bash
 pnpm demo:prepare
+pnpm demo:configure-local
 pnpm demo:check
 pnpm demo:verify
 pnpm demo:admin-ui
@@ -713,6 +714,17 @@ Ese comando actualiza `.env.local`, `apps/admin/.env.local` y
 `apps/desktop/.env.local`, conservando otras variables existentes. Los archivos
 están ignorados por Git. Usa `--debug false` cuando pasemos de diagnóstico
 interno a builds más silenciosos.
+
+Para alinear puertos locales de demo sin tocar a mano varios `.env.local`:
+
+```bash
+pnpm demo:configure-local
+pnpm demo:up -- --replace-ai
+```
+
+`demo:configure-local` apunta admin/API a `http://localhost:13000`, desktop a
+`http://localhost:1420`, IA a `http://127.0.0.1:7851` y LiveKit dev a
+`ws://localhost:17880`. Conserva variables Sentry existentes.
 
 En Tauri, la prueba de equipo consulta `nvidia-smi` y muestra GPU, VRAM, CUDA y
 driver. En un Windows sin GPU NVIDIA compatible debe quedar en modo limitado,
