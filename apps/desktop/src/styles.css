@@ -973,6 +973,15 @@ svg {
   gap: 8px;
 }
 
+.diagnostic-warning-list {
+  display: grid;
+  gap: 8px;
+}
+
+.diagnostic-warning-list .inline-notice {
+  padding: 10px 12px;
+}
+
 .button-row,
 .form-actions {
   display: flex;

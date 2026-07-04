@@ -27,6 +27,7 @@ export interface ProcessedVideoRuntimeStatus {
   latencyMs: number | null;
   framesProcessed: number;
   processor: string | null;
+  warnings: string[];
   lastError: string | null;
 }
 
@@ -89,6 +90,7 @@ export async function createProcessedVideoPipeline(
     latencyMs: null,
     framesProcessed: 0,
     processor: null,
+    warnings: [],
     lastError: null,
   };
 
@@ -170,6 +172,7 @@ export async function createProcessedVideoPipeline(
           latencyMs: result.metrics.latencyMs,
           framesProcessed: result.metrics.framesProcessed,
           processor: result.processor,
+          warnings: result.warnings ?? [],
           lastError: null,
         });
       })

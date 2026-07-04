@@ -518,6 +518,18 @@ const preflightWarningMessages: Record<string, string> = {
   video_model_output_missing:
     "El modelo de video no devolvió un frame procesado.",
   audio_model_output_missing: "El modelo de voz no devolvió audio procesado.",
+  model_adapters_not_loaded: "Los adaptadores de modelos no están cargados.",
+  voice_adapter_not_loaded: "El adaptador de voz no está cargado.",
+  demo_video_processor: "Procesador demo de video activo; no son modelos reales.",
+  demo_audio_passthrough: "Procesador demo de voz activo; audio en passthrough.",
+};
+
+const aiWarningStageLabels: Record<string, string> = {
+  face: "Rostro",
+  background: "Fondo",
+  voice: "Voz",
+  audio: "Audio",
+  video: "Video",
 };
 
 function preflightMessage(result: AiPreflightResult) {
@@ -545,7 +557,78 @@ function firstPreflightWarning(result: AiPreflightResult) {
 }
 
 function preflightWarningMessage(warning: string) {
-  return preflightWarningMessages[warning] ?? warning;
+  return aiWarningMessage(warning);
+}
+
+function aiWarningMessage(warning: string) {
+  const parsed = parseAiWarning(warning);
+  const prefix = parsed.stage ? `${aiWarningStageLabels[parsed.stage]}: ` : "";
+  const directMessage =
+    preflightWarningMessages[warning] ?? preflightWarningMessages[parsed.code];
+
+  if (directMessage) return `${prefix}${directMessage}`;
+
+  if (parsed.code === "model_command_failed") {
+    const exitMatch = parsed.detail.match(/^(\d+)(?::(.*))?$/);
+    const exitCode = exitMatch?.[1];
+    const detail = exitMatch?.[2] ?? parsed.detail;
+    return `${prefix}el comando del modelo falló${
+      exitCode ? ` (exit ${exitCode})` : ""
+    }.${detail ? ` ${shortAiDetail(detail)}` : ""}`;
+  }
+
+  if (parsed.code === "model_command_timeout") {
+    return `${prefix}timeout ejecutando el modelo.${
+      parsed.detail ? ` ${shortAiDetail(parsed.detail)}` : ""
+    }`;
+  }
+
+  if (parsed.code === "model_command_error") {
+    return `${prefix}error ejecutando el comando del modelo.${
+      parsed.detail ? ` ${shortAiDetail(parsed.detail)}` : ""
+    }`;
+  }
+
+  if (parsed.code === "model_command_stderr") {
+    return `${prefix}stderr del modelo: ${shortAiDetail(parsed.detail)}`;
+  }
+
+  return `${prefix}${warning}`;
+}
+
+function parseAiWarning(warning: string) {
+  const [rawFirstSegment, ...remainingSegments] = warning.split(":");
+  const firstSegment = rawFirstSegment ?? "";
+  const stage = Object.hasOwn(aiWarningStageLabels, firstSegment)
+    ? firstSegment
+    : null;
+  const body = stage ? remainingSegments.join(":") : warning;
+  const separatorIndex = body.indexOf(":");
+
+  if (separatorIndex === -1) {
+    return { stage, code: body, detail: "" };
+  }
+
+  return {
+    stage,
+    code: body.slice(0, separatorIndex),
+    detail: body.slice(separatorIndex + 1),
+  };
+}
+
+function shortAiDetail(detail: string) {
+  const normalized = detail.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 180) return normalized;
+  return `${normalized.slice(0, 177)}...`;
+}
+
+function uniqueAiWarnings(values: Array<string | null | undefined>) {
+  const unique: string[] = [];
+  for (const value of values) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (text && !unique.includes(text)) unique.push(text);
+  }
+  return unique;
 }
 
 function boolStatus(value?: boolean) {
@@ -5208,6 +5291,25 @@ function ActiveCallScreen({
       voiceEnabled,
     ],
   );
+  const callAiWarnings = useMemo(
+    () =>
+      uniqueAiWarnings([
+        ...(aiPreflight?.warnings ?? []),
+        ...(aiPreflight?.checks.flatMap((check) => check.warnings) ?? []),
+        ...(aiSession?.warnings ?? []),
+        ...(aiSession?.lastProcessed?.video?.warnings ?? []),
+        ...(aiSession?.lastProcessed?.audio?.warnings ?? []),
+        ...(processedRuntimeStatus?.warnings ?? []),
+        ...(processedAudioRuntimeStatus?.warnings ?? []),
+        aiSession?.adapterError,
+      ]),
+    [
+      aiPreflight,
+      aiSession,
+      processedAudioRuntimeStatus,
+      processedRuntimeStatus,
+    ],
+  );
   const fallbackTiles = useMemo(() => {
     const effects = { faceEnabled, backgroundEnabled, voiceEnabled };
     const tiles = fallbackParticipants.map((participant) =>
@@ -5546,6 +5648,18 @@ function ActiveCallScreen({
                     value={aiPreflight.status}
                     tone={preflightTone(aiPreflight.status)}
                   />
+                ) : null}
+                {callAiWarnings.length > 0 ? (
+                  <div
+                    className="diagnostic-warning-list"
+                    data-testid="call-ai-warning-list"
+                  >
+                    {callAiWarnings.slice(0, 5).map((warning) => (
+                      <InlineNotice icon={<ShieldAlert />} key={warning}>
+                        {aiWarningMessage(warning)}
+                      </InlineNotice>
+                    ))}
+                  </div>
                 ) : null}
                 {processedRuntimeStatus ? (
                   <StatusRow
