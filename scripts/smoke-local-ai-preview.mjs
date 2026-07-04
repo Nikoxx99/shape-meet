@@ -148,13 +148,6 @@ async function enterDemoHostCall(page) {
   await page.getByLabel("Correo o usuario").fill("admin@shape.test");
   await page.getByLabel("Contraseña").fill("ChangeMe123!");
   await clickByRole(page, "button", "Continuar");
-  await expectVisibleText(page, "Confirma que eres host", 15_000);
-
-  for (let index = 1; index <= 6; index += 1) {
-    await page.getByLabel(`Dígito ${index}`).fill(String(index));
-  }
-
-  await clickByRole(page, "button", "Verificar y continuar");
   await expectVisibleText(page, "Reuniones agendadas", 15_000);
   await page
     .getByRole("button", { name: /SM-\d{3}-\d{3}/ })

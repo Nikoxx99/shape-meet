@@ -162,13 +162,6 @@ async function enterHostCall(page, meetingCode) {
   await page.getByLabel("Correo o usuario").fill(hostIdentifier);
   await page.getByLabel("Contraseña").fill(hostPassword);
   await clickByRole(page, "button", "Continuar");
-  await expectVisibleText(page, "Confirma que eres host");
-
-  for (let index = 1; index <= 6; index += 1) {
-    await page.getByLabel(`Dígito ${index}`).fill(String(index));
-  }
-
-  await clickByRole(page, "button", "Verificar y continuar");
   await expectVisibleText(page, "Reuniones agendadas", 20_000);
   await page.getByRole("button", { name: new RegExp(meetingCode) }).click();
   await expectVisibleText(page, "Copiar enlace");

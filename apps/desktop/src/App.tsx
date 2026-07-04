@@ -149,7 +149,6 @@ type Route =
   | "join"
   | "found"
   | "login"
-  | "verify"
   | "denied"
   | "scheduled"
   | "meeting-detail"
@@ -1980,7 +1979,7 @@ export default function App() {
       setHost(session.user);
       setIsHostFlow(true);
       await refreshHostData(session);
-      navigate("verify");
+      navigate("scheduled");
     } catch (error) {
       if (error instanceof ShapeApiError && error.code === "NOT_HOST") {
         navigate("denied");
@@ -2000,7 +1999,7 @@ export default function App() {
         setIdentities(initialIdentities);
         setSelectedIdentityId(initialIdentity?.id ?? null);
         setFaceEnabled(Boolean(defaultFaceIdentityFor(initialIdentities)));
-        navigate("verify");
+        navigate("scheduled");
         return;
       }
 
@@ -2469,18 +2468,6 @@ export default function App() {
           onContinue={handleHostLogin}
         />
       )}
-      {route === "verify" && (
-        <HostVerifyScreen
-          hostEmail={
-            host?.email ??
-            hostSession?.user.email ??
-            desktopRuntimeConfig.hostIdentifier ??
-            initialHostIdentifier
-          }
-          onBack={() => navigate("login")}
-          onContinue={() => navigate("scheduled")}
-        />
-      )}
       {route === "denied" && (
         <HostDeniedScreen
           onPublicJoin={() => navigate("join")}
@@ -2911,138 +2898,6 @@ function HostLoginScreen({
             <InlineNotice icon={<ShieldAlert />}>{error}</InlineNotice>
           ) : null}
         </form>
-      </AuthCard>
-    </section>
-  );
-}
-
-function HostVerifyScreen({
-  hostEmail,
-  onBack,
-  onContinue,
-}: {
-  hostEmail: string;
-  onBack: () => void;
-  onContinue: () => void;
-}) {
-  const [digits, setDigits] = useState<string[]>(() =>
-    DEMO_DATA_ENABLED ? ["1", "2", "3", "", "", ""] : ["", "", "", "", "", ""],
-  );
-  const [resendMessage, setResendMessage] = useState<string | null>(null);
-  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
-  const verificationCode = digits.join("");
-  const canVerify = verificationCode.length === 6;
-
-  function focusDigit(index: number) {
-    inputRefs.current[index]?.focus();
-  }
-
-  function updateDigits(nextDigits: string[], focusIndex?: number) {
-    setDigits(nextDigits);
-    setResendMessage(null);
-    if (focusIndex !== undefined) {
-      window.setTimeout(() => focusDigit(focusIndex), 0);
-    }
-  }
-
-  function handleDigitChange(index: number, value: string) {
-    const numeric = value.replace(/\D/g, "");
-    if (numeric.length > 1) {
-      const nextDigits = [...digits];
-      numeric
-        .slice(0, 6 - index)
-        .split("")
-        .forEach((digit, offset) => {
-          nextDigits[index + offset] = digit;
-        });
-      updateDigits(nextDigits, Math.min(index + numeric.length, 5));
-      return;
-    }
-
-    const nextDigits = [...digits];
-    nextDigits[index] = numeric;
-    updateDigits(nextDigits, numeric && index < 5 ? index + 1 : undefined);
-  }
-
-  function handleDigitKeyDown(index: number, key: string) {
-    if (key === "Backspace" && !digits[index] && index > 0) {
-      updateDigits(
-        digits.map((digit, digitIndex) =>
-          digitIndex === index - 1 ? "" : digit,
-        ),
-        index - 1,
-      );
-    }
-  }
-
-  function handlePaste(index: number, value: string) {
-    const numeric = value.replace(/\D/g, "");
-    if (!numeric) return;
-
-    const nextDigits = [...digits];
-    numeric
-      .slice(0, 6 - index)
-      .split("")
-      .forEach((digit, offset) => {
-        nextDigits[index + offset] = digit;
-      });
-    updateDigits(nextDigits, Math.min(index + numeric.length, 5));
-  }
-
-  function resendCode() {
-    setDigits(
-      DEMO_DATA_ENABLED
-        ? ["1", "2", "3", "", "", ""]
-        : ["", "", "", "", "", ""],
-    );
-    setResendMessage("Código reenviado.");
-    window.setTimeout(() => focusDigit(DEMO_DATA_ENABLED ? 3 : 0), 0);
-  }
-
-  return (
-    <section className="screen minimal-screen">
-      <div className="auth-top">
-        <Brand />
-        <Button variant="outline" icon={<LogIn />} onClick={onBack}>
-          Entrar a reunión
-        </Button>
-      </div>
-      <AuthCard height={560}>
-        <StatusIcon icon={<ShieldCheck />} />
-        <h1>Confirma que eres host</h1>
-        <p>Código enviado a {hostEmail}.</p>
-        <div className="otp-row">
-          {digits.map((digit, index) => (
-            <input
-              aria-label={`Dígito ${index + 1}`}
-              autoComplete={index === 0 ? "one-time-code" : "off"}
-              className="otp-cell"
-              inputMode="numeric"
-              key={index}
-              maxLength={1}
-              onChange={(event) => handleDigitChange(index, event.target.value)}
-              onKeyDown={(event) => handleDigitKeyDown(index, event.key)}
-              onPaste={(event) => {
-                event.preventDefault();
-                handlePaste(index, event.clipboardData.getData("text"));
-              }}
-              ref={(element) => {
-                inputRefs.current[index] = element;
-              }}
-              value={digit}
-            />
-          ))}
-        </div>
-        <Checkbox label="Recordar este equipo" checked />
-        <Button icon={<Check />} onClick={onContinue} disabled={!canVerify}>
-          Verificar y continuar
-        </Button>
-        <Button variant="outline" icon={<RefreshCw />} onClick={resendCode}>
-          Reenviar código
-        </Button>
-        {resendMessage ? (
-          <p className="resend-message">{resendMessage}</p>
-        ) : null}
       </AuthCard>
     </section>
   );

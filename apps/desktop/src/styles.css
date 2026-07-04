@@ -472,41 +472,6 @@ svg {
   background: #2563eb;
 }
 
-.otp-row {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  width: 100%;
-}
-
-.otp-cell {
-  width: 48px;
-  height: 54px;
-  padding: 0;
-  border-radius: 8px;
-  border: 1px solid #dde6f3;
-  background: #f1f5f9;
-  color: #0f172a;
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 54px;
-  text-align: center;
-  outline: none;
-}
-
-.otp-cell:focus {
-  border-color: #2563eb;
-  background: #ffffff;
-  box-shadow: 0 0 0 3px #dbeafe;
-}
-
-.resend-message {
-  margin-top: -8px;
-  color: #64748b;
-  font-size: 13px;
-  line-height: 1.35;
-}
-
 .inline-notice {
   width: 100%;
   display: flex;

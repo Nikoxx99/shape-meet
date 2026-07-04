@@ -57,6 +57,7 @@ function checkTriggers() {
     "meeting_url:",
     "ai_url:",
     "host_identifier:",
+    "target:",
     "sentry_dsn:",
     "sentry_environment:",
     "sentry_release:",
@@ -78,11 +79,23 @@ function checkTriggers() {
     `default: "${defaultSentryDsn}"`,
     "input sentry_dsn usa DSN publico por defecto",
   );
+  expectText("windows-x64", "target windows-x64 disponible");
+  expectText("macos-arm64", "target macos-arm64 disponible");
+  expectText("macos-x64", "target macos-x64 disponible");
 }
 
 function checkRuntimeConfigJob() {
   expectText("runtime-config:", "job runtime-config presente");
   expectText("runs-on: ubuntu-latest", "runtime config usa ubuntu-latest");
+  expectText(
+    "package_matrix: ${{ steps.package-matrix.outputs.matrix }}",
+    "runtime config expone matrix dinamico",
+  );
+  expectText("id: package-matrix", "runtime config resuelve target de paquete");
+  expectText(
+    "SHAPE_PACKAGE_TARGET: ${{ github.event.inputs.target || 'all' }}",
+    "runtime config lee target del workflow",
+  );
   expectText(
     "args=(--out output/desktop-runtime/shape-meet.env)",
     "runtime config genera shape-meet.env",
@@ -127,52 +140,44 @@ function checkPackageMatrix() {
       name: "Windows x64",
       runner: "windows-latest",
       artifact: "shape-meet-windows-x64",
-      tauriArgs: 'tauriArgs: ""',
+      tauriArgs: "",
     },
     {
       name: "macOS Apple Silicon",
       runner: "macos-26",
       artifact: "shape-meet-macos-arm64",
-      tauriArgs: 'tauriArgs: "--no-sign"',
+      tauriArgs: "--no-sign",
     },
     {
       name: "macOS Intel",
       runner: "macos-26-intel",
       artifact: "shape-meet-macos-x64",
-      tauriArgs: 'tauriArgs: "--no-sign"',
+      tauriArgs: "--no-sign",
     },
   ];
 
   for (const target of targets) {
     expectTarget(target);
   }
+
+  expectText(
+    "matrix: ${{ fromJson(needs.runtime-config.outputs.package_matrix) }}",
+    "package usa matrix dinamico por target",
+  );
 }
 
 function expectTarget(target) {
-  const block = workflowBlockForTarget(target.name);
-  if (!block) {
-    fail(`Matriz desktop no incluye ${target.name}.`);
-    return;
-  }
-
   for (const [label, expected] of [
-    ["runner", `runner: ${target.runner}`],
-    ["artifact", `artifact: ${target.artifact}`],
-    ["tauriArgs", target.tauriArgs],
+    ["name", `"name":"${target.name}"`],
+    ["runner", `"runner":"${target.runner}"`],
+    ["artifact", `"artifact":"${target.artifact}"`],
+    ["tauriArgs", `"${target.tauriArgs.replace(/"/g, '\\"')}"`],
   ]) {
-    if (!block.includes(expected)) {
+    if (!workflow.includes(expected)) {
       fail(`${target.name} no declara ${label} esperado: ${expected}.`);
     }
   }
   ok(`${target.name}: ${target.runner} -> ${target.artifact}`);
-}
-
-function workflowBlockForTarget(name) {
-  const start = workflow.indexOf(`- name: ${name}`);
-  if (start === -1) return null;
-  const rest = workflow.slice(start);
-  const nextTarget = rest.slice(1).search(/\n\s+- name: /);
-  return nextTarget === -1 ? rest : rest.slice(0, nextTarget + 1);
 }
 
 function checkPackageSteps() {

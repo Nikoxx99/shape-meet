@@ -110,6 +110,8 @@ Para un handoff remoto, llena los inputs del workflow manual:
 - `ai_url`: normalmente `http://127.0.0.1:7851`, porque el sidecar IA corre
   local en la workstation.
 - `host_identifier`: correo del host autorizado que aparecerá prellenado.
+- `target`: `windows-x64`, `macos-arm64`, `macos-x64` o `all`. Para QA Windows,
+  usa `windows-x64` y no se levantarán runners de macOS.
 - `sentry_dsn`, `sentry_environment`, `sentry_release`,
   `sentry_traces_sample_rate`, `sentry_debug`: debug desktop. El DSN público de
   Sentry queda configurado por defecto para builds de diagnóstico.

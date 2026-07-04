@@ -22,6 +22,16 @@ on:
         description: "Default host email for the desktop login screen"
         required: false
         type: string
+      target:
+        description: "Package target to build"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - windows-x64
+          - macos-arm64
+          - macos-x64
       sentry_dsn:
         description: "Optional public Sentry DSN for desktop debug builds"
         required: false
@@ -62,8 +72,36 @@ jobs:
   runtime-config:
     name: Runtime config
     runs-on: ubuntu-latest
+    outputs:
+      package_matrix: ${{ steps.package-matrix.outputs.matrix }}
 
     steps:
+      - name: Resolve package matrix
+        id: package-matrix
+        env:
+          SHAPE_PACKAGE_TARGET: ${{ github.event.inputs.target || 'all' }}
+        run: |
+          case "$SHAPE_PACKAGE_TARGET" in
+            windows-x64)
+              matrix='{"include":[{"name":"Windows x64","runner":"windows-latest","artifact":"shape-meet-windows-x64","tauriArgs":""}]}'
+              ;;
+            macos-arm64)
+              matrix='{"include":[{"name":"macOS Apple Silicon","runner":"macos-26","artifact":"shape-meet-macos-arm64","tauriArgs":"--no-sign"}]}'
+              ;;
+            macos-x64)
+              matrix='{"include":[{"name":"macOS Intel","runner":"macos-26-intel","artifact":"shape-meet-macos-x64","tauriArgs":"--no-sign"}]}'
+              ;;
+            all|"")
+              matrix='{"include":[{"name":"Windows x64","runner":"windows-latest","artifact":"shape-meet-windows-x64","tauriArgs":""},{"name":"macOS Apple Silicon","runner":"macos-26","artifact":"shape-meet-macos-arm64","tauriArgs":"--no-sign"},{"name":"macOS Intel","runner":"macos-26-intel","artifact":"shape-meet-macos-x64","tauriArgs":"--no-sign"}]}'
+              ;;
+            *)
+              echo "Unsupported target: $SHAPE_PACKAGE_TARGET" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -137,20 +175,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Windows x64
-            runner: windows-latest
-            artifact: shape-meet-windows-x64
-            tauriArgs: ""
-          - name: macOS Apple Silicon
-            runner: macos-26
-            artifact: shape-meet-macos-arm64
-            tauriArgs: "--no-sign"
-          - name: macOS Intel
-            runner: macos-26-intel
-            artifact: shape-meet-macos-x64
-            tauriArgs: "--no-sign"
+      matrix: ${{ fromJson(needs.runtime-config.outputs.package_matrix) }}
 
     steps:
       - name: Checkout
