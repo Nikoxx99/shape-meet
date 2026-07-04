@@ -48,6 +48,10 @@ try {
     "real readiness should be skipped",
   );
   assert(
+    report.verified.desktopPackage === false,
+    "desktop package should be skipped by default",
+  );
+  assert(
     report.checks.services.skipped === true,
     "services step should be marked skipped",
   );
@@ -58,6 +62,10 @@ try {
   assert(
     report.readiness.remoteDeployment === "not-configured",
     "remote readiness should be not-configured without env",
+  );
+  assert(
+    report.readiness.desktopPackage === "not-checked",
+    "desktop package readiness should be not-checked by default",
   );
   assert(
     report.readiness.demoPercent === 0,

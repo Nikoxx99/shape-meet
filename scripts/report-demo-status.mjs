@@ -20,6 +20,10 @@ const skipRemote = args.includes("--skip-remote");
 const verifyPreview = args.includes("--verify-preview");
 const verifyFull =
   args.includes("--verify-full") || args.includes("--verify-ui");
+const verifyDesktop =
+  args.includes("--verify-desktop") ||
+  args.includes("--include-desktop") ||
+  args.includes("--desktop");
 const verifyHandoff = args.includes("--verify-handoff");
 const sentryLive =
   args.includes("--sentry-live") ||
@@ -69,6 +73,7 @@ const report = {
     realReadiness: !skipRealCheck,
     preview: verifyPreview,
     fullUi: verifyFull,
+    desktopPackage: verifyDesktop,
     handoff: verifyHandoff,
     remoteDeployment: verifyRemote,
   },
@@ -121,6 +126,12 @@ async function main() {
         timeout: 300_000,
       })
     : skipped("Demo local completo", "usa --verify-full para validarlo");
+
+  report.checks.desktopPackage = verifyDesktop
+    ? commandStep("Desktop Tauri", ["desktop:doctor", "--", "--strict"], {
+        timeout: 90_000,
+      })
+    : skipped("Desktop Tauri", "usa --verify-desktop para validarlo");
 
   report.checks.handoff = verifyHandoff
     ? runHandoffCheck()
@@ -333,6 +344,9 @@ function collectReadiness() {
     report.checks.preview?.ok === true && !report.checks.preview.skipped;
   const fullUiOk =
     report.checks.fullUi?.ok === true && !report.checks.fullUi.skipped;
+  const desktopPackageOk =
+    report.checks.desktopPackage?.ok === true &&
+    !report.checks.desktopPackage.skipped;
   const handoffOk =
     report.checks.handoff?.ok === true && !report.checks.handoff.skipped;
 
@@ -342,6 +356,11 @@ function collectReadiness() {
     sentryLive: sentryLive ? (sentryLiveOk ? "ok" : "review") : "not-checked",
     localPreview: verifyPreview ? (previewOk ? "ok" : "review") : "not-checked",
     localFullDemo: verifyFull ? (fullUiOk ? "ok" : "review") : "not-checked",
+    desktopPackage: verifyDesktop
+      ? desktopPackageOk
+        ? "ok"
+        : "review"
+      : "not-checked",
     demoHandoff: verifyHandoff ? (handoffOk ? "ok" : "review") : "not-checked",
     remoteDeployment: verifyRemote
       ? remoteOk
@@ -377,6 +396,16 @@ function collectReadiness() {
   if (!verifyFull) {
     nextSteps.push(
       "Ejecuta `pnpm demo:status -- --verify-full` antes de enseñar el flujo host/invitado.",
+    );
+  }
+  if (!verifyDesktop) {
+    nextSteps.push(
+      "Ejecuta `pnpm demo:status -- --verify-desktop` para validar sidecar, recursos y config Tauri.",
+    );
+  }
+  if (verifyDesktop && !desktopPackageOk) {
+    nextSteps.push(
+      "Corrige desktop con `pnpm build:ai-sidecar` y repite `pnpm desktop:doctor -- --strict`.",
     );
   }
   if (!verifyHandoff) {
