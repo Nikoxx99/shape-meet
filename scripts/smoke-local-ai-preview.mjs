@@ -8,6 +8,10 @@ const args = new Set(process.argv.slice(2));
 const headed = args.has("--headed");
 const appPort = Number(argValue("--app-port") ?? 0) || (await getFreePort());
 const aiPort = Number(argValue("--ai-port") ?? 0) || (await getFreePort());
+const videoPort =
+  Number(argValue("--video-port") ?? 0) || (await getFreePort());
+const audioPort =
+  Number(argValue("--audio-port") ?? 0) || (await getFreePort());
 const appUrl = `http://127.0.0.1:${appPort}`;
 const aiUrl = `http://127.0.0.1:${aiPort}`;
 const children = [];
@@ -22,6 +26,10 @@ async function main() {
 
   await waitForJson(`${aiUrl}/health`, (data) => data.status === "ready", {
     label: "AI sidecar",
+    timeoutMs: 45_000,
+  });
+  await waitForJson(`${aiUrl}/health`, hasIsolatedDemoProcessors, {
+    label: "AI demo processors",
     timeoutMs: 45_000,
   });
   await waitForHttp(appUrl, { label: "desktop web", timeoutMs: 45_000 });
@@ -60,7 +68,15 @@ async function main() {
 function startAiSidecar() {
   const child = spawn(
     process.execPath,
-    ["scripts/run-demo-ai-sidecar.mjs", "--port", String(aiPort)],
+    [
+      "scripts/run-demo-ai-sidecar.mjs",
+      "--port",
+      String(aiPort),
+      "--video-port",
+      String(videoPort),
+      "--audio-port",
+      String(audioPort),
+    ],
     {
       cwd: process.cwd(),
       env: {
@@ -76,6 +92,20 @@ function startAiSidecar() {
   );
   pipeChildOutput("ai", child);
   children.push({ label: "AI sidecar", child });
+}
+
+function hasIsolatedDemoProcessors(data) {
+  const processors = data.diagnostics?.managedProcessors ?? [];
+  const video = processors.find((processor) => processor.id === "video");
+  const audio = processors.find((processor) => processor.id === "audio");
+
+  return (
+    data.status === "ready" &&
+    video?.status === "running" &&
+    video?.endpoint === `http://127.0.0.1:${videoPort}/process-frame` &&
+    audio?.status === "running" &&
+    audio?.endpoint === `http://127.0.0.1:${audioPort}/process-audio`
+  );
 }
 
 function startDesktopWeb() {
