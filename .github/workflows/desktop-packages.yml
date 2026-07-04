@@ -129,6 +129,7 @@ jobs:
 
   package:
     name: ${{ matrix.name }}
+    needs: runtime-config
     runs-on: ${{ matrix.runner }}
 
     strategy:
@@ -165,6 +166,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Download runtime config
+        uses: actions/download-artifact@v4
+        with:
+          name: shape-meet-runtime-config
+          path: apps/desktop/src-tauri/resources
 
       - name: Build AI sidecar for runner target
         run: pnpm --filter @shape-meet/desktop sidecar:build

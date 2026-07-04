@@ -13,6 +13,11 @@ const checks = [];
 const desktopTauriDir = join(repoRoot, "apps", "desktop", "src-tauri");
 const binariesDir = join(desktopTauriDir, "binaries");
 const wrappersResourceDir = join(desktopTauriDir, "resources", "ai-wrappers");
+const desktopRuntimeConfigResource = join(
+  desktopTauriDir,
+  "resources",
+  "shape-meet.env",
+);
 const sidecarSource = join(repoRoot, "apps", "ai-sidecar", "server.py");
 const processorSource = join(
   repoRoot,
@@ -50,6 +55,7 @@ function main() {
   checkTauriConfig();
   checkSidecarConfig();
   checkWrapperResources();
+  checkDesktopRuntimeConfigResource();
   checkBuiltSidecars();
   printReport();
 
@@ -169,14 +175,27 @@ function checkSidecarConfig() {
     }
   }
   const resources = config.bundle?.resources;
-  if (
-    !Array.isArray(resources) ||
-    !resources.includes("resources/ai-wrappers")
-  ) {
-    fail("tauri.sidecar.conf.json no incluye resources/ai-wrappers.");
+  if (!Array.isArray(resources)) {
+    fail("tauri.sidecar.conf.json no define bundle.resources.");
     return;
   }
-  ok("tauri.sidecar.conf.json incluye sidecar y processor");
+  for (const expected of [
+    "resources/ai-wrappers",
+    "resources/shape-meet.env",
+  ]) {
+    if (!resources.includes(expected)) {
+      const message = `tauri.sidecar.conf.json no incluye ${expected}. Ejecuta pnpm build:ai-sidecar.`;
+      if (strict) fail(message);
+      else warn(message);
+    }
+  }
+  if (
+    resources.includes("resources/ai-wrappers") &&
+    resources.includes("resources/shape-meet.env")
+  ) {
+    ok("tauri.sidecar.conf.json incluye sidecar, processor y runtime config");
+    return;
+  }
 }
 
 function checkWrapperResources() {
@@ -202,6 +221,28 @@ function checkWrapperResources() {
     }
   }
   ok("wrappers IA configurados como recursos desktop");
+}
+
+function checkDesktopRuntimeConfigResource() {
+  if (!existsSync(desktopRuntimeConfigResource)) {
+    const message =
+      "Runtime config desktop no está embebido: apps/desktop/src-tauri/resources/shape-meet.env. Ejecuta pnpm build:ai-sidecar o descarga shape-meet-runtime-config.";
+    if (strict) fail(message);
+    else warn(message);
+    return;
+  }
+
+  const content = readFileSync(desktopRuntimeConfigResource, "utf8");
+  for (const key of [
+    "SHAPE_API_URL=",
+    "SHAPE_MEETING_URL=",
+    "SHAPE_AI_SERVICE_URL=",
+  ]) {
+    if (!content.includes(key)) {
+      fail(`Runtime config desktop no incluye ${key.slice(0, -1)}.`);
+    }
+  }
+  ok("runtime config desktop embebido");
 }
 
 function checkBuiltSidecars() {

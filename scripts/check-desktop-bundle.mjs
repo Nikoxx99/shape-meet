@@ -56,6 +56,10 @@ function checkMacBundle() {
     join(appDir, "Contents", "Resources", "resources", "ai-wrappers"),
     join(appDir, "Contents", "Resources", "ai-wrappers"),
   ]);
+  requireBundledRuntimeConfig([
+    join(appDir, "Contents", "Resources", "resources", "shape-meet.env"),
+    join(appDir, "Contents", "Resources", "shape-meet.env"),
+  ]);
   checkMacInfoPlist(infoPlist);
   requireAnyFile(
     join(releaseDir, "bundle", "dmg"),
@@ -75,6 +79,10 @@ function checkWindowsBundle() {
     join(releaseDir, "resources", "ai-wrappers"),
     join(releaseDir, "ai-wrappers"),
   ]);
+  requireBundledRuntimeConfig([
+    join(releaseDir, "resources", "shape-meet.env"),
+    join(releaseDir, "shape-meet.env"),
+  ]);
   requireAnyFile(
     join(releaseDir, "bundle"),
     (name) => /\.(msi|exe)$/.test(name),
@@ -88,6 +96,10 @@ function checkGenericBundle() {
   requireBundledWrapperResources([
     join(releaseDir, "resources", "ai-wrappers"),
     join(releaseDir, "ai-wrappers"),
+  ]);
+  requireBundledRuntimeConfig([
+    join(releaseDir, "resources", "shape-meet.env"),
+    join(releaseDir, "shape-meet.env"),
   ]);
   requireAnyFile(
     join(releaseDir, "bundle"),
@@ -114,6 +126,20 @@ function requireBundledWrapperResources(candidateDirs) {
       { recursive: true },
     );
   }
+}
+
+function requireBundledRuntimeConfig(candidateFiles) {
+  const match = candidateFiles.find((path) => existsSync(path));
+  if (!match) {
+    fail(
+      `No se encontró runtime config desktop embebido: ${candidateFiles
+        .map(relative)
+        .join(" o ")}`,
+    );
+    return;
+  }
+
+  ok(`runtime config desktop embebido: ${relative(match)}`);
 }
 
 function checkMacInfoPlist(path) {

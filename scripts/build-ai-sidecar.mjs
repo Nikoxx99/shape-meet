@@ -36,6 +36,7 @@ const wrapperFiles = [
 ];
 const resourcesDir = join(desktopTauriDir, "resources");
 const wrappersResourceDir = join(resourcesDir, "ai-wrappers");
+const desktopRuntimeConfigResource = join(resourcesDir, "shape-meet.env");
 const binariesDir = join(desktopTauriDir, "binaries");
 const outputDir = join(repoRoot, "output", "ai-sidecar-build");
 const venvDir = join(outputDir, "venv");
@@ -47,6 +48,10 @@ const targetProcessorName = `${processorBaseName}-${targetTriple}${process.platf
 const targetBinaryPath = join(binariesDir, targetBinaryName);
 const targetProcessorPath = join(binariesDir, targetProcessorName);
 const configPath = join(desktopTauriDir, "tauri.sidecar.conf.json");
+const desktopRuntimeConfigSource =
+  process.env.SHAPE_DESKTOP_RUNTIME_CONFIG_FILE ||
+  process.env.SHAPE_DESKTOP_CONFIG_FILE ||
+  null;
 
 ensureFile(sidecarSource);
 ensureFile(processorSource);
@@ -73,10 +78,12 @@ buildPyInstallerBinary(
   "construir procesador IA PyInstaller",
 );
 copyWrapperResources();
+prepareDesktopRuntimeConfigResource();
 writeTauriSidecarConfig();
 
 console.log(`AI sidecar listo: ${targetBinaryPath}`);
 console.log(`AI processor listo: ${targetProcessorPath}`);
+console.log(`Runtime desktop embebido: ${desktopRuntimeConfigResource}`);
 console.log(`Config Tauri temporal: ${configPath}`);
 
 function ensureVenv() {
@@ -146,11 +153,39 @@ function writeTauriSidecarConfig() {
         `binaries/${binaryBaseName}`,
         `binaries/${processorBaseName}`,
       ],
-      resources: ["resources/ai-wrappers"],
+      resources: ["resources/ai-wrappers", "resources/shape-meet.env"],
     },
   };
 
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+function prepareDesktopRuntimeConfigResource() {
+  mkdirSync(resourcesDir, { recursive: true });
+
+  const source = [
+    desktopRuntimeConfigSource,
+    join(repoRoot, "output", "desktop-runtime", "shape-meet.env"),
+    join(repoRoot, "output", "shape-meet.env"),
+  ].find((path) => path && existsSync(path));
+
+  if (source) {
+    copyFileSync(source, desktopRuntimeConfigResource);
+    return;
+  }
+
+  run(
+    process.execPath,
+    [
+      join(repoRoot, "scripts", "prepare-desktop-runtime-config.mjs"),
+      "--out",
+      desktopRuntimeConfigResource,
+    ],
+    {
+      cwd: repoRoot,
+      label: "generar runtime config desktop embebido",
+    },
+  );
 }
 
 function copyWrapperResources() {

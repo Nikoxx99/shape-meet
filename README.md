@@ -432,7 +432,8 @@ Ese archivo contiene solo URLs públicas, Sentry y el host inicial; no incluye
 `LIVEKIT_API_SECRET`, passwords de Postgres ni otros secretos de Coolify.
 El workflow `Desktop Packages` también sube el artifact
 `shape-meet-runtime-config` con un `shape-meet.env` local/demo editable para
-acompañar los instaladores.
+acompañar los instaladores, y lo embebe como recurso dentro de cada paquete
+desktop para que la app instalada arranque apuntando al entorno demo.
 
 ## Build desktop con sidecar
 
@@ -452,6 +453,7 @@ pnpm desktop:bundle:check
 
 - `apps/desktop/src-tauri/binaries/shape-ai-sidecar-${targetTriple}`
 - `apps/desktop/src-tauri/resources/ai-wrappers/`
+- `apps/desktop/src-tauri/resources/shape-meet.env`
 - `apps/desktop/src-tauri/tauri.sidecar.conf.json`
 - `output/ai-sidecar-build/`
 

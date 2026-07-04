@@ -74,10 +74,13 @@ Desde GitHub Actions:
    `shape-meet-macos-arm64`, `shape-meet-macos-x64` y
    `shape-meet-runtime-config`.
 
-`shape-meet-runtime-config` contiene un `shape-meet.env` sin secretos. Para una
-demo local apunta por defecto a `http://localhost:13000`,
-`http://localhost:1420` y `http://127.0.0.1:7851`; edítalo o regenéralo con
-`pnpm desktop:config` para apuntar a Coolify antes de entregarlo a otra máquina.
+`shape-meet-runtime-config` contiene un `shape-meet.env` sin secretos. El
+workflow también lo descarga dentro de cada job de paquete y lo embebe como
+recurso Tauri, así que una app instalada desde esos artifacts ya arranca con las
+URLs del entorno demo. Para una demo local apunta por defecto a
+`http://localhost:13000`, `http://localhost:1420` y `http://127.0.0.1:7851`;
+edítalo o regenéralo con `pnpm desktop:config` para apuntar a Coolify antes de
+entregarlo a otra máquina.
 
 Para un handoff remoto, llena los inputs del workflow manual:
 
@@ -169,6 +172,7 @@ El paso `sidecar:build` genera:
 - `apps/desktop/src-tauri/binaries/shape-ai-sidecar-${targetTriple}`;
 - `apps/desktop/src-tauri/binaries/shape-ai-processor-${targetTriple}`;
 - `apps/desktop/src-tauri/resources/ai-wrappers/`;
+- `apps/desktop/src-tauri/resources/shape-meet.env`;
 - `apps/desktop/src-tauri/tauri.sidecar.conf.json`.
 
 Ambos artefactos son locales al runner y están ignorados por git.

@@ -162,8 +162,23 @@ function workflowBlockForTarget(name) {
 }
 
 function checkPackageSteps() {
+  expectText("needs: runtime-config", "package espera runtime-config");
+  expectText(
+    "uses: actions/download-artifact@v4",
+    "package descarga runtime config generado",
+  );
+  expectText(
+    "name: shape-meet-runtime-config",
+    "package descarga artifact shape-meet-runtime-config",
+  );
+  expectText(
+    "path: apps/desktop/src-tauri/resources",
+    "package ubica runtime config en recursos Tauri",
+  );
+
   const orderedSteps = [
     "pnpm install --frozen-lockfile",
+    "uses: actions/download-artifact@v4",
     "pnpm --filter @shape-meet/desktop sidecar:build",
     "pnpm desktop:doctor -- --strict",
     "pnpm --filter @shape-meet/desktop exec tauri build --config src-tauri/tauri.sidecar.conf.json",
@@ -184,10 +199,7 @@ function checkPackageSteps() {
     previousIndex = index;
   }
 
-  expectText(
-    "uses: actions/upload-artifact@v4",
-    "workflow sube artifacts con upload-artifact@v4",
-  );
+  expectText("uses: actions/upload-artifact@v4", "workflow sube artifacts");
   ok("orden de sidecar, doctor, build, bundle check y upload validado");
 }
 

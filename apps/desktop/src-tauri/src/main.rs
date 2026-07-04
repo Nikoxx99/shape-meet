@@ -3060,6 +3060,8 @@ fn local_env_file_candidates() -> Vec<PathBuf> {
         candidates.push(data_dir.join(".env.local"));
     }
 
+    push_bundled_desktop_config_candidates(&mut candidates);
+
     if let Ok(current_dir) = env::current_dir() {
         push_env_file_candidates(&mut candidates, &current_dir);
     }
@@ -3076,6 +3078,28 @@ fn local_env_file_candidates() -> Vec<PathBuf> {
     }
 
     deduped
+}
+
+fn push_bundled_desktop_config_candidates(candidates: &mut Vec<PathBuf>) {
+    let Ok(current_exe) = env::current_exe() else {
+        return;
+    };
+    let Some(parent) = current_exe.parent() else {
+        return;
+    };
+
+    candidates.push(parent.join("resources").join("shape-meet.env"));
+    candidates.push(parent.join("shape-meet.env"));
+
+    if let Some(contents_dir) = parent.parent() {
+        candidates.push(contents_dir.join("Resources").join("shape-meet.env"));
+        candidates.push(
+            contents_dir
+                .join("Resources")
+                .join("resources")
+                .join("shape-meet.env"),
+        );
+    }
 }
 
 fn push_env_file_candidates(candidates: &mut Vec<PathBuf>, start: &Path) {
