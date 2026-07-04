@@ -950,6 +950,80 @@ async function prepareIdentityForAiSession(
   return { identity: resolvedIdentity, cache };
 }
 
+async function runHostAiPreflight({
+  meetingCode,
+  participantId,
+  identity,
+  hostToken,
+  faceEnabled,
+  backgroundEnabled,
+  backgroundCalibration,
+  voiceEnabled,
+  cameraEnabled,
+  deviceSelection,
+}: {
+  meetingCode: string;
+  participantId: string;
+  identity: HostIdentity | null;
+  hostToken: string | null;
+  faceEnabled: boolean;
+  backgroundEnabled: boolean;
+  backgroundCalibration: BackgroundCalibration | null;
+  voiceEnabled: boolean;
+  cameraEnabled: boolean;
+  deviceSelection: DeviceSelection;
+}) {
+  const prepared = faceEnabled
+    ? await prepareIdentityForAiSession(identity, hostToken)
+    : { identity, cache: null };
+  const resolvedIdentity = prepared.identity;
+  const artifactCache = prepared.cache;
+  const frameDataUrl =
+    cameraEnabled && (faceEnabled || backgroundEnabled)
+      ? await captureAiPreflightFrame(deviceSelection.cameraId).catch(
+          () => null,
+        )
+      : null;
+  const audioSample = voiceEnabled
+    ? await captureAiPreflightAudio(deviceSelection.microphoneId).catch(
+        () => null,
+      )
+    : null;
+
+  return runAiPreflight({
+    meetingCode,
+    participantId,
+    identityId: resolvedIdentity?.id ?? null,
+    identityKind: resolvedIdentity?.kind ?? null,
+    identityVersion: resolvedIdentity?.version ?? null,
+    identityArtifactUri: resolvedIdentity?.artifactUri ?? null,
+    identityCachedArtifactUri:
+      artifactCache?.uri ?? resolvedIdentity?.artifactUri ?? null,
+    identityLocalArtifactPath: artifactCache?.localPath ?? null,
+    identityArtifactSha256:
+      artifactCache?.sha256 ?? resolvedIdentity?.artifactSha256 ?? null,
+    identityArtifactSizeBytes:
+      artifactCache?.sizeBytes ?? resolvedIdentity?.artifactSizeBytes ?? null,
+    identityArtifactCacheMessage: artifactCache?.message ?? null,
+    faceEnabled,
+    backgroundEnabled,
+    backgroundCleanPlateDataUrl:
+      backgroundCalibration?.cleanPlateDataUrl ?? null,
+    backgroundCleanPlateCapturedAt: backgroundCalibration?.capturedAt ?? null,
+    backgroundCleanPlateWidth: backgroundCalibration?.width ?? null,
+    backgroundCleanPlateHeight: backgroundCalibration?.height ?? null,
+    backgroundCleanPlateCameraDeviceId:
+      backgroundCalibration?.cameraDeviceId ?? null,
+    voiceEnabled,
+    targetWidth: 1280,
+    targetHeight: 720,
+    targetFps: 30,
+    frameDataUrl,
+    audioDataBase64: audioSample?.audioDataBase64 ?? null,
+    audioSampleRate: audioSample?.sampleRate ?? null,
+  });
+}
+
 function evictUnauthorizedIdentityArtifacts(
   previousIdentities: HostIdentity[],
   nextIdentities: HostIdentity[],
@@ -1034,6 +1108,13 @@ export default function App() {
     useState<NativeAiSidecarRuntime | null>(null);
   const [observabilityStatus, setObservabilityStatus] =
     useState<NativeObservabilityStatus | null>(null);
+  const [hostPreflight, setHostPreflight] = useState<AiPreflightResult | null>(
+    null,
+  );
+  const [hostPreflightRunning, setHostPreflightRunning] = useState(false);
+  const [hostPreflightError, setHostPreflightError] = useState<string | null>(
+    null,
+  );
   const [desktopRuntimeConfig, setDesktopRuntimeConfig] =
     useState<NativeDesktopRuntimeConfig>(() => getCachedDesktopRuntimeConfig());
   const mediaDevices = useMediaDevices();
@@ -1041,6 +1122,7 @@ export default function App() {
     () => runtimeIdentityFor(identities, selectedIdentityId),
     [identities, selectedIdentityId],
   );
+  const hostAiEffectsEnabled = faceEnabled || backgroundEnabled || voiceEnabled;
 
   useEffect(() => {
     let cancelled = false;
@@ -1115,6 +1197,19 @@ export default function App() {
   useEffect(() => {
     writeStoredDeviceSelection(deviceSelection);
   }, [deviceSelection]);
+
+  useEffect(() => {
+    setHostPreflight(null);
+    setHostPreflightError(null);
+  }, [
+    backgroundCalibration?.capturedAt,
+    backgroundEnabled,
+    deviceSelection.cameraId,
+    deviceSelection.microphoneId,
+    faceEnabled,
+    selectedIdentityId,
+    voiceEnabled,
+  ]);
 
   useEffect(() => {
     if (route !== "device-test") return;
@@ -1251,6 +1346,119 @@ export default function App() {
     setAiSidecarRuntime(runtime);
     await refreshAiRuntime();
     setDebugMessage(runtime.message);
+  }
+
+  async function ensureHostAiRuntimeForPreflight() {
+    const currentRuntime = await getAiSidecarRuntime();
+    setAiSidecarRuntime(currentRuntime);
+
+    if (currentRuntime.running) {
+      await refreshAiRuntime();
+      return currentRuntime;
+    }
+
+    const runtimeEnv = await getAiRuntimeEnv().catch(() => null);
+    if (runtimeEnv && !runtimeEnv.exists) {
+      const prepared = await prepareDemoAiRuntimeEnv();
+      if (!prepared.exists) {
+        throw new Error(
+          prepared.warnings[0] ?? "No se pudo preparar runtime IA demo.",
+        );
+      }
+    }
+
+    const startedRuntime = await startAiSidecar();
+    setAiSidecarRuntime(startedRuntime);
+    await refreshAiRuntime();
+
+    if (startedRuntime.running) return startedRuntime;
+
+    const service = await getAiServiceStatus();
+    if (service.online) {
+      return {
+        endpoint: service.endpoint,
+        managed: false,
+        running: true,
+        pid: null,
+        command: null,
+        logPath: "",
+        message: service.message,
+        lastExit: null,
+      } satisfies NativeAiSidecarRuntime;
+    }
+
+    throw new Error(
+      startedRuntime.message ||
+        service.message ||
+        "No se pudo iniciar runtime IA.",
+    );
+  }
+
+  async function runHostPreflightGate(navigateOnFailure = false) {
+    if (!hostAiEffectsEnabled) {
+      setHostPreflight(null);
+      setHostPreflightError(null);
+      return true;
+    }
+
+    if (backgroundEnabled && !backgroundCalibration) {
+      const message = "Captura el fondo limpio antes de probar IA.";
+      setHostPreflightError(message);
+      setApiMessage(message);
+      if (navigateOnFailure) navigate("background-calibration");
+      return false;
+    }
+
+    setHostPreflightRunning(true);
+    setHostPreflightError(null);
+    setApiMessage(null);
+
+    try {
+      const runtime = await ensureHostAiRuntimeForPreflight();
+      if (!runtime.running) {
+        throw new Error(runtime.message || "Runtime IA detenido.");
+      }
+
+      const result = await runHostAiPreflight({
+        meetingCode: currentMeeting?.code ?? "PREFLIGHT",
+        participantId: "host-preflight",
+        identity: selectedRuntimeIdentity,
+        hostToken: hostSession?.token ?? null,
+        faceEnabled,
+        backgroundEnabled,
+        backgroundCalibration,
+        voiceEnabled,
+        cameraEnabled,
+        deviceSelection,
+      });
+      const accepted =
+        result.status === "passed" || result.status === "warning";
+      const message = preflightMessage(result);
+
+      setHostPreflight(result);
+      setApiMessage(result.status === "passed" ? null : message);
+      setDebugMessage(message);
+
+      if (!accepted) {
+        setHostPreflightError(message);
+        if (navigateOnFailure) navigate("ai-runtime");
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "No se pudo probar el runtime IA.";
+      setHostPreflightError(message);
+      setApiMessage(message);
+      setDebugMessage(message);
+      if (navigateOnFailure) navigate("ai-runtime");
+      return false;
+    } finally {
+      setHostPreflightRunning(false);
+    }
   }
 
   function updateDeviceSelection(key: keyof DeviceSelection, value: string) {
@@ -1472,19 +1680,24 @@ export default function App() {
     navigate("home");
   }
 
-  function enterHostCallFromSettings() {
+  async function enterHostCallFromSettings() {
     if (backgroundEnabled && !backgroundCalibration) {
       navigate("background-calibration");
       return;
     }
 
-    void handleEnterCall();
+    const preflightReady = await runHostPreflightGate(true);
+    if (!preflightReady) return;
+
+    await handleEnterCall();
   }
 
   function skipHostEffectsAndEnter() {
     setFaceEnabled(false);
     setBackgroundEnabled(false);
     setVoiceEnabled(false);
+    setHostPreflight(null);
+    setHostPreflightError(null);
     void handleEnterCall();
   }
 
@@ -1952,12 +2165,18 @@ export default function App() {
           host={host}
           identities={identities}
           backgroundCalibration={backgroundCalibration}
+          aiEffectsEnabled={hostAiEffectsEnabled}
+          aiServiceStatus={aiServiceStatus}
+          preflight={hostPreflight}
+          preflightError={hostPreflightError}
+          preflightRunning={hostPreflightRunning}
           selectedIdentityId={selectedIdentityId}
           onIdentityChange={setSelectedIdentityId}
           onDeviceChange={updateDeviceSelection}
           onToggleFace={() => setFaceEnabled((value) => !value)}
           onToggleBackground={() => setBackgroundEnabled((value) => !value)}
           onToggleVoice={() => setVoiceEnabled((value) => !value)}
+          onTestAi={() => void runHostPreflightGate(false)}
           onOpenAiRuntime={() => navigate("ai-runtime")}
           onOpenBackgroundCalibration={() => navigate("background-calibration")}
           onBack={() => navigate("device-test")}
@@ -2897,12 +3116,18 @@ function HostSettingsScreen({
   host,
   identities,
   backgroundCalibration,
+  aiEffectsEnabled,
+  aiServiceStatus,
+  preflight,
+  preflightError,
+  preflightRunning,
   selectedIdentityId,
   onIdentityChange,
   onDeviceChange,
   onToggleFace,
   onToggleBackground,
   onToggleVoice,
+  onTestAi,
   onOpenAiRuntime,
   onOpenBackgroundCalibration,
   onBack,
@@ -2918,17 +3143,23 @@ function HostSettingsScreen({
   host: ShapeUser | null;
   identities: HostIdentity[];
   backgroundCalibration: BackgroundCalibration | null;
+  aiEffectsEnabled: boolean;
+  aiServiceStatus: NativeAiServiceStatus | null;
+  preflight: AiPreflightResult | null;
+  preflightError: string | null;
+  preflightRunning: boolean;
   selectedIdentityId: string | null;
   onIdentityChange: (identityId: string | null) => void;
   onDeviceChange: (key: keyof DeviceSelection, value: string) => void;
   onToggleFace: () => void;
   onToggleBackground: () => void;
   onToggleVoice: () => void;
+  onTestAi: () => void;
   onOpenAiRuntime: () => void;
   onOpenBackgroundCalibration: () => void;
   onBack: () => void;
   onSkip: () => void;
-  onContinue: () => void;
+  onContinue: () => Promise<void> | void;
 }) {
   const pushedIdentities = identities.filter(
     (identity) =>
@@ -3018,17 +3249,57 @@ function HostSettingsScreen({
               checked={voiceEnabled}
               onClick={onToggleVoice}
             />
-            <Button
-              variant="outline"
-              icon={<Settings />}
-              onClick={onOpenAiRuntime}
-            >
-              Runtime IA local
-            </Button>
+            <StatusRow
+              label="Sidecar"
+              value={
+                aiServiceStatus
+                  ? `${boolStatus(aiServiceStatus.online)} · ${aiServiceStatus.mode}`
+                  : "Detectando"
+              }
+              tone={serviceTone(aiServiceStatus?.online)}
+            />
+            <StatusRow
+              label="Prueba IA"
+              value={
+                preflightRunning
+                  ? "Ejecutando"
+                  : (preflight?.status ??
+                    (aiEffectsEnabled ? "Pendiente" : "Sin efectos"))
+              }
+              tone={preflightTone(
+                preflightRunning ? "running" : preflight?.status,
+              )}
+            />
+            {preflightError ? (
+              <InlineNotice icon={<ShieldAlert />}>
+                {preflightError}
+              </InlineNotice>
+            ) : null}
+            <div className="stacked-actions compact">
+              <Button
+                variant="outline"
+                icon={<ShieldCheck />}
+                onClick={onTestAi}
+                disabled={!aiEffectsEnabled || preflightRunning}
+              >
+                {preflightRunning ? "Probando" : "Probar IA"}
+              </Button>
+              <Button
+                variant="outline"
+                icon={<Settings />}
+                onClick={onOpenAiRuntime}
+              >
+                Runtime IA local
+              </Button>
+            </div>
           </Panel>
           <div className="stacked-actions host-actions">
-            <Button icon={<LogIn />} onClick={onContinue}>
-              Entrar a la reunión
+            <Button
+              icon={<LogIn />}
+              onClick={() => void onContinue()}
+              disabled={preflightRunning}
+            >
+              {preflightRunning ? "Probando IA" : "Entrar a la reunión"}
             </Button>
             <Button variant="outline" icon={<ArrowLeft />} onClick={onBack}>
               Volver a prueba de equipo
@@ -3255,55 +3526,17 @@ function AiRuntimeScreen({
         await onStartSidecar();
       }
 
-      const prepared = faceEnabled
-        ? await prepareIdentityForAiSession(identity, hostToken)
-        : { identity, cache: null };
-      const resolvedIdentity = prepared.identity;
-      const artifactCache = prepared.cache;
-      const frameDataUrl = cameraEnabled
-        ? await captureAiPreflightFrame(deviceSelection.cameraId).catch(
-            () => null,
-          )
-        : null;
-      const audioSample = voiceEnabled
-        ? await captureAiPreflightAudio(deviceSelection.microphoneId).catch(
-            () => null,
-          )
-        : null;
-      const result = await runAiPreflight({
+      const result = await runHostAiPreflight({
         meetingCode: "PREFLIGHT",
         participantId: "runtime-preflight",
-        identityId: resolvedIdentity?.id ?? null,
-        identityKind: resolvedIdentity?.kind,
-        identityVersion: resolvedIdentity?.version,
-        identityArtifactUri: resolvedIdentity?.artifactUri ?? null,
-        identityCachedArtifactUri:
-          artifactCache?.uri ?? resolvedIdentity?.artifactUri ?? null,
-        identityLocalArtifactPath: artifactCache?.localPath ?? null,
-        identityArtifactSha256:
-          artifactCache?.sha256 ?? resolvedIdentity?.artifactSha256 ?? null,
-        identityArtifactSizeBytes:
-          artifactCache?.sizeBytes ??
-          resolvedIdentity?.artifactSizeBytes ??
-          null,
-        identityArtifactCacheMessage: artifactCache?.message ?? null,
+        identity,
+        hostToken,
         faceEnabled,
         backgroundEnabled,
-        backgroundCleanPlateDataUrl:
-          backgroundCalibration?.cleanPlateDataUrl ?? null,
-        backgroundCleanPlateCapturedAt:
-          backgroundCalibration?.capturedAt ?? null,
-        backgroundCleanPlateWidth: backgroundCalibration?.width ?? null,
-        backgroundCleanPlateHeight: backgroundCalibration?.height ?? null,
-        backgroundCleanPlateCameraDeviceId:
-          backgroundCalibration?.cameraDeviceId ?? null,
         voiceEnabled,
-        targetWidth: 1280,
-        targetHeight: 720,
-        targetFps: 30,
-        frameDataUrl,
-        audioDataBase64: audioSample?.audioDataBase64 ?? null,
-        audioSampleRate: audioSample?.sampleRate ?? null,
+        backgroundCalibration,
+        cameraEnabled,
+        deviceSelection,
       });
 
       setPreflight(result);
