@@ -93,3 +93,10 @@ pnpm smoke:ai-model-endpoint
 
 Ese preset apunta `SHAPE_FACE_ENDPOINT`, `SHAPE_BACKGROUND_ENDPOINT` y
 `SHAPE_VOICE_ENDPOINT` al servidor local `shape_model_endpoint_server.py`.
+El mismo servidor tambien expone `/video-frame`; puedes apuntar
+`SHAPE_VIDEO_FRAME_ENDPOINT` a esa ruta cuando quieras un pipeline persistente
+unico para rostro + fondo:
+
+```bash
+pnpm models:runtime -- --preset local-endpoints --video-frame-endpoint http://127.0.0.1:9100/video-frame
+```

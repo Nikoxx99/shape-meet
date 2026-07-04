@@ -205,7 +205,9 @@ gestionado, suficiente para una primera carga de rostro + fondo en demo.
 
 También puedes usar `--vcclient000-command` para un comando local de vcclient000.
 Usa `--video-frame-command` si prefieres un solo wrapper combinado para rostro y
-fondo, y `--audio-chunk-command` si prefieres un wrapper combinado para voz.
+fondo, o `--video-frame-endpoint http://127.0.0.1:9100/video-frame` si prefieres
+un solo proceso persistente de video. Usa `--audio-chunk-command` si prefieres
+un wrapper combinado para voz.
 Los wrappers versionados están en `apps/ai-sidecar/wrappers`; aceptan variables
 como `FACEFUSION_DIR`, `BMV2_REPO_DIR`, `BMV2_MODEL_CHECKPOINT` y
 `VCCLIENT000_CHUNK_COMMAND`.

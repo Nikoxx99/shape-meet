@@ -229,13 +229,22 @@ mantengan modelos cargados. Los comandos reciben placeholders como `{input}`,
 Los wrappers de referencia viven en `apps/ai-sidecar/wrappers` y cubren
 FaceFusion, BackgroundMattingV2 y vcclient000.
 `pnpm models:endpoint -- --passthrough` levanta un servidor local en
-`http://127.0.0.1:9100` con rutas `/face`, `/background` y `/voice`; sirve para
-probar el contrato endpoint completo antes de conectar modelos pesados.
+`http://127.0.0.1:9100` con rutas `/video-frame`, `/face`, `/background` y
+`/voice`; sirve para probar el contrato endpoint completo antes de conectar
+modelos pesados. Usa `/video-frame` cuando la workstation mantenga un pipeline
+unico cargado para rostro + fondo, o `/face` + `/background` cuando prefieras
+etapas separadas.
 Genera el runtime para esa ruta con:
 
 ```bash
 pnpm models:runtime -- --preset local-endpoints
 pnpm models:preflight
+```
+
+Para probar el endpoint combinado de video:
+
+```bash
+pnpm models:runtime -- --preset local-endpoints --video-frame-endpoint http://127.0.0.1:9100/video-frame
 ```
 
 Usa `--profile windows-nvidia` para generar defaults estrictos de demo en

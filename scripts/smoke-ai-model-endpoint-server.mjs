@@ -13,6 +13,7 @@ const endpointPort = await getFreePort();
 const videoPort = await getFreePort();
 const audioPort = await getFreePort();
 const envPath = join(tempDir, "shape-ai-runtime.env");
+const combinedEnvPath = join(tempDir, "shape-ai-runtime-combined.env");
 let endpointServer = null;
 
 try {
@@ -84,6 +85,28 @@ try {
     "face engine was not ready with endpoint runtime",
   );
 
+  renderCombinedRuntimeEnv();
+  assertLocalEndpointRuntimeEnv(combinedEnvPath);
+  const combinedReport = runPreflight(combinedEnvPath);
+  assert(
+    combinedReport.preflight?.status === "passed",
+    "combined video endpoint preflight did not pass",
+  );
+  assert(
+    combinedReport.preflight?.checks?.some(
+      (check) =>
+        check.id === "video" &&
+        check.processor === "shape-video-endpoint-adapter",
+    ),
+    "combined video preflight did not use SHAPE_VIDEO_FRAME_ENDPOINT",
+  );
+  assert(
+    combinedReport.preflight?.warnings?.some((warning) =>
+      warning.includes("video_frame_endpoint_demo_effect"),
+    ),
+    "combined video endpoint demo effect warning was not reported",
+  );
+
   console.log("model endpoint server smoke ok");
 } finally {
   if (endpointServer) endpointServer.kill();
@@ -121,6 +144,48 @@ async function assertEndpointDemoEffects() {
   assert(
     face.warnings?.includes("face_endpoint_demo_effect"),
     "endpoint demo video warning missing",
+  );
+
+  const combined = await postEndpointJson("/video-frame", {
+    sequence: 13,
+    frame: {
+      sequence: 13,
+      width: 1280,
+      height: 720,
+      frameDataUrl: tinyJpegDataUrl(),
+    },
+    identity: {
+      id: "identity_endpoint_demo",
+      version: "endpoint-demo",
+    },
+    background: {
+      cleanPlate: {
+        ready: true,
+        dataUrl: tinyJpegDataUrl(),
+      },
+    },
+    enabled: {
+      face: true,
+      background: true,
+      voice: true,
+    },
+    target: {
+      width: 1280,
+      height: 720,
+      fps: 30,
+    },
+  });
+  assert(
+    combined.frame?.dataUrl?.startsWith("data:image/svg+xml;base64,"),
+    "combined endpoint demo video did not return an SVG data URL",
+  );
+  assert(
+    combined.frame?.format === "image/svg+xml",
+    "combined endpoint demo video did not preserve SVG MIME",
+  );
+  assert(
+    combined.warnings?.includes("video_frame_endpoint_demo_effect"),
+    "combined endpoint demo video warning missing",
   );
 
   const voice = await postEndpointJson("/voice", {
@@ -191,13 +256,48 @@ function renderRuntimeEnv() {
   );
 }
 
-function assertLocalEndpointRuntimeEnv() {
+function renderCombinedRuntimeEnv() {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "scripts/prepare-ai-runtime-models.mjs",
+      "--out",
+      combinedEnvPath,
+      "--preset",
+      "local-endpoints",
+      "--video-port",
+      String(videoPort),
+      "--audio-port",
+      String(audioPort),
+      "--model-endpoint-host",
+      "127.0.0.1",
+      "--model-endpoint-port",
+      String(endpointPort),
+      "--video-frame-endpoint",
+      `http://127.0.0.1:${endpointPort}/video-frame`,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: process.env,
+    },
+  );
+
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  assert(
+    result.status === 0,
+    `combined runtime generation failed with ${result.status}`,
+  );
+}
+
+function assertLocalEndpointRuntimeEnv(targetEnvPath = envPath) {
   const report = spawnSync(
     process.execPath,
     [
       "scripts/check-ai-model-runtime.mjs",
       "--env-file",
-      envPath,
+      targetEnvPath,
       "--skip-hardware",
       "--skip-wrapper-smoke",
       "--json",
@@ -218,14 +318,14 @@ function assertLocalEndpointRuntimeEnv() {
   );
 }
 
-function runPreflight() {
+function runPreflight(targetEnvPath = envPath) {
   const result = spawnSync(
     process.execPath,
     [
       "scripts/preflight-ai-runtime-models.mjs",
       "--json",
       "--env-file",
-      envPath,
+      targetEnvPath,
     ],
     {
       cwd: process.cwd(),

@@ -43,7 +43,7 @@ class ShapeModelEndpointHandler(BaseHTTPRequestHandler):
                 "status": "ready",
                 "mode": "passthrough" if passthrough_enabled() else "wrappers",
                 "demoEffects": demo_effects_enabled(),
-                "stages": ["face", "background", "voice"],
+                "stages": ["video-frame", "face", "background", "voice"],
                 "startedAt": STATE["startedAt"],
                 "requests": STATE["requests"],
                 "lastLatencyMs": STATE["lastLatencyMs"],
@@ -53,7 +53,7 @@ class ShapeModelEndpointHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = request_path(self.path)
-        if path not in {"/face", "/background", "/voice"}:
+        if path not in {"/video-frame", "/face", "/background", "/voice"}:
             self._json({"error": "not_found"}, status=404)
             return
 
@@ -69,6 +69,8 @@ class ShapeModelEndpointHandler(BaseHTTPRequestHandler):
         try:
             if path == "/voice":
                 self._json(process_voice(payload))
+            elif path == "/video-frame":
+                self._json(process_video_frame(payload))
             else:
                 self._json(process_video(path.removeprefix("/"), payload))
         except Exception as error:
@@ -130,7 +132,7 @@ def process_video(stage, payload):
 
         if passthrough_enabled():
             copy_file(input_path, output_path)
-            output_data_url = file_to_data_url(output_path, "image/jpeg")
+            output_data_url = file_to_image_data_url(output_path)
             warnings.append(f"{stage}_endpoint_passthrough")
         elif demo_effects_enabled():
             output_data_url = demo_video_data_url(stage, payload, frame, identity, background, width, height, sequence)
@@ -138,7 +140,7 @@ def process_video(stage, payload):
             warnings.append(f"{stage}_endpoint_demo_effect")
         else:
             run_video_wrapper(stage, input_path, output_path, identity, background)
-            output_data_url = file_to_data_url(output_path, "image/jpeg")
+            output_data_url = file_to_image_data_url(output_path)
 
         latency_ms = elapsed_ms(started)
         update_state(latency_ms, warnings[-1] if warnings else None)
@@ -150,7 +152,7 @@ def process_video(stage, payload):
                 "dataUrl": output_data_url,
                 "width": width,
                 "height": height,
-                "format": "image/svg+xml" if output_data_url.startswith("data:image/svg+xml") else "image/jpeg",
+                "format": data_url_mime_type(output_data_url),
             },
             "metrics": {
                 "latencyMs": latency_ms,
@@ -160,6 +162,106 @@ def process_video(stage, payload):
             },
             "warnings": warnings,
         }
+
+
+def process_video_frame(payload):
+    started = time.perf_counter()
+    frame = payload.get("frame") if isinstance(payload.get("frame"), dict) else {}
+    target = payload.get("target") if isinstance(payload.get("target"), dict) else {}
+    identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
+    background = payload.get("background") if isinstance(payload.get("background"), dict) else {}
+    enabled = payload.get("enabled") if isinstance(payload.get("enabled"), dict) else {}
+    width = safe_int(target.get("width")) or safe_int(frame.get("width")) or 1280
+    height = safe_int(target.get("height")) or safe_int(frame.get("height")) or 720
+    fps = safe_int(target.get("fps")) or 30
+    sequence = safe_int(payload.get("sequence")) or safe_int(frame.get("sequence")) or 0
+    warnings = []
+
+    with tempfile.TemporaryDirectory(prefix="shape-model-video-frame-") as workdir:
+        workdir_path = Path(workdir)
+        input_path = resolve_input_file(
+            frame.get("inputPath"),
+            frame.get("dataUrl") or frame.get("frameDataUrl"),
+            workdir_path / "input.jpg",
+            "video input",
+        )
+        output_path = resolve_output_path(frame.get("outputPath"), workdir_path / "output.jpg")
+
+        if passthrough_enabled():
+            copy_file(input_path, output_path)
+            output_data_url = file_to_image_data_url(output_path)
+            warnings.append("video_frame_endpoint_passthrough")
+        elif demo_effects_enabled():
+            output_data_url = demo_video_data_url(
+                "video-frame",
+                payload,
+                frame,
+                identity,
+                background,
+                width,
+                height,
+                sequence,
+            )
+            write_data_url(output_data_url, output_path)
+            warnings.append("video_frame_endpoint_demo_effect")
+        else:
+            completed_stages = run_video_frame_wrappers(
+                input_path,
+                output_path,
+                identity,
+                background,
+                enabled,
+                workdir_path,
+            )
+            output_data_url = file_to_image_data_url(output_path)
+            if completed_stages:
+                warnings.append("video_frame_endpoint_chain:" + "+".join(completed_stages))
+
+        latency_ms = elapsed_ms(started)
+        update_state(latency_ms, warnings[-1] if warnings else None)
+        return {
+            "sequence": sequence,
+            "status": "processed",
+            "processor": "shape-video-frame-endpoint-server",
+            "frame": {
+                "dataUrl": output_data_url,
+                "width": width,
+                "height": height,
+                "format": data_url_mime_type(output_data_url),
+            },
+            "metrics": {
+                "latencyMs": latency_ms,
+                "fps": fps,
+                "vramMb": safe_int(os.environ.get("SHAPE_MODEL_ENDPOINT_VRAM_MB")) or 0,
+                "resolution": f"{width}x{height}",
+            },
+            "warnings": warnings,
+        }
+
+
+def run_video_frame_wrappers(input_path, output_path, identity, background, enabled, workdir_path):
+    stages = []
+    if enabled.get("face"):
+        stages.append("face")
+    if enabled.get("background"):
+        stages.append("background")
+
+    if not stages:
+        copy_file(input_path, output_path)
+        return []
+
+    current_input = input_path
+    completed = []
+    for index, stage in enumerate(stages):
+        stage_output = output_path if index == len(stages) - 1 else workdir_path / f"{stage}.jpg"
+        run_video_wrapper(stage, current_input, stage_output, identity, background)
+        current_input = stage_output
+        completed.append(stage)
+
+    if current_input != output_path:
+        copy_file(current_input, output_path)
+
+    return completed
 
 
 def process_voice(payload):
@@ -538,6 +640,36 @@ def write_base64(encoded, path):
 
 def file_to_data_url(path, mime_type):
     return f"data:{mime_type};base64,{file_to_base64(path)}"
+
+
+def file_to_image_data_url(path):
+    return file_to_data_url(path, image_mime_type(path))
+
+
+def image_mime_type(path):
+    data = Path(path).read_bytes()[:96]
+    stripped = data.lstrip()
+    if data.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if stripped.startswith(b"<svg"):
+        return "image/svg+xml"
+
+    suffix = Path(path).suffix.lower()
+    if suffix == ".png":
+        return "image/png"
+    if suffix == ".webp":
+        return "image/webp"
+    if suffix == ".svg":
+        return "image/svg+xml"
+    return "image/jpeg"
+
+
+def data_url_mime_type(data_url):
+    if not isinstance(data_url, str) or not data_url.startswith("data:"):
+        return "image/jpeg"
+    return data_url[5:].split(";", 1)[0].split(",", 1)[0] or "image/jpeg"
 
 
 def file_to_base64(path):

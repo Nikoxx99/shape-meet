@@ -184,7 +184,7 @@ def process_video(payload):
                 warnings.extend(result["warnings"])
 
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    output_data_url = file_to_data_url(output_path, "image/jpeg")
+                    output_data_url = file_to_image_data_url(output_path)
                     status = "processed"
                 elif result["ok"]:
                     warnings.append("video_model_output_missing")
@@ -215,7 +215,7 @@ def process_video(payload):
                 warnings.extend(result["warnings"])
 
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    output_data_url = file_to_data_url(output_path, "image/jpeg")
+                    output_data_url = result.get("dataUrl") or file_to_image_data_url(output_path)
                     status = "processed"
                     processor = "shape-video-endpoint-adapter"
                 elif result["ok"]:
@@ -268,7 +268,7 @@ def process_video(payload):
                             stage_endpoint,
                             payload,
                             stage,
-                            current_data_url or file_to_data_url(current_input_path, "image/jpeg"),
+                            current_data_url or file_to_image_data_url(current_input_path),
                             current_input_path,
                             output_path,
                             clean_plate_path,
@@ -292,7 +292,7 @@ def process_video(payload):
                     break
 
                 if completed_stages:
-                    output_data_url = current_data_url or file_to_data_url(current_input_path, "image/jpeg")
+                    output_data_url = current_data_url or file_to_image_data_url(current_input_path)
                     status = "error" if stage_failed else "processed"
                     processor = "shape-video-model-chain:" + "+".join(completed_stages)
                 elif stage_failed:
@@ -1017,6 +1017,31 @@ def write_base64(encoded, path):
 
 def file_to_data_url(path, mime_type):
     return f"data:{mime_type};base64,{file_to_base64(path)}"
+
+
+def file_to_image_data_url(path):
+    return file_to_data_url(path, image_mime_type(path))
+
+
+def image_mime_type(path):
+    with open(path, "rb") as file:
+        data = file.read(96)
+    stripped = data.lstrip()
+    if data.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if stripped.startswith(b"<svg"):
+        return "image/svg+xml"
+
+    suffix = os.path.splitext(path)[1].lower()
+    if suffix == ".png":
+        return "image/png"
+    if suffix == ".webp":
+        return "image/webp"
+    if suffix == ".svg":
+        return "image/svg+xml"
+    return "image/jpeg"
 
 
 def file_to_base64(path):

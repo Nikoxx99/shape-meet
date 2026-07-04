@@ -266,6 +266,9 @@ Variables del supervisor nativo:
   `{session_id}`, ademas de variables `SHAPE_FRAME_*`.
 - `SHAPE_VIDEO_FRAME_ENDPOINT`: endpoint HTTP combinado de video invocado por
   `shape_processor_command.py --kind video` cuando no hay comando combinado.
+  El servidor persistente `shape_model_endpoint_server.py` expone
+  `/video-frame` para este contrato; recibe frame, identidad, clean plate,
+  efectos activos y target en una sola llamada.
 - `SHAPE_FACE_COMMAND`: comando local de face swap invocado por
   `shape_processor_command.py --kind video` cuando el rostro esta activo y no
   hay `SHAPE_VIDEO_FRAME_COMMAND`. Recibe los mismos placeholders de video y
@@ -292,7 +295,9 @@ Variables del supervisor nativo:
   servidor local `shape_model_endpoint_server.py`. El preset
   `pnpm models:runtime -- --preset local-endpoints` usa esas variables para
   generar `SHAPE_FACE_ENDPOINT`, `SHAPE_BACKGROUND_ENDPOINT` y
-  `SHAPE_VOICE_ENDPOINT`.
+  `SHAPE_VOICE_ENDPOINT`. Si la workstation usa un solo pipeline persistente de
+  rostro + fondo, agrega `--video-frame-endpoint http://host:puerto/video-frame`
+  al generar el runtime.
 - `shape-ai-runtime.env`: archivo local cargado por la app Tauri antes de iniciar
   el sidecar gestionado. Windows usa `%LOCALAPPDATA%\Shape Meet`, macOS usa
   `~/Library/Application Support/Shape Meet` y Linux usa XDG data dir. Puede
