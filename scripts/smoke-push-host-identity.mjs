@@ -13,6 +13,7 @@ import { join } from "node:path";
 
 const tempDir = mkdtempSync(join(tmpdir(), "shape-identity-push-"));
 const artifactPath = join(tempDir, "identity-smoke.bin");
+const envPath = join(tempDir, "remote.env");
 const artifactPayload = "shape-identity-push-smoke";
 const artifactBytes = Buffer.from(artifactPayload);
 const artifactSha256 = createHash("sha256").update(artifactBytes).digest("hex");
@@ -55,9 +56,20 @@ try {
   const port = typeof address === "object" && address ? address.port : null;
   if (!port)
     throw new Error("identity push smoke server did not expose a port");
+  writeFileSync(
+    envPath,
+    [
+      `NEXT_PUBLIC_APP_URL=http://127.0.0.1:${port}`,
+      "HOST_BOOTSTRAP_EMAIL=admin@shape.test",
+      "HOST_BOOTSTRAP_PASSWORD=Admin123!",
+      "VITE_SHAPE_HOST_IDENTIFIER=host@shape.test",
+      "SHAPE_REMOTE_HOST_PASSWORD=Host123!",
+      "",
+    ].join("\n"),
+  );
 
   try {
-    const result = await runIdentityPush(port);
+    const result = await runIdentityPush();
     if (result.code !== 0) {
       if (result.stdout) process.stdout.write(result.stdout);
       if (result.stderr) process.stderr.write(result.stderr);
@@ -83,6 +95,25 @@ try {
     assertCheck(report, "identity.host-list", "ok");
     assertCheck(report, "identity.artifact-url", "ok");
     assertCheck(report, "identity.artifact-download", "ok");
+
+    const handoffResult = await runIdentityHandoffOnly();
+    if (handoffResult.code !== 0) {
+      if (handoffResult.stdout) process.stdout.write(handoffResult.stdout);
+      if (handoffResult.stderr) process.stderr.write(handoffResult.stderr);
+      throw new Error(
+        `identity handoff smoke failed with ${handoffResult.code}`,
+      );
+    }
+    const handoff = JSON.parse(handoffResult.stdout);
+    assert(handoff.ok === true, "identity handoff report was not ok");
+    assert(
+      handoff.steps?.identityPush?.ok === true,
+      "handoff identity push step did not pass",
+    );
+    assert(
+      handoff.demo?.identity?.deliveryStatus === "PUSHED",
+      "handoff did not summarize pushed identity",
+    );
 
     console.log("identity push smoke ok");
   } finally {
@@ -206,27 +237,55 @@ async function handleRequest(request, response) {
   json(response, 404, { error: "not_found" });
 }
 
-function runIdentityPush(port) {
+function runIdentityPush() {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
       [
         "scripts/push-host-identity.mjs",
         "--json",
-        "--api-url",
-        `http://127.0.0.1:${port}`,
-        "--admin-identifier",
-        "admin@shape.test",
-        "--admin-password",
-        "Admin123!",
-        "--host-identifier",
-        "host@shape.test",
-        "--host-password",
-        "Host123!",
+        "--env-file",
+        envPath,
         "--artifact-file",
         artifactPath,
         "--name",
         "Smoke Identity",
+      ],
+      { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", reject);
+    child.once("close", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
+function runIdentityHandoffOnly() {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [
+        "scripts/package-demo-handoff.mjs",
+        "--json",
+        "--output-dir",
+        join(tempDir, "handoff"),
+        "--skip-prepare",
+        "--skip-debug",
+        "--skip-real-check",
+        "--skip-desktop",
+        "--skip-model-bootstrap",
+        "--remote-env-file",
+        envPath,
+        "--identity-artifact-file",
+        artifactPath,
+        "--identity-name",
+        "Smoke Identity Handoff",
       ],
       { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
     );

@@ -1,17 +1,24 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
 const noPush = args.includes("--no-push");
 const skipVerify = args.includes("--skip-verify");
+const envFile = argValue("--env-file");
+const fileEnv = envFile ? readEnvFile(resolve(envFile)) : {};
 const apiUrl = normalizeBaseUrl(
   argValue("--api-url") ??
     process.env.SHAPE_REMOTE_ADMIN_URL ??
+    fileEnv.SHAPE_REMOTE_ADMIN_URL ??
     process.env.SHAPE_DEMO_API_URL ??
+    fileEnv.SHAPE_DEMO_API_URL ??
     process.env.SHAPE_SMOKE_API_URL ??
+    fileEnv.SHAPE_SMOKE_API_URL ??
     process.env.VITE_SHAPE_API_URL ??
+    fileEnv.VITE_SHAPE_API_URL ??
+    fileEnv.NEXT_PUBLIC_APP_URL ??
     readEnvFileValue("apps/desktop/.env.local", "VITE_SHAPE_API_URL") ??
     "http://localhost:13000",
 );
@@ -19,14 +26,21 @@ const adminIdentifier =
   argValue("--admin-identifier") ??
   argValue("--admin-email") ??
   process.env.SHAPE_REMOTE_ADMIN_IDENTIFIER ??
+  fileEnv.SHAPE_REMOTE_ADMIN_IDENTIFIER ??
   process.env.SHAPE_REMOTE_ADMIN_EMAIL ??
+  fileEnv.SHAPE_REMOTE_ADMIN_EMAIL ??
+  fileEnv.ADMIN_BOOTSTRAP_EMAIL ??
   process.env.HOST_BOOTSTRAP_EMAIL ??
+  fileEnv.HOST_BOOTSTRAP_EMAIL ??
   readEnvFileValue("apps/admin/.env.local", "HOST_BOOTSTRAP_EMAIL") ??
   "admin@shape.test";
 const adminPassword =
   argValue("--admin-password") ??
   process.env.SHAPE_REMOTE_ADMIN_PASSWORD ??
+  fileEnv.SHAPE_REMOTE_ADMIN_PASSWORD ??
+  fileEnv.ADMIN_BOOTSTRAP_PASSWORD ??
   process.env.HOST_BOOTSTRAP_PASSWORD ??
+  fileEnv.HOST_BOOTSTRAP_PASSWORD ??
   readEnvFileValue("apps/admin/.env.local", "HOST_BOOTSTRAP_PASSWORD") ??
   "ChangeMe123!";
 const hostIdentifier =
@@ -34,11 +48,17 @@ const hostIdentifier =
   argValue("--host-email") ??
   argValue("--host") ??
   process.env.SHAPE_REMOTE_HOST_IDENTIFIER ??
+  fileEnv.SHAPE_REMOTE_HOST_IDENTIFIER ??
   process.env.SHAPE_REMOTE_HOST_EMAIL ??
+  fileEnv.SHAPE_REMOTE_HOST_EMAIL ??
   process.env.VITE_SHAPE_HOST_IDENTIFIER ??
+  fileEnv.VITE_SHAPE_HOST_IDENTIFIER ??
   null;
 const hostPassword =
-  argValue("--host-password") ?? process.env.SHAPE_REMOTE_HOST_PASSWORD ?? null;
+  argValue("--host-password") ??
+  process.env.SHAPE_REMOTE_HOST_PASSWORD ??
+  fileEnv.SHAPE_REMOTE_HOST_PASSWORD ??
+  null;
 const artifactFile = argValue("--artifact-file");
 const identityName =
   argValue("--name") ??
@@ -56,6 +76,7 @@ const report = {
   apiUrl,
   pushed: !noPush,
   verified: false,
+  envFile: envFile ? resolve(envFile) : null,
   targetHost: null,
   identity: null,
   checks: [],
@@ -404,6 +425,26 @@ function readEnvFileValue(file, key) {
   }
 
   return null;
+}
+
+function readEnvFile(file) {
+  if (!existsSync(file)) {
+    throw new Error(`No existe --env-file: ${file}`);
+  }
+
+  const values = {};
+  for (const rawLine of readFileSync(file, "utf8").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const equalsIndex = line.indexOf("=");
+    if (equalsIndex === -1) continue;
+    const key = line.slice(0, equalsIndex).trim();
+    values[key] = line
+      .slice(equalsIndex + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, "");
+  }
+  return values;
 }
 
 function redact(input) {

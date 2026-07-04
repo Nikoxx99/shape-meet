@@ -26,6 +26,7 @@ const skipDebug = args.includes("--skip-debug");
 const skipRealCheck = args.includes("--skip-real-check");
 const skipDesktop = args.includes("--skip-desktop");
 const skipModelBootstrap = args.includes("--skip-model-bootstrap");
+const skipIdentityPush = args.includes("--skip-identity-push");
 const desktopMode = normalizeDesktopMode(
   argValue("--desktop-mode") ??
     (args.includes("--local-bundle") ? "local" : null) ??
@@ -41,6 +42,11 @@ const runtimeEnvFile =
 const remoteEnvFile = argValue("--remote-env-file") ?? null;
 const timeoutMs = argValue("--timeout-ms") ?? "45000";
 const remoteTimeoutMs = argValue("--remote-timeout-ms") ?? null;
+const identityArtifactFile =
+  argValue("--identity-artifact-file") ??
+  argValue("--artifact-file") ??
+  process.env.SHAPE_DEMO_IDENTITY_ARTIFACT_FILE ??
+  null;
 
 const report = {
   generatedAt,
@@ -55,6 +61,7 @@ const report = {
     remoteEnvFile,
     timeoutMs,
     remoteTimeoutMs,
+    identityArtifactFile,
   },
   steps: {},
   artifacts: {},
@@ -88,6 +95,8 @@ function main() {
     ? skipped("Readiness demo real", "omitido por --skip-real-check")
     : runRealReadinessStep();
 
+  report.steps.identityPush = resolveIdentityPushStep();
+
   report.steps.desktop =
     skipDesktop || desktopMode === "skip"
       ? skipped("Desktop handoff", "omitido por --skip-desktop")
@@ -107,6 +116,61 @@ function main() {
   writeFileSync(join(outputDir, "README.md"), renderReadme(redact(report)));
 
   finish(strict && !report.ok ? 1 : 0);
+}
+
+function resolveIdentityPushStep() {
+  if (skipIdentityPush) {
+    return skipped("Identidad host real", "omitido por --skip-identity-push");
+  }
+  if (!identityArtifactFile) {
+    return skipped(
+      "Identidad host real",
+      "pasa --identity-artifact-file para publicarla",
+    );
+  }
+  return runIdentityPushStep();
+}
+
+function runIdentityPushStep() {
+  const commandArgs = [
+    "demo:identity:push",
+    "--",
+    "--json",
+    "--artifact-file",
+    identityArtifactFile,
+  ];
+
+  if (remoteEnvFile) commandArgs.push("--env-file", remoteEnvFile);
+  forwardValue(commandArgs, "--api-url");
+  forwardValue(commandArgs, "--admin-identifier");
+  forwardValue(commandArgs, "--admin-email");
+  forwardValue(commandArgs, "--admin-password");
+  forwardValue(commandArgs, "--host-identifier");
+  forwardValue(commandArgs, "--host-email");
+  forwardValue(commandArgs, "--host-password");
+  forwardValue(commandArgs, "--identity-name");
+  forwardValue(commandArgs, "--name");
+  forwardValue(commandArgs, "--kind");
+  forwardValue(commandArgs, "--version");
+  forwardFlag(commandArgs, "--no-push");
+  forwardFlag(commandArgs, "--skip-verify");
+
+  const step = commandStep("Identidad host real", commandArgs, {
+    parseJson: true,
+    timeout: 90_000,
+  });
+  const identity = step.report?.identity;
+  if (identity) {
+    report.demo.identity = {
+      id: identity.id,
+      name: identity.name,
+      status: identity.status,
+      deliveryStatus: identity.deliveryStatus,
+      artifactSizeBytes: identity.artifactSizeBytes,
+      artifactSha256: identity.artifactSha256,
+    };
+  }
+  return step;
 }
 
 function runPrepareStep() {
@@ -377,6 +441,11 @@ function collectSummary() {
       "Genera o descarga el bundle desktop antes del handoff de instalacion.",
     );
   }
+  if (!report.steps.identityPush?.ok && !report.steps.identityPush?.skipped) {
+    nextSteps.push(
+      "Publica la identidad real con `pnpm demo:identity:push` antes de entrar como host con face swap.",
+    );
+  }
 
   report.nextSteps = [...new Set(nextSteps)].slice(0, 16);
 }
@@ -410,6 +479,9 @@ function renderReadme(currentReport) {
       : null,
     currentReport.demo.desktop?.artifacts?.length
       ? `- Desktop artifacts: ${currentReport.demo.desktop.artifacts.join(", ")}`
+      : null,
+    currentReport.demo.identity
+      ? `- Identidad host: ${currentReport.demo.identity.name} ${currentReport.demo.identity.status}/${currentReport.demo.identity.deliveryStatus}`
       : null,
   ]
     .filter(Boolean)
@@ -448,6 +520,7 @@ ${nextStepLines}
 pnpm demo:up
 pnpm demo:verify
 pnpm demo:handoff
+pnpm demo:handoff -- --remote-env-file infra/shape-meet.production.env --identity-artifact-file /ruta/rostro-o-modelo.bin
 pnpm demo:real:check -- --include-desktop --require-real-models --strict
 pnpm models:bootstrap -- --profile ${currentReport.options.profile} --write-runtime --strict --write-checklist
 \`\`\`
@@ -609,7 +682,7 @@ function redact(input) {
 
 function redactCommand(command) {
   return redactEmbeddedSecrets(command).replace(
-    /(--password(?:=|\s+))("[^"]+"|'[^']+'|\S+)/gi,
+    /(--[\w-]*password(?:=|\s+))("[^"]+"|'[^']+'|\S+)/gi,
     "$1<redacted:password>",
   );
 }

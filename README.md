@@ -111,7 +111,10 @@ pnpm demo:handoff
 En una maquina sin GPU puedes dejar evidencia sin exigir modelos reales. En la
 estacion final usa `pnpm demo:handoff -- --require-real-models --strict` y pasa
 `--env-file`, `--remote-env-file`, `--identity`, `--frame`, `--clean-plate` y
-`--audio` cuando ya existan assets reales de prueba.
+`--audio` cuando ya existan assets reales de prueba. Si quieres que el paquete
+publique el rostro/modelo real del host contra el admin remoto, agrega
+`--identity-artifact-file /ruta/rostro-o-modelo.bin`; el handoff ejecutará
+`demo:identity:push` usando `--remote-env-file`.
 
 Si `demo:doctor` muestra `IA local: online sin demo`, detén el sidecar actual y
 vuelve a correr `pnpm demo:up -- --replace-ai`. Ese flag solo reemplaza el
