@@ -144,6 +144,7 @@ pnpm demo:ui:install
 pnpm demo:ui
 pnpm demo:local-preview
 pnpm demo:real:check
+pnpm sentry:configure -- --dsn "https://public_key@o123.ingest.us.sentry.io/456" --environment internal-debug --debug true
 pnpm check:sentry
 pnpm check:sentry:live
 
@@ -699,6 +700,19 @@ equivalentes (`VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT`,
 `VITE_SENTRY_RELEASE`, `VITE_SENTRY_TRACES_SAMPLE_RATE`). Si no hay DSN, la app
 sigue funcionando y el panel de prueba muestra que solo está activo el debug
 local.
+
+Para conectar una máquina local de demo con Sentry sin commitear credenciales:
+
+```bash
+pnpm sentry:configure -- --dsn "https://public_key@o123.ingest.us.sentry.io/456" --environment internal-debug --debug true
+pnpm check:sentry
+pnpm check:sentry:live
+```
+
+Ese comando actualiza `.env.local`, `apps/admin/.env.local` y
+`apps/desktop/.env.local`, conservando otras variables existentes. Los archivos
+están ignorados por Git. Usa `--debug false` cuando pasemos de diagnóstico
+interno a builds más silenciosos.
 
 En Tauri, la prueba de equipo consulta `nvidia-smi` y muestra GPU, VRAM, CUDA y
 driver. En un Windows sin GPU NVIDIA compatible debe quedar en modo limitado,
