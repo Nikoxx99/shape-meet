@@ -229,11 +229,16 @@ function inspectRealModels() {
   const backgroundCommand = env.SHAPE_BACKGROUND_COMMAND?.trim();
   const audioChunkCommand = env.SHAPE_AUDIO_CHUNK_COMMAND?.trim();
   const voiceCommand = env.SHAPE_VOICE_COMMAND?.trim();
+  const videoFrameEndpoint = env.SHAPE_VIDEO_FRAME_ENDPOINT?.trim();
+  const faceEndpoint = env.SHAPE_FACE_ENDPOINT?.trim();
+  const backgroundEndpoint = env.SHAPE_BACKGROUND_ENDPOINT?.trim();
+  const audioChunkEndpoint = env.SHAPE_AUDIO_CHUNK_ENDPOINT?.trim();
+  const voiceEndpoint = env.SHAPE_VOICE_ENDPOINT?.trim();
 
   if (!envPath || !existsSync(resolve(repoRoot, envPath))) {
     issues.push("No hay runtime env para validar modelos reales.");
     nextSteps.push(
-      "Genera runtime real con `pnpm models:runtime -- --profile windows-nvidia --preset local-wrappers`.",
+      "Genera runtime real con `pnpm models:runtime -- --profile windows-nvidia --preset local-endpoints`.",
     );
   }
 
@@ -246,32 +251,49 @@ function inspectRealModels() {
     );
   }
 
-  if (videoFrameCommand) {
-    requirePlaceholder(
-      videoFrameCommand,
-      "SHAPE_VIDEO_FRAME_COMMAND",
-      "identity",
-      issues,
-    );
-    requirePlaceholder(
-      videoFrameCommand,
-      "SHAPE_VIDEO_FRAME_COMMAND",
-      "clean_plate",
+  if (videoFrameCommand || videoFrameEndpoint) {
+    if (videoFrameCommand) {
+      requirePlaceholder(
+        videoFrameCommand,
+        "SHAPE_VIDEO_FRAME_COMMAND",
+        "identity",
+        issues,
+      );
+      requirePlaceholder(
+        videoFrameCommand,
+        "SHAPE_VIDEO_FRAME_COMMAND",
+        "clean_plate",
+        issues,
+      );
+    }
+    validateEndpointUrl(
+      videoFrameEndpoint,
+      "SHAPE_VIDEO_FRAME_ENDPOINT",
       issues,
     );
   } else {
-    if (!faceCommand) {
-      issues.push("Falta SHAPE_FACE_COMMAND para face swap real.");
+    if (!faceCommand && !faceEndpoint) {
+      issues.push(
+        "Falta SHAPE_FACE_COMMAND o SHAPE_FACE_ENDPOINT para face swap real.",
+      );
       nextSteps.push(
-        "Configura FaceFusion con `--facefusion-dir`, `--facefusion-python` o un `--face-command` real.",
+        "Configura FaceFusion con `--facefusion-dir`, `--facefusion-python`, un `--face-command` real o un `--face-endpoint` persistente.",
       );
     }
-    if (!backgroundCommand) {
-      issues.push("Falta SHAPE_BACKGROUND_COMMAND para cambio de fondo real.");
+    if (!backgroundCommand && !backgroundEndpoint) {
+      issues.push(
+        "Falta SHAPE_BACKGROUND_COMMAND o SHAPE_BACKGROUND_ENDPOINT para cambio de fondo real.",
+      );
       nextSteps.push(
-        "Configura BackgroundMattingV2 con `--bmv2-repo-dir`, `--bmv2-checkpoint` y `--bmv2-python`.",
+        "Configura BackgroundMattingV2 con `--bmv2-repo-dir`, `--bmv2-checkpoint`, `--bmv2-python` o un `--background-endpoint` persistente.",
       );
     }
+    validateEndpointUrl(faceEndpoint, "SHAPE_FACE_ENDPOINT", issues);
+    validateEndpointUrl(
+      backgroundEndpoint,
+      "SHAPE_BACKGROUND_ENDPOINT",
+      issues,
+    );
   }
 
   if (faceCommand?.includes("facefusion_frame.py")) {
@@ -295,12 +317,21 @@ function inspectRealModels() {
     }
   }
 
-  if (!audioChunkCommand && !voiceCommand) {
-    issues.push("Falta SHAPE_VOICE_COMMAND o SHAPE_AUDIO_CHUNK_COMMAND.");
+  if (
+    !audioChunkCommand &&
+    !voiceCommand &&
+    !audioChunkEndpoint &&
+    !voiceEndpoint
+  ) {
+    issues.push(
+      "Falta SHAPE_VOICE_COMMAND, SHAPE_AUDIO_CHUNK_COMMAND, SHAPE_VOICE_ENDPOINT o SHAPE_AUDIO_CHUNK_ENDPOINT.",
+    );
     nextSteps.push(
-      "Arranca vcclient000/w-okada y configura VCCLIENT000_HTTP_ENDPOINT o un comando de voz real.",
+      "Arranca vcclient000/w-okada y configura VCCLIENT000_HTTP_ENDPOINT, un comando de voz real o un endpoint persistente de audio.",
     );
   }
+  validateEndpointUrl(audioChunkEndpoint, "SHAPE_AUDIO_CHUNK_ENDPOINT", issues);
+  validateEndpointUrl(voiceEndpoint, "SHAPE_VOICE_ENDPOINT", issues);
 
   if (voiceCommand?.includes("vcclient000_chunk.py")) {
     if (!env.VCCLIENT000_CHUNK_COMMAND && !env.VCCLIENT000_HTTP_ENDPOINT) {
@@ -328,6 +359,27 @@ function inspectRealModels() {
     realModelsConfigured,
     requireRealModels,
     envFile: envPath,
+    runtimePreset: env.SHAPE_MODEL_RUNTIME_PRESET ?? null,
+    adapters: {
+      video: videoFrameEndpoint
+        ? "video-frame-endpoint"
+        : videoFrameCommand
+          ? "video-frame-command"
+          : faceEndpoint || backgroundEndpoint
+            ? "stage-endpoints"
+            : faceCommand || backgroundCommand
+              ? "stage-commands"
+              : null,
+      audio: audioChunkEndpoint
+        ? "audio-chunk-endpoint"
+        : voiceEndpoint
+          ? "voice-endpoint"
+          : audioChunkCommand
+            ? "audio-chunk-command"
+            : voiceCommand
+              ? "voice-command"
+              : null,
+    },
     issues,
     warnings,
     nextSteps: [...new Set(nextSteps)],
@@ -616,6 +668,19 @@ function realDemoReady() {
 function requirePlaceholder(command, label, placeholder, issues) {
   if (!command.includes(`{${placeholder}}`)) {
     issues.push(`${label} debe incluir {${placeholder}} para demo real.`);
+  }
+}
+
+function validateEndpointUrl(value, label, issues) {
+  if (!value) return;
+
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      issues.push(`${label} debe usar http:// o https://.`);
+    }
+  } catch {
+    issues.push(`${label} no es una URL valida.`);
   }
 }
 

@@ -11,6 +11,7 @@ const audioPort = await getFreePort();
 
 try {
   const envPath = join(tempDir, "shape-ai-runtime.env");
+  const endpointEnvPath = join(tempDir, "shape-ai-runtime-endpoints.env");
   const framePath = join(tempDir, "frame.jpg");
   const identityPath = join(tempDir, "identity.jpg");
   const cleanPlatePath = join(tempDir, "clean-plate.jpg");
@@ -28,6 +29,22 @@ try {
     "--passthrough",
     "--out",
     envPath,
+    "--video-port",
+    String(videoPort),
+    "--audio-port",
+    String(audioPort),
+  ]);
+
+  runChecked([
+    "scripts/prepare-ai-runtime-models.mjs",
+    "--preset",
+    "local-endpoints",
+    "--out",
+    endpointEnvPath,
+    "--video-frame-endpoint",
+    "http://127.0.0.1:9100/video-frame",
+    "--audio-chunk-endpoint",
+    "http://127.0.0.1:9100/voice",
     "--video-port",
     String(videoPort),
     "--audio-port",
@@ -186,6 +203,61 @@ try {
         asset.sha256.length === 64,
     ),
     "validated demo assets should include sha256 hashes",
+  );
+
+  const endpointResult = spawnSync(
+    process.execPath,
+    [
+      "scripts/check-real-demo-readiness.mjs",
+      "--json",
+      "--skip-sentry",
+      "--env-file",
+      endpointEnvPath,
+      "--require-real-models",
+      "--skip-model-preflight",
+      "--frame",
+      framePath,
+      "--identity",
+      identityPath,
+      "--clean-plate",
+      cleanPlatePath,
+      "--audio",
+      audioPath,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 90000,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+
+  if (endpointResult.status !== 0) {
+    if (endpointResult.stdout) process.stdout.write(endpointResult.stdout);
+    if (endpointResult.stderr) process.stderr.write(endpointResult.stderr);
+    throw new Error(
+      `endpoint runtime readiness check failed with ${endpointResult.status}`,
+    );
+  }
+
+  const endpointReport = JSON.parse(endpointResult.stdout);
+  assert(
+    endpointReport.steps?.realModels?.realModelsConfigured === true,
+    "endpoint runtime should be marked as real model configured",
+  );
+  assert(
+    endpointReport.steps?.realModels?.runtimePreset === "local-endpoints",
+    "endpoint runtime preset was not reported",
+  );
+  assert(
+    endpointReport.steps?.realModels?.adapters?.video ===
+      "video-frame-endpoint",
+    "endpoint runtime did not report combined video adapter",
+  );
+  assert(
+    endpointReport.steps?.realModels?.adapters?.audio ===
+      "audio-chunk-endpoint",
+    "endpoint runtime did not report audio endpoint adapter",
   );
 
   console.log("real demo readiness smoke ok");
