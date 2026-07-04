@@ -89,6 +89,12 @@ try {
     "coolify firewall rules were not summarized",
   );
   assert(
+    report.demo.coolify.remoteDemoEnv?.endsWith(
+      "coolify-handoff/remote-demo.env",
+    ),
+    "coolify remote demo env was not summarized",
+  );
+  assert(
     report.demo.desktop.artifacts.includes("shape-meet-windows-x64"),
     "desktop artifacts were not summarized",
   );
@@ -117,6 +123,16 @@ try {
     "coolify handoff output missing",
   );
   assert(
+    manifest.artifacts.remoteDemoEnv.endsWith(
+      "coolify-handoff/remote-demo.env",
+    ),
+    "remote demo env artifact missing",
+  );
+  assert(
+    existsSync(manifest.artifacts.remoteDemoEnv),
+    "remote demo env file missing",
+  );
+  assert(
     manifest.artifacts.windowsHandoff.endsWith("windows-handoff"),
     "windows handoff output missing",
   );
@@ -129,6 +145,18 @@ try {
     "README coolify status missing",
   );
   assert(readme.includes("Coolify/TURN: ok"), "README coolify summary missing");
+  assert(
+    readme.includes("remote-demo.env"),
+    "README remote demo env summary missing",
+  );
+  assert(
+    readme.includes("pnpm demo:remote:check"),
+    "README remote check command missing",
+  );
+  assert(
+    readme.includes("pnpm demo:status -- --remote-env-file"),
+    "README remote status command missing",
+  );
   assert(
     readme.includes("Verificacion UI completa: omitido"),
     "README full UI verify status missing",
@@ -277,6 +305,16 @@ function smokeCoolifyEnvFile() {
     "coolify env-file option missing",
   );
   assert(report.steps.coolify.ok === true, "coolify env-file step failed");
+  assert(
+    report.artifacts.remoteDemoEnv?.endsWith(
+      "coolify-handoff/remote-demo.env",
+    ),
+    "coolify env-file remote demo env artifact missing",
+  );
+  assert(
+    existsSync(report.artifacts.remoteDemoEnv),
+    "coolify env-file remote demo env missing",
+  );
 }
 
 function smokeCoolifySecretRedaction() {

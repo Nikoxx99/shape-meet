@@ -840,12 +840,18 @@ function collectSummary() {
 
   const coolifyReport = report.steps.coolify?.report;
   if (coolifyReport) {
+    const remoteDemoEnv = coolifyReport.remoteDemoEnv ?? null;
+    if (remoteDemoEnv) {
+      report.artifacts.remoteDemoEnv = remoteDemoEnv;
+    }
+
     report.demo.coolify = {
       ok: coolifyReport.ok,
       adminUrl: coolifyReport.coolify?.adminUrl ?? null,
       meetingUrl: coolifyReport.coolify?.meetingUrl ?? null,
       livekitUrl: coolifyReport.coolify?.livekitUrl ?? null,
       turnDomain: coolifyReport.coolify?.turnDomain ?? null,
+      remoteDemoEnv: remoteDemoEnv ? relativePath(remoteDemoEnv) : null,
       firewallRules: Array.isArray(coolifyReport.firewall)
         ? coolifyReport.firewall.length
         : 0,
@@ -925,6 +931,10 @@ function renderReadme(currentReport) {
           currentReport.demo.coolify.ok ? "ok" : "revisar"
         } · ${currentReport.demo.coolify.livekitUrl ?? "LiveKit pendiente"} · ${
           currentReport.demo.coolify.turnDomain ?? "TURN pendiente"
+        }${
+          currentReport.demo.coolify.remoteDemoEnv
+            ? ` · remote env ${currentReport.demo.coolify.remoteDemoEnv}`
+            : ""
         }`
       : null,
     currentReport.steps.localPreview
@@ -1006,6 +1016,8 @@ pnpm demo:handoff
 pnpm demo:handoff -- --verify-ui
 pnpm demo:handoff -- --admin-domain admin.tudominio.com --meeting-domain meet.tudominio.com --livekit-domain livekit.tudominio.com --turn-domain turn.tudominio.com --public-ip 203.0.113.10
 pnpm demo:handoff -- --coolify-env-file infra/shape-meet.production.env --remote-env-file infra/shape-meet.production.env --identity-artifact-file /ruta/rostro-o-modelo.bin
+pnpm demo:remote:check -- --env-file ${currentReport.demo.coolify?.remoteDemoEnv ?? "output/demo-handoff/.../coolify-handoff/remote-demo.env"} --api-flow --identity-flow --strict
+pnpm demo:status -- --remote-env-file ${currentReport.demo.coolify?.remoteDemoEnv ?? "output/demo-handoff/.../coolify-handoff/remote-demo.env"} --remote-api-flow --remote-identity-flow
 pnpm desktop:windows-handoff -- --env-file infra/shape-meet.production.env
 pnpm demo:real:check -- --include-desktop --require-real-models --strict
 pnpm models:bootstrap -- --profile ${currentReport.options.profile} --runtime-preset ${currentReport.options.runtimePreset} --write-runtime --strict --write-checklist
