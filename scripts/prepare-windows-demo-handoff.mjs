@@ -144,6 +144,14 @@ const modelEndpointScriptPath = join(
   outputDir,
   "Start-ShapeMeetModelEndpoint.ps1",
 );
+const modelWorkstationSetupScriptPath = join(
+  outputDir,
+  "Setup-ShapeMeetModelsWindows.ps1",
+);
+const modelWorkstationChecklistPath = join(
+  outputDir,
+  "ModelWorkstationChecklist.md",
+);
 const readmePath = join(outputDir, "README.md");
 const manifestPath = join(outputDir, "manifest.json");
 const runtimeResult = writeRuntimeConfig(runtimeConfigPath);
@@ -156,8 +164,24 @@ const aiRuntimeResult = skipModelRuntime
       stderr: "",
     }
   : writeAiRuntimeConfig(aiRuntimeConfigPath);
+const modelWorkstationResult = skipModelRuntime
+  ? {
+      skipped: true,
+      status: 0,
+      command: "node scripts/bootstrap-model-workstation.mjs",
+      stdout: "",
+      stderr: "",
+      report: null,
+    }
+  : writeModelWorkstationHandoff(
+      modelWorkstationSetupScriptPath,
+      modelWorkstationChecklistPath,
+    );
 const manifest = {
-  ok: runtimeResult.status === 0 && aiRuntimeResult.status === 0,
+  ok:
+    runtimeResult.status === 0 &&
+    aiRuntimeResult.status === 0 &&
+    modelWorkstationResult.status === 0,
   generatedAt: new Date().toISOString(),
   outputDir,
   runtimeConfig: runtimeConfigPath,
@@ -166,6 +190,12 @@ const manifest = {
   diagnosticScript: diagnosticScriptPath,
   installAiRuntimeScript: skipModelRuntime ? null : installAiRuntimeScriptPath,
   modelEndpointScript: skipModelRuntime ? null : modelEndpointScriptPath,
+  modelWorkstationSetupScript: skipModelRuntime
+    ? null
+    : modelWorkstationSetupScriptPath,
+  modelWorkstationChecklist: skipModelRuntime
+    ? null
+    : modelWorkstationChecklistPath,
   readme: readmePath,
   manifest: manifestPath,
   config: {
@@ -190,6 +220,7 @@ const manifest = {
   },
   runtimeConfigCommand: runtimeResult,
   aiRuntimeConfigCommand: aiRuntimeResult,
+  modelWorkstationCommand: modelWorkstationResult,
   expectedWindowsArtifacts: [
     "apps/desktop/src-tauri/target/release/bundle/**/*.msi",
     "apps/desktop/src-tauri/target/release/bundle/**/*.exe",
@@ -302,6 +333,65 @@ function writeAiRuntimeConfig(outPath) {
     status: result.status,
     stdout: trim(result.stdout),
     stderr: trim(result.stderr),
+  };
+}
+
+function writeModelWorkstationHandoff(setupScriptPath, checklistPath) {
+  const commandArgs = [
+    "scripts/bootstrap-model-workstation.mjs",
+    "--json",
+    "--dry-run",
+    "--profile",
+    config.modelProfile,
+    "--runtime-preset",
+    config.modelRuntimePreset,
+    "--model-endpoint-host",
+    config.modelEndpointHost,
+    "--model-endpoint-port",
+    config.modelEndpointPort,
+    "--write-setup-script",
+    "--setup-script-out",
+    setupScriptPath,
+    "--write-checklist",
+    "--checklist-out",
+    checklistPath,
+    "--skip-hardware",
+    "--skip-vcclient",
+  ];
+
+  pushOptional(
+    commandArgs,
+    "--video-frame-endpoint",
+    config.videoFrameEndpoint,
+  );
+  pushOptional(commandArgs, "--face-endpoint", config.faceEndpoint);
+  pushOptional(commandArgs, "--background-endpoint", config.backgroundEndpoint);
+  pushOptional(
+    commandArgs,
+    "--audio-chunk-endpoint",
+    config.audioChunkEndpoint,
+  );
+  pushOptional(commandArgs, "--voice-endpoint", config.voiceEndpoint);
+
+  const result = spawnSync(process.execPath, commandArgs, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024,
+  });
+
+  let report = null;
+  try {
+    report = result.stdout ? JSON.parse(result.stdout) : null;
+  } catch {
+    report = null;
+  }
+
+  return {
+    command: `node ${commandArgs.join(" ")}`,
+    status: result.status,
+    stdout: report ? "" : trim(result.stdout),
+    stderr: trim(result.stderr),
+    report,
   };
 }
 
@@ -678,6 +768,10 @@ sidecar debe construirse en Windows para producir el instalador Windows.
   \`%LOCALAPPDATA%\\Shape Meet\`.
 - \`Start-ShapeMeetModelEndpoint.ps1\`: levanta el endpoint local
   \`${report.config.modelEndpointBaseUrl}\`.
+- \`Setup-ShapeMeetModelsWindows.ps1\`: prepara repos y entornos Python para
+  FaceFusion y BackgroundMattingV2 en una workstation RTX.
+- \`ModelWorkstationChecklist.md\`: checklist de rutas, assets, blockers y
+  comandos para validar modelos reales.
 - \`manifest.json\`: resumen de URLs y comandos.
 
 ## Runtime
@@ -752,6 +846,20 @@ despues de instalar FaceFusion, BackgroundMattingV2 y vcclient000:
 \`\`\`powershell
 .\\${relativePath(modelEndpointScriptPath)}
 \`\`\`
+
+## Modelos reales en RTX
+
+Para preparar la workstation final:
+
+\`\`\`powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\\${relativePath(modelWorkstationSetupScriptPath)}
+pnpm models:bootstrap -- --profile windows-nvidia --write-demo-assets --write-runtime --strict --write-checklist
+pnpm models:preflight -- --env-file "$env:LOCALAPPDATA\\Shape Meet\\shape-ai-runtime.env" --strict
+\`\`\`
+
+El setup no descarga checkpoints/licencias privadas. Revisa
+\`${relativePath(modelWorkstationChecklistPath)}\` antes del demo real.
 
 La app Tauri carga \`%LOCALAPPDATA%\\Shape Meet\\shape-ai-runtime.env\` al
 iniciar el sidecar gestionado. Si la app ya estaba abierta, reiniciala despues

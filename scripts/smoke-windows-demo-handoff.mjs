@@ -64,6 +64,22 @@ try {
     "model endpoint script missing from report",
   );
   assert(
+    report.modelWorkstationSetupScript,
+    "model workstation setup script missing from report",
+  );
+  assert(
+    report.modelWorkstationChecklist,
+    "model workstation checklist missing from report",
+  );
+  assert(
+    report.modelWorkstationCommand?.status === 0,
+    "model workstation bootstrap failed",
+  );
+  assert(
+    report.modelWorkstationCommand?.report?.profile === "windows-nvidia",
+    "model workstation profile mismatch",
+  );
+  assert(
     report.config.modelEndpointBaseUrl === "http://127.0.0.1:9100",
     "model endpoint base URL mismatch",
   );
@@ -177,6 +193,34 @@ try {
     "model endpoint script did not support demo effects",
   );
 
+  const modelSetupScript = read("Setup-ShapeMeetModelsWindows.ps1");
+  assert(
+    modelSetupScript.includes("Shape Meet Windows/NVIDIA"),
+    "model setup script title missing",
+  );
+  assert(
+    modelSetupScript.includes("git clone --depth 1"),
+    "model setup script clone command missing",
+  );
+  assert(
+    modelSetupScript.includes("pnpm models:preflight"),
+    "model setup script preflight command missing",
+  );
+
+  const modelChecklist = read("ModelWorkstationChecklist.md");
+  assert(
+    modelChecklist.includes("Shape Meet Model Workstation Checklist"),
+    "model checklist title missing",
+  );
+  assert(
+    modelChecklist.includes("Readiness demo real"),
+    "model checklist readiness section missing",
+  );
+  assert(
+    modelChecklist.includes("C:\\models\\identities\\host.jpg"),
+    "model checklist identity path missing",
+  );
+
   const readme = read("README.md");
   assert(
     readme.includes("Shape Meet Windows Demo Handoff"),
@@ -194,6 +238,14 @@ try {
   assert(
     readme.includes("-DemoEffects"),
     "demo effects path missing from readme",
+  );
+  assert(
+    readme.includes("Setup-ShapeMeetModelsWindows.ps1"),
+    "model setup script missing from readme",
+  );
+  assert(
+    readme.includes("ModelWorkstationChecklist.md"),
+    "model checklist missing from readme",
   );
   assert(existsSync(join(tempDir, "manifest.json")), "manifest missing");
 
