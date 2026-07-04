@@ -68,6 +68,47 @@ try {
     report.steps?.modelPreflight?.checks?.some((check) => check.id === "audio"),
     "readiness report did not include audio preflight",
   );
+  assert(
+    report.steps?.realModels?.realModelsConfigured === false,
+    "passthrough smoke should not be marked as real model ready",
+  );
+  assert(
+    report.readyForRealDemo === false,
+    "passthrough smoke should not be marked ready for real demo",
+  );
+
+  const strictResult = spawnSync(
+    process.execPath,
+    [
+      "scripts/check-real-demo-readiness.mjs",
+      "--json",
+      "--skip-sentry",
+      "--env-file",
+      envPath,
+      "--timeout-ms",
+      "45000",
+      "--require-real-models",
+      "--skip-model-preflight",
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 90000,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+
+  if (strictResult.status === 0) {
+    if (strictResult.stdout) process.stdout.write(strictResult.stdout);
+    if (strictResult.stderr) process.stderr.write(strictResult.stderr);
+    throw new Error("require-real-models check should fail with passthrough");
+  }
+
+  const strictReport = JSON.parse(strictResult.stdout);
+  assert(
+    strictReport.steps?.realModels?.ok === false,
+    "require-real-models did not fail the realModels step",
+  );
 
   console.log("real demo readiness smoke ok");
 } finally {

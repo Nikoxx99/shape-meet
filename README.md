@@ -228,13 +228,17 @@ pnpm demo:real:check -- \
   --frame C:\models\samples\frame.jpg \
   --clean-plate C:\models\samples\clean-plate.jpg \
   --audio C:\models\samples\audio.f32le \
+  --require-real-models \
   --strict \
   --output output\debug\real-demo-readiness.json
 ```
 
-En equipos sin GPU/modelos instalados puedes validar Sentry y configuración
-base con `--skip-model-preflight`; el preflight real debe pasar antes de mostrar
-face swap/fondo/voz en una demo comercial.
+En equipos sin GPU/modelos instalados puedes validar Sentry, contrato y
+configuración base sin `--require-real-models`; el reporte marcará `Modelos
+reales: pendiente` si sigue en passthrough. En la estación NVIDIA final usa
+`--require-real-models` para fallar cuando FaceFusion, BackgroundMattingV2 o
+vcclient000 todavía no estén realmente conectados. El preflight real debe pasar
+antes de mostrar face swap/fondo/voz en una demo comercial.
 
 `pnpm models:doctor` revisa el runtime de modelos sin cargar pesos pesados:
 archivo `shape-ai-runtime.env`, comandos de procesador, placeholders requeridos,
