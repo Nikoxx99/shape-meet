@@ -100,6 +100,18 @@ hardware y runtime de modelos, sin incluir secretos:
 pnpm demo:debug
 ```
 
+Para preparar un paquete unico de handoff del demo con manifest, README,
+readiness real, debug bundle, instalador desktop y checklist/setup de modelos:
+
+```bash
+pnpm demo:handoff
+```
+
+En una maquina sin GPU puedes dejar evidencia sin exigir modelos reales. En la
+estacion final usa `pnpm demo:handoff -- --require-real-models --strict` y pasa
+`--env-file`, `--remote-env-file`, `--identity`, `--frame`, `--clean-plate` y
+`--audio` cuando ya existan assets reales de prueba.
+
 Si `demo:doctor` muestra `IA local: online sin demo`, detén el sidecar actual y
 vuelve a correr `pnpm demo:up -- --replace-ai`. Ese flag solo reemplaza el
 proceso si el puerto IA está ocupado por un sidecar local de Shape Meet.
