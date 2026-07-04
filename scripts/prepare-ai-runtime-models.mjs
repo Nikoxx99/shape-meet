@@ -49,8 +49,14 @@ const preset = (
   ""
 ).toLowerCase();
 const passthrough = args.includes("--passthrough");
+const engineMode = (
+  argValue("--engine") ??
+  process.env.SHAPE_MODEL_ENDPOINT_ENGINE ??
+  ""
+).toLowerCase();
 const config = {
   runtimePreset: preset || "local-wrappers",
+  engine: engineMode,
   modelEndpointHost,
   modelEndpointPort,
   processorCommand: resolveProcessorCommand(),
@@ -93,6 +99,17 @@ const config = {
     process.env.SHAPE_PROCESSOR_TIMEOUT_SECS ??
     workstationDefaults.processorTimeout ??
     "10",
+  inswapperModel:
+    argValue("--inswapper-model") ?? process.env.SHAPE_INSWAPPER_MODEL,
+  rvmModel: argValue("--rvm-model") ?? process.env.SHAPE_RVM_MODEL,
+  insightfaceHome:
+    argValue("--insightface-home") ??
+    process.env.SHAPE_INSIGHTFACE_HOME ??
+    process.env.INSIGHTFACE_HOME,
+  faceProviders:
+    argValue("--face-providers") ?? process.env.SHAPE_FACE_EXECUTION_PROVIDERS,
+  backgroundColor:
+    argValue("--background-color") ?? process.env.SHAPE_BACKGROUND_COLOR,
   workstationProfile,
   modelEnv: resolveModelEnv(),
 };
@@ -128,6 +145,13 @@ if (!dryRun && !printOnly) {
 }
 
 function renderRuntimeEnv(input) {
+  if (
+    input.engine === "inproc" &&
+    ["local-endpoints", "endpoints"].includes(input.runtimePreset)
+  ) {
+    return renderInprocRuntimeEnv(input);
+  }
+
   return [
     "# Shape Meet model AI runtime",
     "# Runtime local para wrappers reales de face swap, fondo y voz.",
@@ -159,6 +183,85 @@ function renderRuntimeEnv(input) {
     ...Object.entries(input.modelEnv).map(([key, value]) => `${key}=${value}`),
     "",
   ].join("\n");
+}
+
+function renderInprocRuntimeEnv(input) {
+  // Collapsed hops (§2): server.py posts directly to the model endpoint
+  // (:9100/process-frame|/process-audio); NO *_PROCESSOR_COMMAND so no
+  // shape_processor_command process is spawned.
+  const base = `http://${input.modelEndpointHost}:${input.modelEndpointPort}`;
+  const timeouts = inprocPhaseTimeouts(input.workstationProfile);
+  const faceProviders =
+    input.faceProviders ?? defaultFaceProviders(input.workstationProfile);
+  const backgroundEngine = ["rvm", "bmv2"].includes(input.backgroundEngine)
+    ? input.backgroundEngine
+    : "rvm";
+
+  return [
+    "# Shape Meet in-process AI runtime (collapsed hops, engines in :9100)",
+    "# server.py posts directly to the model endpoint; no command processor.",
+    "SHAPE_AI_MODE=adapter-contract",
+    "SHAPE_FACE_ENGINE=insightface",
+    `SHAPE_BACKGROUND_ENGINE=${backgroundEngine}`,
+    "SHAPE_VOICE_ENGINE=vcclient000",
+    `SHAPE_MODEL_WORKSTATION_PROFILE=${input.workstationProfile}`,
+    `SHAPE_MODEL_RUNTIME_PRESET=${input.runtimePreset}`,
+    "SHAPE_MODEL_ENDPOINT_ENGINE=inproc",
+    `SHAPE_MODEL_ENDPOINT_HOST=${input.modelEndpointHost}`,
+    `SHAPE_MODEL_ENDPOINT_PORT=${input.modelEndpointPort}`,
+    `SHAPE_VIDEO_PROCESSOR_ENDPOINT=${base}/process-frame`,
+    `SHAPE_VIDEO_PROCESSOR_HEALTH_URL=${base}/health`,
+    `SHAPE_AUDIO_PROCESSOR_ENDPOINT=${base}/process-audio`,
+    `SHAPE_AUDIO_PROCESSOR_HEALTH_URL=${base}/health`,
+    "# SHAPE_VIDEO_PROCESSOR_COMMAND intentionally unset (collapsed hops)",
+    "# SHAPE_AUDIO_PROCESSOR_COMMAND intentionally unset (collapsed hops)",
+    "# Phase 1/2 timeouts (§4) — inner (endpoint) < outer (server->endpoint)",
+    `SHAPE_PROCESSOR_TIMEOUT_SECS=${timeouts.processor}`,
+    `SHAPE_AUDIO_PROCESSOR_TIMEOUT_SECS=${timeouts.audioProcessor}`,
+    `SHAPE_MODEL_ENDPOINT_TIMEOUT_SECS=${timeouts.endpoint}`,
+    `SHAPE_VOICE_ENDPOINT_TIMEOUT_SECS=${timeouts.voiceEndpoint}`,
+    `SHAPE_MODEL_ENDPOINT_LOAD_TIMEOUT_SECS=${timeouts.load}`,
+    `SHAPE_MODEL_ENDPOINT_POLL_TIMEOUT_SECS=${timeouts.poll}`,
+    `SHAPE_MANAGED_HEALTH_TIMEOUT_SECS=${timeouts.managedHealth}`,
+    "# In-process engine weights & providers (host-provided; never committed)",
+    `SHAPE_FACE_EXECUTION_PROVIDERS=${faceProviders}`,
+    ...optionalLine("SHAPE_INSWAPPER_MODEL", input.inswapperModel),
+    ...optionalLine("SHAPE_RVM_MODEL", input.rvmModel),
+    ...optionalLine("INSIGHTFACE_HOME", input.insightfaceHome),
+    ...optionalLine("SHAPE_BACKGROUND_COLOR", input.backgroundColor),
+    "",
+  ].join("\n");
+}
+
+function inprocPhaseTimeouts(profile) {
+  if (profile === "windows-nvidia") {
+    // Phase 2 (RTX): tighter budgets.
+    return {
+      processor: "2.0",
+      audioProcessor: "1.2",
+      endpoint: "1.5",
+      voiceEndpoint: "1.0",
+      load: "30",
+      poll: "0.75",
+      managedHealth: "0.5",
+    };
+  }
+  // Phase 1 (Mac CPU/MPS/CoreML): generous budgets, correctness over fps.
+  return {
+    processor: "4.0",
+    audioProcessor: "2.5",
+    endpoint: "3.0",
+    voiceEndpoint: "2.0",
+    load: "60",
+    poll: "1.5",
+    managedHealth: "1.0",
+  };
+}
+
+function defaultFaceProviders(profile) {
+  if (profile === "windows-nvidia") return "cuda";
+  if (profile === "apple-silicon") return "coreml,cpu";
+  return "cpu";
 }
 
 function endpointRuntimeLines(input) {
