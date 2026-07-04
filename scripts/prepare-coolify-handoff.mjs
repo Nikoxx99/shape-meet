@@ -236,6 +236,7 @@ function writeRemoteDemoEnv(path, env) {
 
 function firewallChecklist(env) {
   const adminHost = hostnameFromUrl(env.NEXT_PUBLIC_APP_URL);
+  const meetingHost = hostnameFromUrl(env.VITE_SHAPE_MEETING_URL) ?? adminHost;
   const livekitHost = hostnameFromUrl(env.LIVEKIT_URL);
   const turnHost = env.LIVEKIT_TURN_DOMAIN ?? "turn.tudominio.com";
   const relayStart = env.LIVEKIT_TURN_RELAY_RANGE_START ?? "30000";
@@ -249,6 +250,14 @@ function firewallChecklist(env) {
       externalPort: "443/tcp",
       target: "shape-admin:3000/tcp via Coolify HTTP proxy",
       purpose: "Admin API, panel web y launcher publico.",
+    },
+    {
+      id: "meeting-launcher",
+      destination: meetingHost ?? "meet.tudominio.com",
+      protocol: "HTTPS",
+      externalPort: "443/tcp",
+      target: "shape-admin:3000/tcp via Coolify HTTP proxy",
+      purpose: "Links publicos /r/:code y apertura deep link de la app.",
     },
     {
       id: "livekit-signaling",
@@ -333,8 +342,10 @@ function readme(report) {
     "- Compose file: `infra/docker-compose.coolify.yml`",
     "- Build context: repository root",
     "- Admin service port: `3000`",
+    "- Meeting/public launcher host also routes to `shape-admin:3000`",
     "",
     "No definas `NODE_ENV`, `HOST` ni `PORT` en Coolify para `shape-admin`.",
+    "Si `Meeting` usa un dominio distinto al admin, crea otro dominio HTTP en el mismo servicio `shape-admin`; no hay un contenedor `shape-meeting` separado para el launcher público.",
     "",
     "## Variables",
     "",

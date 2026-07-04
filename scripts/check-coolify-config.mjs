@@ -156,6 +156,32 @@ if (appUrl?.hostname && appUrl.hostname === turnDomain) {
   );
 }
 
+if (meetingUrl?.hostname && meetingUrl.hostname === turnDomain) {
+  issues.push(
+    "VITE_SHAPE_MEETING_URL host and LIVEKIT_TURN_DOMAIN must be separate domains",
+  );
+}
+
+if (
+  meetingUrl?.hostname &&
+  livekitUrl?.hostname &&
+  meetingUrl.hostname === livekitUrl.hostname
+) {
+  issues.push(
+    "VITE_SHAPE_MEETING_URL host and LIVEKIT_URL host must be separate domains",
+  );
+}
+
+if (
+  meetingUrl?.hostname &&
+  appUrl?.hostname &&
+  meetingUrl.hostname !== appUrl.hostname
+) {
+  warnings.push(
+    "VITE_SHAPE_MEETING_URL uses a separate host; route that domain to shape-admin:3000 because the public /r/:code launcher is served by the admin app.",
+  );
+}
+
 validateHostOnly("LIVEKIT_TURN_DOMAIN", turnDomain);
 validateExternalIp("LIVEKIT_TURN_EXTERNAL_IP", turnExternalIp);
 

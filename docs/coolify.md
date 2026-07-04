@@ -35,6 +35,12 @@ Puertos que Coolify debe conocer:
 - `shape-turn`: publica directamente `3478/udp`, `3478/tcp`, `5349/tcp`,
   `5349/udp` y el rango UDP relay.
 
+El dominio público de reuniones (`VITE_SHAPE_MEETING_URL`, por ejemplo
+`https://meet.tudominio.com`) también debe apuntar al servicio
+`shape-admin:3000`. El launcher público `/r/{codigo}` vive dentro del admin
+Next: muestra la reunión, intenta abrir la app instalada y deja copiar el
+código. No hay un contenedor `shape-meeting` separado en este demo.
+
 No definas `NODE_ENV`, `HOST` ni `PORT` para `shape-admin` en Coolify. La imagen
 Next standalone ya escucha en `0.0.0.0:3000`; sobrescribir `PORT` puede causar
 502 aunque el contenedor haya arrancado.
@@ -252,6 +258,8 @@ una URL `https://...` o `s3://...` y registrar checksum/tamaño manualmente.
 ## Dominios
 
 - Admin: `https://admin.tudominio.com` hacia `shape-admin:3000`.
+- Meeting launcher: `https://meet.tudominio.com` hacia `shape-admin:3000` si
+  usas un dominio público separado para enlaces `/r/{codigo}`.
 - LiveKit signaling: `wss://livekit.tudominio.com` hacia `shape-livekit:7880`.
 - TURN: `turn.tudominio.com`.
 
@@ -318,6 +326,8 @@ caso cambia `LIVEKIT_TURN_TLS_PORT=443`.
 Checklist de firewall/DNS:
 
 - `admin.tudominio.com` apunta al proxy HTTP de Coolify.
+- `meet.tudominio.com`, si existe, apunta al mismo servicio `shape-admin:3000`
+  por el proxy HTTP de Coolify.
 - `livekit.tudominio.com` apunta al proxy HTTP de Coolify y termina TLS para
   `wss://`.
 - `turn.tudominio.com` apunta al balanceador L4 o IP pública que recibe TURN.

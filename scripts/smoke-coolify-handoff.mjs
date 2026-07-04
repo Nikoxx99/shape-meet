@@ -63,6 +63,15 @@ function smokeGeneratedProductionHandoff() {
   assert(
     report.firewall.some(
       (entry) =>
+        entry.id === "meeting-launcher" &&
+        entry.destination === "meet.shape-demo.test" &&
+        entry.target === "shape-admin:3000/tcp via Coolify HTTP proxy",
+    ),
+    "meeting launcher routing row missing",
+  );
+  assert(
+    report.firewall.some(
+      (entry) =>
         entry.id === "turn-relay-udp-range" &&
         entry.externalPort === "30000-30100/udp",
     ),
@@ -128,7 +137,19 @@ function smokeGeneratedProductionHandoff() {
     readme.includes("Resource type: Docker Compose"),
     "resource instructions missing",
   );
+  assert(
+    readme.includes(
+      "Meeting/public launcher host also routes to `shape-admin:3000`",
+    ),
+    "meeting launcher routing docs missing",
+  );
   assert(readme.includes("## Firewall y routing"), "firewall section missing");
+  assert(
+    readme.includes(
+      "| meet.shape-demo.test | 443/tcp | shape-admin:3000/tcp via Coolify HTTP proxy |",
+    ),
+    "meeting launcher firewall row missing",
+  );
   assert(
     readme.includes("| livekit.shape-demo.test | 7882/udp |"),
     "rtc udp firewall row missing",
