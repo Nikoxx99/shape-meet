@@ -100,6 +100,7 @@ import {
   getAiRuntimeEnv,
   getAiServiceStatus,
   getCachedDesktopRuntimeConfig,
+  getDemoReadiness,
   getDesktopRuntimeConfig,
   getGpuProfile,
   getModelEndpointRuntime,
@@ -114,6 +115,8 @@ import {
   type NativeAiRuntimeDoctorReport,
   type NativeAiRuntimeEnvFile,
   type NativeAiSidecarRuntime,
+  type NativeDemoReadinessCheck,
+  type NativeDemoReadinessReport,
   type NativeIdentityArtifactCacheResult,
   type NativeAiServiceStatus,
   type NativeDesktopRuntimeConfig,
@@ -647,6 +650,30 @@ function uniqueAiWarnings(values: Array<string | null | undefined>) {
 function boolStatus(value?: boolean) {
   if (value === undefined) return "Detectando";
   return value ? "Activo" : "Inactivo";
+}
+
+function readinessTone(
+  report: NativeDemoReadinessReport | null,
+): "ok" | "warning" | "idle" {
+  if (!report) return "idle";
+  return report.status === "ready" ? "ok" : "warning";
+}
+
+function readinessCheckTone(
+  status: NativeDemoReadinessCheck["status"],
+): "ok" | "warning" | "idle" {
+  return status === "ok" ? "ok" : status === "pending" ? "idle" : "warning";
+}
+
+function readinessStatusLabel(status: NativeDemoReadinessReport["status"]) {
+  if (status === "ready") return "Listo";
+  if (status === "warning") return "Revisar";
+  return "Bloqueado";
+}
+
+function readinessCheckValue(check: NativeDemoReadinessCheck) {
+  if (check.status === "ok") return "Listo";
+  return check.detail;
 }
 
 function modelRuntimeInputFromContent(
@@ -1408,6 +1435,8 @@ export default function App() {
     useState<NativeAiSidecarRuntime | null>(null);
   const [observabilityStatus, setObservabilityStatus] =
     useState<NativeObservabilityStatus | null>(null);
+  const [demoReadiness, setDemoReadiness] =
+    useState<NativeDemoReadinessReport | null>(null);
   const [hostPreflight, setHostPreflight] = useState<AiPreflightResult | null>(
     null,
   );
@@ -1441,6 +1470,7 @@ export default function App() {
     void getAiSidecarRuntime().then(setAiSidecarRuntime);
     void getModelEndpointRuntime().then(setModelEndpointRuntime);
     void getObservabilityStatus().then(setObservabilityStatus);
+    void refreshDemoReadiness();
   }, []);
 
   useEffect(() => {
@@ -1626,6 +1656,11 @@ export default function App() {
     );
   }
 
+  async function refreshDemoReadiness() {
+    const report = await getDemoReadiness();
+    setDemoReadiness(report);
+  }
+
   async function refreshAiRuntime() {
     const [service, runtime, endpointRuntime] = await Promise.all([
       getAiServiceStatus(),
@@ -1635,6 +1670,7 @@ export default function App() {
     setAiServiceStatus(service);
     setAiSidecarRuntime(runtime);
     setModelEndpointRuntime(endpointRuntime);
+    await refreshDemoReadiness();
   }
 
   async function handleStartAiSidecar() {
@@ -2492,10 +2528,12 @@ export default function App() {
           deviceChoices={mediaDevices.choices}
           deviceError={mediaDevices.error}
           devicesRefreshing={mediaDevices.refreshing}
+          demoReadiness={demoReadiness}
           hostMode={isHostFlow}
           onBack={() => navigate(isHostFlow ? "scheduled" : "found")}
           onContinue={continueAfterDeviceTest}
           onDeviceChange={updateDeviceSelection}
+          onRefreshDemoReadiness={refreshDemoReadiness}
           onRefreshDevices={mediaDevices.requestDeviceAccess}
           onToggleCamera={handleToggleCamera}
           onToggleMic={handleToggleMic}
@@ -3328,10 +3366,12 @@ function DeviceTestScreen({
   deviceChoices,
   deviceError,
   devicesRefreshing,
+  demoReadiness,
   hostMode,
   onBack,
   onContinue,
   onDeviceChange,
+  onRefreshDemoReadiness,
   onRefreshDevices,
   onToggleCamera,
   onToggleMic,
@@ -3342,10 +3382,12 @@ function DeviceTestScreen({
   deviceChoices: DeviceChoices;
   deviceError: string | null;
   devicesRefreshing: boolean;
+  demoReadiness: NativeDemoReadinessReport | null;
   hostMode: boolean;
   onBack: () => void;
   onContinue: () => void;
   onDeviceChange: (key: keyof DeviceSelection, value: string) => void;
+  onRefreshDemoReadiness: () => Promise<void> | void;
   onRefreshDevices: () => void;
   onToggleCamera: () => void;
   onToggleMic: () => void;
@@ -3421,6 +3463,37 @@ function DeviceTestScreen({
               <InlineNotice icon={<ShieldAlert />}>{deviceError}</InlineNotice>
             ) : null}
           </Panel>
+          {hostMode ? (
+            <Panel title="Estado demo">
+              <StatusRow
+                label="Readiness"
+                testId="demo-readiness-status"
+                value={
+                  demoReadiness
+                    ? `${demoReadiness.percent}% · ${readinessStatusLabel(demoReadiness.status)}`
+                    : "Detectando"
+                }
+                tone={readinessTone(demoReadiness)}
+              />
+              {demoReadiness?.checks.slice(0, 5).map((check) => (
+                <StatusRow
+                  key={check.id}
+                  label={check.label}
+                  value={readinessCheckValue(check)}
+                  tone={readinessCheckTone(check.status)}
+                />
+              ))}
+              <div className="stacked-actions compact">
+                <Button
+                  variant="outline"
+                  icon={<RefreshCw />}
+                  onClick={() => void onRefreshDemoReadiness()}
+                >
+                  Actualizar
+                </Button>
+              </div>
+            </Panel>
+          ) : null}
           <Panel title="Al entrar">
             <ToggleRow
               label="Entrar con micrófono apagado"

@@ -158,6 +158,27 @@ export interface NativeIdentityArtifactCacheResult {
   message: string;
 }
 
+export type NativeDemoReadinessStatus = "ready" | "warning" | "blocked";
+
+export type NativeDemoReadinessCheckStatus =
+  "ok" | "warning" | "blocked" | "pending";
+
+export interface NativeDemoReadinessCheck {
+  id: string;
+  label: string;
+  status: NativeDemoReadinessCheckStatus;
+  detail: string;
+}
+
+export interface NativeDemoReadinessReport {
+  checkedAt: string;
+  percent: number;
+  status: NativeDemoReadinessStatus;
+  summary: string;
+  checks: NativeDemoReadinessCheck[];
+  nextSteps: string[];
+}
+
 let desktopRuntimeConfigCache: NativeDesktopRuntimeConfig | null = null;
 let desktopRuntimeConfigPromise: Promise<NativeDesktopRuntimeConfig> | null =
   null;
@@ -230,6 +251,139 @@ export async function getObservabilityStatus(): Promise<NativeObservabilityStatu
       debug: false,
     };
   }
+}
+
+export async function getDemoReadiness(): Promise<NativeDemoReadinessReport> {
+  const checkedAt = new Date().toISOString();
+  const config = await getDesktopRuntimeConfig();
+  const [
+    api,
+    service,
+    sidecarRuntime,
+    endpointRuntime,
+    gpu,
+    observability,
+    doctor,
+  ] = await Promise.all([
+    checkApiHealth(config.apiBaseUrl),
+    getAiServiceStatus(),
+    getAiSidecarRuntime(),
+    getModelEndpointRuntime(),
+    getGpuProfile(),
+    getObservabilityStatus(),
+    doctorAiRuntimeEnv(),
+  ]);
+
+  const scoredChecks: Array<NativeDemoReadinessCheck & { score: number }> = [
+    {
+      id: "api",
+      label: "API",
+      status: api.ok ? "ok" : "blocked",
+      detail: api.detail,
+      score: api.ok ? 15 : 0,
+    },
+    {
+      id: "ai-service",
+      label: "IA local",
+      status: service.online ? "ok" : "blocked",
+      detail: service.online ? service.mode : service.message,
+      score: service.online ? 15 : 0,
+    },
+    {
+      id: "gpu",
+      label: "GPU",
+      status: gpu.gpuTier === "ready" ? "ok" : "warning",
+      detail: gpuDeviceSummary(gpu),
+      score: gpu.gpuTier === "ready" ? 10 : gpu.gpuTier === "limited" ? 8 : 0,
+    },
+    {
+      id: "sentry",
+      label: "Sentry",
+      status:
+        observability.frontendSentryEnabled || observability.nativeSentryEnabled
+          ? "ok"
+          : "warning",
+      detail:
+        observability.frontendSentryEnabled && observability.nativeSentryEnabled
+          ? "Web y nativo"
+          : observability.frontendSentryEnabled
+            ? "Web"
+            : observability.nativeSentryEnabled
+              ? "Nativo"
+              : "Sin DSN",
+      score:
+        observability.frontendSentryEnabled && observability.nativeSentryEnabled
+          ? 10
+          : observability.frontendSentryEnabled ||
+              observability.nativeSentryEnabled
+            ? 7
+            : 0,
+    },
+    {
+      id: "runtime",
+      label: "Runtime",
+      status: doctor.ok ? "ok" : "warning",
+      detail: doctor.runtimeExists ? doctor.status : "Sin archivo",
+      score: doctor.ok ? 15 : doctor.runtimeExists ? 8 : 0,
+    },
+    {
+      id: "processors",
+      label: "Procesos",
+      status: sidecarRuntime.running
+        ? endpointRuntime.running
+          ? "ok"
+          : "warning"
+        : "blocked",
+      detail: processorReadinessDetail(sidecarRuntime, endpointRuntime),
+      score:
+        (sidecarRuntime.running ? 8 : 0) +
+        (endpointRuntime.running ? 7 : service.online ? 3 : 0),
+    },
+    {
+      id: "real-models",
+      label: "Modelos",
+      status: doctor.realModelsConfigured
+        ? "ok"
+        : doctor.passthroughEnabled
+          ? "warning"
+          : "blocked",
+      detail: doctor.realModelsConfigured
+        ? "Reales"
+        : doctor.passthroughEnabled
+          ? "Passthrough"
+          : "Pendientes",
+      score: doctor.realModelsConfigured
+        ? 20
+        : doctor.passthroughEnabled
+          ? 7
+          : 0,
+    },
+  ];
+
+  const percent = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(scoredChecks.reduce((total, check) => total + check.score, 0)),
+    ),
+  );
+  const checks = scoredChecks.map(({ score: _score, ...check }) => check);
+  const status: NativeDemoReadinessStatus = checks.some(
+    (check) => check.status === "blocked",
+  )
+    ? "blocked"
+    : checks.some((check) => check.status === "warning")
+      ? "warning"
+      : "ready";
+
+  return {
+    checkedAt,
+    percent,
+    status,
+    summary: `${percent}% · ${demoReadinessStatusLabel(status)}`,
+    checks,
+    nextSteps: demoReadinessNextSteps(checks, doctor),
+  };
 }
 
 export async function getAiServiceStatus(): Promise<NativeAiServiceStatus> {
@@ -526,6 +680,78 @@ export async function exportDebugBundle(): Promise<string> {
   } catch {
     return "Debug local disponible solo dentro de Tauri.";
   }
+}
+
+async function checkApiHealth(apiBaseUrl: string): Promise<{
+  ok: boolean;
+  detail: string;
+}> {
+  const endpoint = `${apiBaseUrl.replace(/\/$/, "")}/api/health`;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 1200);
+
+  try {
+    const response = await fetch(endpoint, { signal: controller.signal });
+    if (!response.ok) return { ok: false, detail: `HTTP ${response.status}` };
+    return { ok: true, detail: "Lista" };
+  } catch (error) {
+    return {
+      ok: false,
+      detail:
+        error instanceof Error && error.name === "AbortError"
+          ? "Timeout"
+          : "Sin respuesta",
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function gpuDeviceSummary(profile: NativeGpuProfile) {
+  const primary = profile.devices[0];
+  if (!primary) return profile.message;
+
+  const memory = primary.memoryTotalMb
+    ? `${Math.round(primary.memoryTotalMb / 1024)} GB`
+    : null;
+  return memory ? `${primary.name} · ${memory}` : primary.name;
+}
+
+function processorReadinessDetail(
+  sidecarRuntime: NativeAiSidecarRuntime,
+  endpointRuntime: NativeAiSidecarRuntime,
+) {
+  if (sidecarRuntime.running && endpointRuntime.running)
+    return "Sidecar + endpoints";
+  if (sidecarRuntime.running) return "Sidecar activo";
+  if (endpointRuntime.running) return "Endpoints activos";
+  return "Detenidos";
+}
+
+function demoReadinessStatusLabel(status: NativeDemoReadinessStatus) {
+  if (status === "ready") return "Listo";
+  if (status === "warning") return "Revisar";
+  return "Bloqueado";
+}
+
+function demoReadinessNextSteps(
+  checks: NativeDemoReadinessCheck[],
+  doctor: NativeAiRuntimeDoctorReport,
+) {
+  const steps: string[] = [];
+  const blocked = checks.find((check) => check.status === "blocked");
+  if (blocked) steps.push(`${blocked.label}: ${blocked.detail}`);
+  if (!doctor.realModelsConfigured) {
+    steps.push(
+      doctor.passthroughEnabled
+        ? "Instala modelos reales para salir de passthrough."
+        : "Configura FaceFusion, BackgroundMattingV2 y vcclient000.",
+    );
+  }
+  for (const step of doctor.nextSteps.slice(0, 2)) {
+    if (!steps.includes(step)) steps.push(step);
+  }
+  return steps.slice(0, 3);
 }
 
 function frontendObservabilityStatus() {
