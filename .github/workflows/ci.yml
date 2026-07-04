@@ -81,6 +81,9 @@ jobs:
       - name: Smoke desktop runtime config
         run: pnpm smoke:desktop-config
 
+      - name: Check desktop package workflow
+        run: pnpm smoke:desktop-workflow
+
       - name: Smoke remote demo checker
         run: pnpm smoke:remote-demo
 

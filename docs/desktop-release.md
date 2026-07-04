@@ -20,6 +20,19 @@ Targets iniciales:
 
 ## Ejecutar release
 
+Antes de lanzar una build, valida que la automatización de paquetes sigue
+generando todos los artifacts esperados:
+
+```bash
+pnpm desktop:workflow:check
+```
+
+Para revisar el último run manual/tag desde una máquina con `gh` autenticado:
+
+```bash
+pnpm desktop:workflow:check -- --latest
+```
+
 Desde GitHub Actions:
 
 1. Abrir `Desktop Packages`.

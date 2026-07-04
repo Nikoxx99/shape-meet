@@ -381,6 +381,7 @@ El build empaquetado genera primero el sidecar Python como binario PyInstaller y
 luego Tauri lo incluye como `externalBin`.
 
 ```bash
+pnpm desktop:workflow:check
 pnpm desktop:ready
 pnpm build:ai-sidecar
 pnpm desktop:doctor
@@ -397,6 +398,10 @@ pnpm desktop:bundle:check
 
 `pnpm desktop:ready` ejecuta `build:ai-sidecar` y luego `desktop:doctor` en modo
 estricto. Es el check rápido antes de abrir o empaquetar la app Tauri del demo.
+`pnpm desktop:workflow:check` valida el workflow `Desktop Packages`, matriz de
+runners, artifacts esperados, runtime config, orden de sidecar/build y checks de
+bundle antes de gastar runners Windows/macOS. Usa
+`pnpm desktop:workflow:check -- --latest` para ver el último run publicado.
 
 PyInstaller no hace cross-compile real. Para Windows hay que ejecutar
 `pnpm build:desktop` en Windows o en un runner Windows; para macOS, en macOS. Si
