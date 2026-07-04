@@ -29,6 +29,7 @@ const verifyUi =
   args.includes("--verify-ui") || args.includes("--full-ui-verify");
 const skipVerifyUi = args.includes("--skip-verify-ui");
 const skipDesktop = args.includes("--skip-desktop");
+const skipCoolify = args.includes("--skip-coolify");
 const skipModelBootstrap = args.includes("--skip-model-bootstrap");
 const skipIdentityPush = args.includes("--skip-identity-push");
 const skipRemoteApiFlow = args.includes("--skip-remote-api-flow");
@@ -46,6 +47,11 @@ const profile =
 const runtimeEnvFile =
   argValue("--env-file") ?? process.env.SHAPE_AI_RUNTIME_ENV_FILE ?? null;
 const remoteEnvFile = argValue("--remote-env-file") ?? null;
+const coolifyEnvFile =
+  argValue("--coolify-env-file") ??
+  (remoteEnvFile && looksLikeCoolifyEnvFile(remoteEnvFile)
+    ? remoteEnvFile
+    : null);
 const timeoutMs = argValue("--timeout-ms") ?? "45000";
 const remoteTimeoutMs = argValue("--remote-timeout-ms") ?? null;
 const localPreviewTimeoutMs =
@@ -68,6 +74,7 @@ const report = {
     profile,
     runtimeEnvFile,
     remoteEnvFile,
+    coolifyEnvFile,
     timeoutMs,
     remoteTimeoutMs,
     localPreviewTimeoutMs,
@@ -124,6 +131,10 @@ function main() {
         );
 
   report.steps.identityPush = resolveIdentityPushStep();
+
+  report.steps.coolify = skipCoolify
+    ? skipped("Coolify/TURN handoff", "omitido por --skip-coolify")
+    : runCoolifyStep();
 
   report.steps.desktop =
     skipDesktop || desktopMode === "skip"
@@ -198,6 +209,42 @@ function runIdentityPushStep() {
       artifactSha256: identity.artifactSha256,
     };
   }
+  return step;
+}
+
+function runCoolifyStep() {
+  const out = join(outputDir, "coolify-handoff");
+  const commandArgs = ["coolify:handoff", "--", "--json", "--out", out];
+
+  if (coolifyEnvFile) {
+    commandArgs.push("--env-file", coolifyEnvFile);
+  } else {
+    forwardValue(commandArgs, "--admin-domain");
+    forwardValue(commandArgs, "--meeting-domain");
+    forwardValue(commandArgs, "--livekit-domain");
+    forwardValue(commandArgs, "--turn-domain");
+    forwardValue(commandArgs, "--public-ip");
+    forwardValue(commandArgs, "--bootstrap-email");
+    forwardValue(commandArgs, "--sentry-dsn");
+    forwardValue(commandArgs, "--sentry-org");
+    forwardValue(commandArgs, "--sentry-project");
+    forwardValue(commandArgs, "--sentry-auth-token");
+    forwardValue(commandArgs, "--turn-tls-port");
+    forwardValue(commandArgs, "--relay-start");
+    forwardValue(commandArgs, "--relay-end");
+    forwardValue(commandArgs, "--release");
+    forwardValue(commandArgs, "--run-seed");
+    forwardValue(commandArgs, "--debug-errors");
+  }
+
+  if (strict) commandArgs.push("--strict");
+
+  const step = commandStep("Coolify/TURN handoff", commandArgs, {
+    parseJson: true,
+    timeout: 60_000,
+  });
+  step.outputDir = out;
+  report.artifacts.coolifyHandoff = out;
   return step;
 }
 
@@ -497,6 +544,20 @@ function collectSummary() {
     };
   }
 
+  const coolifyReport = report.steps.coolify?.report;
+  if (coolifyReport) {
+    report.demo.coolify = {
+      ok: coolifyReport.ok,
+      adminUrl: coolifyReport.coolify?.adminUrl ?? null,
+      meetingUrl: coolifyReport.coolify?.meetingUrl ?? null,
+      livekitUrl: coolifyReport.coolify?.livekitUrl ?? null,
+      turnDomain: coolifyReport.coolify?.turnDomain ?? null,
+      firewallRules: Array.isArray(coolifyReport.firewall)
+        ? coolifyReport.firewall.length
+        : 0,
+    };
+  }
+
   const nextSteps = [];
   if (!report.steps.prepare?.ok && !report.steps.prepare?.skipped) {
     nextSteps.push(
@@ -505,8 +566,15 @@ function collectSummary() {
   }
   if (Array.isArray(readiness?.nextSteps))
     nextSteps.push(...readiness.nextSteps);
+  if (Array.isArray(coolifyReport?.nextSteps))
+    nextSteps.push(...coolifyReport.nextSteps);
   if (Array.isArray(modelReport?.nextSteps))
     nextSteps.push(...modelReport.nextSteps);
+  if (!report.steps.coolify?.ok && !report.steps.coolify?.skipped) {
+    nextSteps.push(
+      "Corrige el handoff Coolify/TURN antes de intentar una llamada remota.",
+    );
+  }
   if (!report.steps.desktop?.ok && !report.steps.desktop?.skipped) {
     nextSteps.push(
       "Genera o descarga el bundle desktop antes del handoff de instalacion.",
@@ -556,6 +624,13 @@ function renderReadme(currentReport) {
     currentReport.demo.realReadiness
       ? `- Demo real listo: ${
           currentReport.demo.realReadiness.readyForRealDemo ? "si" : "no"
+        }`
+      : null,
+    currentReport.demo.coolify
+      ? `- Coolify/TURN: ${
+          currentReport.demo.coolify.ok ? "ok" : "revisar"
+        } · ${currentReport.demo.coolify.livekitUrl ?? "LiveKit pendiente"} · ${
+          currentReport.demo.coolify.turnDomain ?? "TURN pendiente"
         }`
       : null,
     currentReport.steps.localPreview
@@ -621,7 +696,8 @@ pnpm demo:local-preview
 pnpm demo:verify
 pnpm demo:handoff
 pnpm demo:handoff -- --verify-ui
-pnpm demo:handoff -- --remote-env-file infra/shape-meet.production.env --identity-artifact-file /ruta/rostro-o-modelo.bin
+pnpm demo:handoff -- --admin-domain admin.tudominio.com --meeting-domain meet.tudominio.com --livekit-domain livekit.tudominio.com --turn-domain turn.tudominio.com --public-ip 203.0.113.10
+pnpm demo:handoff -- --coolify-env-file infra/shape-meet.production.env --remote-env-file infra/shape-meet.production.env --identity-artifact-file /ruta/rostro-o-modelo.bin
 pnpm demo:real:check -- --include-desktop --require-real-models --strict
 pnpm models:bootstrap -- --profile ${currentReport.options.profile} --write-runtime --strict --write-checklist
 \`\`\`
@@ -749,6 +825,19 @@ function remoteIdentityFlowEnabled() {
   );
 }
 
+function looksLikeCoolifyEnvFile(path) {
+  if (!path) return false;
+  const absolutePath = resolve(repoRoot, path);
+  if (!existsSync(absolutePath)) return false;
+  const content = readFileSync(absolutePath, "utf8");
+  return [
+    "POSTGRES_PASSWORD=",
+    "LIVEKIT_TURN_SHARED_SECRET=",
+    "LIVEKIT_TURN_EXTERNAL_IP=",
+    "NEXT_PUBLIC_APP_URL=",
+  ].every((marker) => content.includes(marker));
+}
+
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -801,8 +890,8 @@ function redact(input) {
 
 function redactCommand(command) {
   return redactEmbeddedSecrets(command).replace(
-    /(--[\w-]*password(?:=|\s+))("[^"]+"|'[^']+'|\S+)/gi,
-    "$1<redacted:password>",
+    /(--[\w-]*(?:password|secret|token|dsn|key|auth)(?:=|\s+))("[^"]+"|'[^']+'|\S+)/gi,
+    "$1<redacted:secret>",
   );
 }
 
@@ -817,7 +906,11 @@ function redactValue(key, value) {
 function redactEmbeddedSecrets(value) {
   return value
     .replace(/https:\/\/[^@\s]+@[^/\s]*sentry\.io\/\d+/gi, "<redacted:dsn>")
-    .replace(/sentry_key=[^,\s;]+/gi, "sentry_key=<redacted:key>");
+    .replace(/sentry_key=[^,\s;]+/gi, "sentry_key=<redacted:key>")
+    .replace(
+      /(--[\w-]*(?:password|secret|token|dsn|key|auth)(?:=|\s+))("[^"]+"|'[^']+'|\S+)/gi,
+      "$1<redacted:secret>",
+    );
 }
 
 function relativePath(path) {

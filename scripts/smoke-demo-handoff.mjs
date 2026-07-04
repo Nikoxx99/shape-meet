@@ -79,6 +79,11 @@ try {
   );
   assert(report.steps.desktop.ok === true, "desktop step did not pass");
   assert(report.steps.desktop.mode === "github", "desktop mode mismatch");
+  assert(report.steps.coolify.ok === true, "coolify step did not pass");
+  assert(
+    report.demo.coolify.firewallRules >= 7,
+    "coolify firewall rules were not summarized",
+  );
   assert(
     report.demo.desktop.artifacts.includes("shape-meet-windows-x64"),
     "desktop artifacts were not summarized",
@@ -96,10 +101,19 @@ try {
     manifest.artifacts.desktopHandoff.endsWith("desktop-handoff/github"),
     "desktop handoff output missing",
   );
+  assert(
+    manifest.artifacts.coolifyHandoff.endsWith("coolify-handoff"),
+    "coolify handoff output missing",
+  );
 
   const readme = readFileSync(readmePath, "utf8");
   assert(readme.includes("Shape Meet Demo Handoff"), "README title missing");
   assert(readme.includes("Preview local IA: ok"), "README preview missing");
+  assert(
+    readme.includes("Coolify/TURN handoff: ok"),
+    "README coolify status missing",
+  );
+  assert(readme.includes("Coolify/TURN: ok"), "README coolify summary missing");
   assert(
     readme.includes("Verificacion UI completa: omitido"),
     "README full UI verify status missing",
@@ -109,6 +123,8 @@ try {
 
   smokeRemoteFlowInference();
   smokeVerifyUiSkip();
+  smokeCoolifyEnvFile();
+  smokeCoolifySecretRedaction();
 
   console.log("demo handoff smoke ok");
 } finally {
@@ -172,6 +188,103 @@ function smokeRemoteFlowInference() {
   assert(
     report.options.remoteIdentityFlow === true,
     "remote identity flow was not inferred from identity artifact",
+  );
+}
+
+function smokeCoolifyEnvFile() {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "scripts/package-demo-handoff.mjs",
+      "--json",
+      "--output-dir",
+      join(tempDir, "coolify-env-file"),
+      "--skip-prepare",
+      "--skip-debug",
+      "--skip-real-check",
+      "--skip-local-preview",
+      "--skip-verify-ui",
+      "--skip-identity-push",
+      "--skip-desktop",
+      "--skip-model-bootstrap",
+      "--coolify-env-file",
+      "infra/env.coolify.example",
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+
+  if (result.status !== 0) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    throw new Error(`coolify env-file smoke failed with ${result.status}`);
+  }
+
+  const report = JSON.parse(result.stdout);
+  assert(report.ok === true, "coolify env-file report was not ok");
+  assert(
+    report.options.coolifyEnvFile === "infra/env.coolify.example",
+    "coolify env-file option missing",
+  );
+  assert(report.steps.coolify.ok === true, "coolify env-file step failed");
+}
+
+function smokeCoolifySecretRedaction() {
+  const rawDsn = "https://publickey@example.ingest.us.sentry.io/123";
+  const rawToken = "sntrys_very_secret_token";
+  const result = spawnSync(
+    process.execPath,
+    [
+      "scripts/package-demo-handoff.mjs",
+      "--json",
+      "--output-dir",
+      join(tempDir, "coolify-redaction"),
+      "--skip-prepare",
+      "--skip-debug",
+      "--skip-real-check",
+      "--skip-local-preview",
+      "--skip-verify-ui",
+      "--skip-identity-push",
+      "--skip-desktop",
+      "--skip-model-bootstrap",
+      "--admin-domain",
+      "admin.shape-demo.test",
+      "--meeting-domain",
+      "meet.shape-demo.test",
+      "--livekit-domain",
+      "livekit.shape-demo.test",
+      "--turn-domain",
+      "turn.shape-demo.test",
+      "--public-ip",
+      "8.8.4.4",
+      "--sentry-dsn",
+      rawDsn,
+      "--sentry-auth-token",
+      rawToken,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+
+  if (result.status !== 0) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    throw new Error(`coolify redaction smoke failed with ${result.status}`);
+  }
+
+  assert(!result.stdout.includes(rawDsn), "raw sentry DSN leaked");
+  assert(!result.stdout.includes(rawToken), "raw sentry auth token leaked");
+  const report = JSON.parse(result.stdout);
+  assert(report.steps.coolify.ok === true, "coolify redaction step failed");
+  assert(
+    report.steps.coolify.command.includes("<redacted:secret>"),
+    "coolify command did not redact secrets",
   );
 }
 
