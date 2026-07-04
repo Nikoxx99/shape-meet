@@ -62,8 +62,27 @@ function smokeWindowsReport() {
   );
   assertEqual(report.checklistWritten, true, "windows checklistWritten");
   assertEqual(report.setupScriptWritten, true, "windows setupScriptWritten");
+  assertEqual(
+    report.realModelReadiness.profile,
+    "windows-nvidia",
+    "windows readiness profile",
+  );
+  assertReadinessStage(report, "video-processor");
+  assertReadinessStage(report, "face");
+  assertReadinessStage(report, "background");
+  assertReadinessStage(report, "audio-processor");
+  assertReadinessStage(report, "voice");
+  assertEqual(
+    report.demoAssets.frame,
+    "C:\\models\\samples\\frame.jpg",
+    "windows demo frame",
+  );
   assertFileIncludes(checklistPath, "Shape Meet Model Workstation Checklist");
   assertFileIncludes(checklistPath, "FaceFusion");
+  assertFileIncludes(checklistPath, "Readiness demo real");
+  assertFileIncludes(checklistPath, "Procesador video");
+  assertFileIncludes(checklistPath, "C:\\models\\samples\\frame.jpg");
+  assertFileIncludes(checklistPath, "--require-real-models");
   assertFileIncludes(checklistPath, "Setup script");
   assertFileIncludes(setupScriptPath, "Shape Meet Windows/NVIDIA");
   assertFileIncludes(setupScriptPath, "git clone --depth 1");
@@ -264,6 +283,12 @@ function assertNoCheck(report, label, status) {
     )
   ) {
     throw new Error(`unexpected ${status} check for ${label}`);
+  }
+}
+
+function assertReadinessStage(report, id) {
+  if (!report.realModelReadiness?.stages?.some((stage) => stage.id === id)) {
+    throw new Error(`expected real model readiness stage ${id}`);
   }
 }
 

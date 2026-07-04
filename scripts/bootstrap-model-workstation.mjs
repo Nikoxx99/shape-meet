@@ -65,6 +65,7 @@ const nextSteps = [];
 let runtimeEnv = {};
 let runtimeEnvContent = "";
 let tempDir = null;
+let doctorReport = null;
 let checklistWritten = false;
 let setupScriptWritten = false;
 
@@ -533,6 +534,7 @@ function runDoctor(runtimePath) {
     return;
   }
 
+  doctorReport = report;
   for (const message of report.warnings ?? []) warn("doctor", message);
   for (const message of report.issues ?? []) error("doctor", message);
   for (const message of report.nextSteps ?? []) nextStep(message);
@@ -663,6 +665,8 @@ function buildReport(modelPaths) {
     setupScriptWritten,
     dryRun,
     modelPaths,
+    demoAssets: buildDemoAssets(modelPaths),
+    realModelReadiness: doctorReport?.realModelReadiness ?? null,
     runtimeEnv: {
       SHAPE_MODEL_WORKSTATION_PROFILE:
         runtimeEnv.SHAPE_MODEL_WORKSTATION_PROFILE,
@@ -674,6 +678,18 @@ function buildReport(modelPaths) {
     },
     checks,
     nextSteps,
+  };
+}
+
+function buildDemoAssets(modelPaths) {
+  return {
+    frame: joinProfilePath(modelPaths.workspaceRoot, "samples/frame.jpg"),
+    identity: joinProfilePath(modelPaths.workspaceRoot, "identities/host.jpg"),
+    cleanPlate: joinProfilePath(
+      modelPaths.workspaceRoot,
+      "samples/clean-plate.jpg",
+    ),
+    audio: joinProfilePath(modelPaths.workspaceRoot, "samples/audio.f32le"),
   };
 }
 
@@ -765,6 +781,7 @@ function renderChecklist(report) {
   const nextStepItems = report.nextSteps.length
     ? report.nextSteps.map((step, index) => `${index + 1}. ${step}`).join("\n")
     : "No quedan siguientes pasos detectados por el bootstrap.";
+  const readinessSection = renderReadinessSection(report);
 
   return `# Shape Meet Model Workstation Checklist
 
@@ -798,15 +815,73 @@ ${checkItems || "No se ejecutaron checks."}
 
 ${nextStepItems}
 
+## Readiness demo real
+
+${readinessSection}
+
+## Assets de prueba
+
+- Frame camara: ${report.demoAssets.frame}
+- Identidad host: ${report.demoAssets.identity}
+- Clean plate fondo: ${report.demoAssets.cleanPlate}
+- Audio voz: ${report.demoAssets.audio}
+
 ## Comandos
 
 \`\`\`bash
 pnpm models:bootstrap -- --profile ${report.profile} --dry-run --write-checklist
 pnpm models:bootstrap -- --profile ${report.profile} --write-setup-script
 pnpm models:bootstrap -- --profile ${report.profile} --write-runtime --strict --write-checklist
-pnpm demo:real:check -- --env-file "${report.runtimeEnvPath}" --include-desktop
+pnpm models:preflight -- --env-file "${report.runtimeEnvPath}" --frame "${report.demoAssets.frame}" --identity "${report.demoAssets.identity}" --clean-plate "${report.demoAssets.cleanPlate}" --audio "${report.demoAssets.audio}" --strict
+pnpm demo:real:check -- --env-file "${report.runtimeEnvPath}" --include-desktop --require-real-models --frame "${report.demoAssets.frame}" --identity "${report.demoAssets.identity}" --clean-plate "${report.demoAssets.cleanPlate}" --audio "${report.demoAssets.audio}" --strict
 \`\`\`
 `;
+}
+
+function renderReadinessSection(report) {
+  const readiness = report.realModelReadiness;
+  if (!readiness) {
+    return "models:doctor no entrego readiness estructurado; revisa la seccion de checks.";
+  }
+
+  const state = readiness.ready
+    ? "listo"
+    : readiness.passthroughEnabled
+      ? "passthrough"
+      : "pendiente";
+  const stageItems = readiness.stages
+    .map((stage) => {
+      const mark =
+        stage.status === "ready" || stage.status === "optional" ? "x" : " ";
+      const messages = [...(stage.issues ?? []), ...(stage.warnings ?? [])]
+        .map((message) => `  - ${message}`)
+        .join("\n");
+      return [`- [${mark}] ${stage.label}: ${stage.status}`, messages]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n");
+  const blockers = readiness.blockers?.length
+    ? readiness.blockers.map((message) => `- ${message}`).join("\n")
+    : "- Sin bloqueantes detectados.";
+  const warnings = readiness.warnings?.length
+    ? readiness.warnings.map((message) => `- ${message}`).join("\n")
+    : "- Sin advertencias detectadas.";
+
+  return `Estado modelos reales: ${state}
+Passthrough activo: ${readiness.passthroughEnabled ? "si" : "no"}
+
+### Etapas
+
+${stageItems || "Sin etapas reportadas."}
+
+### Bloqueantes
+
+${blockers}
+
+### Advertencias
+
+${warnings}`;
 }
 
 function renderSetupScript(modelPaths) {

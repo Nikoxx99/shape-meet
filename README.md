@@ -211,10 +211,13 @@ Puedes agregar `--init-dirs --clone` para crear el workspace y clonar
 FaceFusion/BackgroundMattingV2. Las dependencias Python, checkpoints y modelos
 licenciados se instalan manualmente según la estación. El checklist se escribe
 por defecto en `output/model-workstation/` e incluye checks, rutas y siguientes
-pasos para preparar o auditar la máquina del demo. Con `--write-setup-script`
-también genera un PowerShell/Bash base para clonar repos y crear venvs en la
-workstation. Si configuras `VCCLIENT000_HTTP_ENDPOINT`, el bootstrap hace una
-prueba `POST /test` compatible con w-okada/VCClient.
+pasos para preparar o auditar la máquina del demo. También incluye
+`realModelReadiness` por etapa, rutas de assets reales esperadas y comandos
+finales con `--require-real-models` para bloquear demos que sigan en
+passthrough. Con `--write-setup-script` también genera un PowerShell/Bash base
+para clonar repos y crear venvs en la workstation. Si configuras
+`VCCLIENT000_HTTP_ENDPOINT`, el bootstrap hace una prueba `POST /test`
+compatible con w-okada/VCClient.
 
 `pnpm models:preflight` levanta un sidecar temporal con el runtime generado y
 ejecuta una prueba real de frame/audio antes de abrir la app:
@@ -637,7 +640,9 @@ El perfil deja `SHAPE_MODEL_COMMAND_TIMEOUT_SECS=30` y
 FaceFusion + BackgroundMattingV2 antes de medir latencia real.
 Después de escribir el runtime, ejecuta `pnpm models:preflight` con assets reales
 de esa máquina para confirmar procesador, latencia y warnings antes de iniciar
-la llamada.
+la llamada. El checklist generado por `models:bootstrap --write-checklist`
+resume la readiness real por etapa: procesador video, face swap, fondo,
+procesador audio y voz.
 
 También puedes usar `--vcclient000-command` si prefieres invocar vcclient000 por
 CLI. El archivo resultante `shape-ai-runtime.env` queda en la ruta local de la
