@@ -29,6 +29,7 @@ const sidecar = spawn(python, ["apps/ai-sidecar/server.py", "--host", "127.0.0.1
     SHAPE_AUDIO_PROCESSOR_ENDPOINT: `http://127.0.0.1:${audioPort}/process-audio`,
     SHAPE_AUDIO_PROCESSOR_HEALTH_URL: `http://127.0.0.1:${audioPort}/health`,
     SHAPE_AUDIO_CHUNK_COMMAND: copyCommand("audio"),
+    SHAPE_COPY_REQUIRE_CONTEXT: "1",
     SHAPE_PROCESSOR_TIMEOUT_SECS: "3",
     SHAPE_MODEL_COMMAND_TIMEOUT_SECS: "3"
   },

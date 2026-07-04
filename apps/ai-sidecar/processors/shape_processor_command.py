@@ -153,8 +153,11 @@ def process_video(payload):
                         "height": str(height),
                         "fps": str(fps),
                         "session_id": session_id(payload),
+                        "sequence": str(sequence),
+                        "stage": "video",
                     },
                     {
+                        **command_context_env("video", payload, sequence, "video"),
                         "SHAPE_FRAME_INPUT_PATH": input_path,
                         "SHAPE_FRAME_OUTPUT_PATH": output_path,
                         "SHAPE_IDENTITY_PATH": identity.get("localArtifactPath") or "",
@@ -197,9 +200,11 @@ def process_video(payload):
                             "height": str(height),
                             "fps": str(fps),
                             "session_id": session_id(payload),
+                            "sequence": str(sequence),
                             "stage": stage,
                         },
                         {
+                            **command_context_env("video", payload, sequence, stage),
                             "SHAPE_FRAME_INPUT_PATH": current_input_path,
                             "SHAPE_FRAME_OUTPUT_PATH": output_path,
                             "SHAPE_VIDEO_STAGE": stage,
@@ -276,12 +281,14 @@ def process_audio(payload):
     if not isinstance(input_base64, str) or not input_base64:
         warnings.append("invalid_audio_payload")
     else:
-        command = combined_model_command("audio") or voice_stage_command(enabled)
+        combined_command = combined_model_command("audio")
+        command = combined_command or voice_stage_command(enabled)
         if command:
             with tempfile.TemporaryDirectory(prefix="shape-audio-") as workdir:
                 input_path = os.path.join(workdir, f"input.{audio_extension(audio_format)}")
                 output_path = os.path.join(workdir, f"output.{audio_extension(audio_format)}")
                 write_base64(input_base64, input_path)
+                command_stage = "audio" if combined_command else "voice"
 
                 result = run_model_command(
                     command,
@@ -292,9 +299,12 @@ def process_audio(payload):
                         "channels": str(channels),
                         "format": audio_format,
                         "session_id": session_id(payload),
+                        "sequence": str(sequence),
+                        "stage": command_stage,
                         "identity": identity.get("localArtifactPath") or identity.get("cachedArtifactUri") or identity.get("artifactUri") or "",
                     },
                     {
+                        **command_context_env("audio", payload, sequence, command_stage),
                         "SHAPE_AUDIO_INPUT_PATH": input_path,
                         "SHAPE_AUDIO_OUTPUT_PATH": output_path,
                         "SHAPE_AUDIO_SAMPLE_RATE": str(sample_rate),
@@ -309,7 +319,7 @@ def process_audio(payload):
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                     output_base64 = file_to_base64(output_path)
                     status = "processed"
-                    if not combined_model_command("audio"):
+                    if not combined_command:
                         processor = "shape-voice-command-adapter"
                 elif result["ok"]:
                     warnings.append("audio_model_output_missing")
@@ -388,6 +398,22 @@ def replace_placeholders(value, replacements):
     for key, replacement in replacements.items():
         value = value.replace("{" + key + "}", replacement)
     return value
+
+
+def command_context_env(kind, payload, sequence, stage):
+    context = {
+        "SHAPE_PROCESSOR_KIND": kind,
+        "SHAPE_MODEL_STAGE": stage,
+        "SHAPE_SESSION_ID": session_id(payload),
+        "SHAPE_REQUEST_SEQUENCE": str(sequence),
+    }
+
+    if kind == "video":
+        context["SHAPE_FRAME_SEQUENCE"] = str(sequence)
+    else:
+        context["SHAPE_AUDIO_SEQUENCE"] = str(sequence)
+
+    return context
 
 
 def command_warnings(result):

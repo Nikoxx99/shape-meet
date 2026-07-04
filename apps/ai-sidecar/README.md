@@ -135,6 +135,13 @@ porque representan wrappers combinados. Si los dejas vacios, el adaptador usa
 `SHAPE_FACE_COMMAND`, `SHAPE_BACKGROUND_COMMAND` y `SHAPE_VOICE_COMMAND` segun
 los efectos activos en la reunion.
 
+Cada comando recibe placeholders `{input}`, `{output}`, `{identity}`,
+`{clean_plate}`, `{width}`, `{height}`, `{fps}`, `{session_id}`,
+`{sequence}` y `{stage}` cuando apliquen. El entorno del proceso hijo tambien
+incluye `SHAPE_SESSION_ID`, `SHAPE_PROCESSOR_KIND`, `SHAPE_MODEL_STAGE`,
+`SHAPE_REQUEST_SEQUENCE` y la variante `SHAPE_FRAME_SEQUENCE` o
+`SHAPE_AUDIO_SEQUENCE` para correlacionar errores con la reunion/frame/chunk.
+
 Para demo sin modelos reales, `SHAPE_PROCESSOR_DEMO_EFFECTS=true` hace que el
 procesador empaquetable devuelva un SVG con una capa visible sobre el frame y
 audio passthrough marcado como procesado. Genera el archivo runtime con:
