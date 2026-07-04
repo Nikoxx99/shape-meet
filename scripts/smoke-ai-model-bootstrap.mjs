@@ -87,6 +87,11 @@ function smokeWindowsReport() {
   assertFileIncludes(setupScriptPath, "Shape Meet Windows/NVIDIA");
   assertFileIncludes(setupScriptPath, "git clone --depth 1");
   assertFileIncludes(setupScriptPath, "pnpm models:bootstrap");
+  assertFileIncludes(setupScriptPath, "$RuntimeEnvPath");
+  assertFileIncludes(setupScriptPath, "pnpm models:preflight");
+  assertFileIncludes(setupScriptPath, "C:\\models\\identities\\host.jpg");
+  assertFileIncludes(setupScriptPath, "C:\\models\\samples\\clean-plate.jpg");
+  assertFileIncludes(setupScriptPath, "--require-real-models");
   assertHasCheck(report, "runtime", "warn");
   assertHasCheck(report, "checklist", "ok");
   assertHasCheck(report, "setup-script", "ok");

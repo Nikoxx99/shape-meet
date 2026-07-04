@@ -891,6 +891,7 @@ function renderSetupScript(modelPaths) {
 }
 
 function renderWindowsSetupScript(modelPaths) {
+  const demoAssets = buildDemoAssets(modelPaths);
   return `# Shape Meet Windows/NVIDIA model workstation setup
 # Ejecuta desde PowerShell en la estacion RTX. No incluye checkpoints/licencias.
 $ErrorActionPreference = "Stop"
@@ -904,8 +905,15 @@ $FaceFusionVenv = Join-Path $FaceFusionDir ".venv"
 $Bmv2Venv = Join-Path $Bmv2Dir ".venv"
 $FaceFusionPython = Join-Path $FaceFusionVenv "Scripts\\python.exe"
 $Bmv2Python = Join-Path $Bmv2Venv "Scripts\\python.exe"
+$RuntimeEnvPath = Join-Path $env:LOCALAPPDATA "Shape Meet\\shape-ai-runtime.env"
+$FramePath = ${psQuote(demoAssets.frame)}
+$IdentityPath = ${psQuote(demoAssets.identity)}
+$CleanPlatePath = ${psQuote(demoAssets.cleanPlate)}
+$AudioPath = ${psQuote(demoAssets.audio)}
 
 New-Item -ItemType Directory -Force -Path $Workspace | Out-Null
+New-Item -ItemType Directory -Force -Path (Split-Path $FramePath) | Out-Null
+New-Item -ItemType Directory -Force -Path (Split-Path $IdentityPath) | Out-Null
 
 if (!(Test-Path $FaceFusionDir)) {
   git clone --depth 1 $FaceFusionRepo $FaceFusionDir
@@ -946,14 +954,21 @@ Write-Host "Manual pendiente:"
 Write-Host "- Instala dependencias especificas/licenciadas de FaceFusion si tu version las requiere."
 Write-Host "- Descarga el checkpoint BMV2 en: ${modelPaths.bmv2Checkpoint}"
 Write-Host "- Arranca w-okada/VCClient y confirma: ${vcclientEndpoint || "endpoint no configurado"}"
+Write-Host "- Guarda frame/identidad/clean plate/audio de prueba en:"
+Write-Host "  $FramePath"
+Write-Host "  $IdentityPath"
+Write-Host "  $CleanPlatePath"
+Write-Host "  $AudioPath"
 Write-Host ""
 Write-Host "Validacion:"
 Write-Host "pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict --write-checklist"
-Write-Host "pnpm demo:real:check -- --env-file ${runtimeEnvPath} --include-desktop --require-real-models"
+Write-Host ('pnpm models:preflight -- --env-file "{0}" --frame "{1}" --identity "{2}" --clean-plate "{3}" --audio "{4}" --strict' -f $RuntimeEnvPath, $FramePath, $IdentityPath, $CleanPlatePath, $AudioPath)
+Write-Host ('pnpm demo:real:check -- --env-file "{0}" --include-desktop --require-real-models --frame "{1}" --identity "{2}" --clean-plate "{3}" --audio "{4}" --strict' -f $RuntimeEnvPath, $FramePath, $IdentityPath, $CleanPlatePath, $AudioPath)
 `;
 }
 
 function renderAppleSetupScript(modelPaths) {
+  const demoAssets = buildDemoAssets(modelPaths);
   return `#!/usr/bin/env bash
 # Shape Meet Apple Silicon model workstation setup
 # Ejecuta en la Mac objetivo. No incluye checkpoints/licencias.
@@ -968,8 +983,14 @@ FACEFUSION_VENV="$FACEFUSION_DIR/.venv"
 BMV2_VENV="$BMV2_DIR/.venv"
 FACEFUSION_PYTHON="$FACEFUSION_VENV/bin/python"
 BMV2_PYTHON="$BMV2_VENV/bin/python"
+RUNTIME_ENV_PATH="$HOME/Library/Application Support/Shape Meet/shape-ai-runtime.env"
+FRAME_PATH=${shQuote(demoAssets.frame)}
+IDENTITY_PATH=${shQuote(demoAssets.identity)}
+CLEAN_PLATE_PATH=${shQuote(demoAssets.cleanPlate)}
+AUDIO_PATH=${shQuote(demoAssets.audio)}
 
 mkdir -p "$WORKSPACE"
+mkdir -p "$(dirname "$FRAME_PATH")" "$(dirname "$IDENTITY_PATH")"
 
 if [ ! -d "$FACEFUSION_DIR/.git" ]; then
   git clone --depth 1 "$FACEFUSION_REPO" "$FACEFUSION_DIR"
@@ -1001,10 +1022,16 @@ Manual pendiente:
 - Instala dependencias especificas/licenciadas de FaceFusion si tu version las requiere.
 - Descarga el checkpoint BMV2 en: ${modelPaths.bmv2Checkpoint}
 - Configura un wrapper/comando de voz compatible en Apple Silicon si no usas VCClient REST.
+- Guarda frame/identidad/clean plate/audio de prueba en:
+  $FRAME_PATH
+  $IDENTITY_PATH
+  $CLEAN_PLATE_PATH
+  $AUDIO_PATH
 
 Validacion:
 pnpm models:bootstrap -- --profile apple-silicon --write-runtime --strict --write-checklist
-pnpm demo:real:check -- --env-file "${runtimeEnvPath}" --include-desktop --require-real-models
+pnpm models:preflight -- --env-file "$RUNTIME_ENV_PATH" --frame "$FRAME_PATH" --identity "$IDENTITY_PATH" --clean-plate "$CLEAN_PLATE_PATH" --audio "$AUDIO_PATH" --strict
+pnpm demo:real:check -- --env-file "$RUNTIME_ENV_PATH" --include-desktop --require-real-models --frame "$FRAME_PATH" --identity "$IDENTITY_PATH" --clean-plate "$CLEAN_PLATE_PATH" --audio "$AUDIO_PATH" --strict
 NEXT
 `;
 }
