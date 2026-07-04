@@ -34,6 +34,7 @@ if (!existsSync(envFile)) {
 const composeOutput = join(outputDir, "docker-compose.coolify.yml");
 const readmeOutput = join(outputDir, "README.md");
 const manifestOutput = join(outputDir, "manifest.json");
+const remoteDemoEnvOutput = join(outputDir, "remote-demo.env");
 cpSync(composeSource, composeOutput);
 
 const check = runPnpm([
@@ -42,6 +43,7 @@ const check = runPnpm([
   ...(strict ? ["--strict"] : []),
 ]);
 const env = parseEnvFile(envFile);
+writeRemoteDemoEnv(remoteDemoEnvOutput, env);
 const report = {
   ok: check.status === 0,
   generatedAt: new Date().toISOString(),
@@ -51,10 +53,12 @@ const report = {
   compose: composeOutput,
   readme: readmeOutput,
   manifest: manifestOutput,
+  remoteDemoEnv: remoteDemoEnvOutput,
   coolify: summarizeEnv(env),
+  remoteDemo: summarizeRemoteDemoEnv(env),
   firewall: firewallChecklist(env),
   check,
-  nextSteps: nextSteps(env),
+  nextSteps: nextSteps(env, remoteDemoEnvOutput),
 };
 
 writeFileSync(manifestOutput, `${JSON.stringify(report, null, 2)}\n`);
@@ -157,9 +161,27 @@ function summarizeEnv(env) {
   };
 }
 
-function nextSteps(env) {
+function summarizeRemoteDemoEnv(env) {
+  return {
+    adminUrl: env.NEXT_PUBLIC_APP_URL ?? env.VITE_SHAPE_API_URL ?? null,
+    livekitUrl: env.LIVEKIT_URL ?? null,
+    turnHost: env.LIVEKIT_TURN_DOMAIN ?? null,
+    hostIdentifier:
+      env.VITE_SHAPE_HOST_IDENTIFIER ?? env.HOST_BOOTSTRAP_EMAIL ?? null,
+    adminIdentifier:
+      env.HOST_BOOTSTRAP_EMAIL ?? env.ADMIN_BOOTSTRAP_EMAIL ?? null,
+    hasHostPassword: Boolean(env.HOST_BOOTSTRAP_PASSWORD),
+    hasAdminPassword: Boolean(
+      env.ADMIN_BOOTSTRAP_PASSWORD ?? env.HOST_BOOTSTRAP_PASSWORD,
+    ),
+    hasTurnSharedSecret: Boolean(env.LIVEKIT_TURN_SHARED_SECRET),
+  };
+}
+
+function nextSteps(env, remoteDemoEnvPath) {
   const adminUrl = env.NEXT_PUBLIC_APP_URL ?? "https://admin.tudominio.com";
   const envPath = relativeArg(envFile);
+  const remoteEnvPath = relativeArg(remoteDemoEnvPath);
   return [
     "Crear un recurso Docker Compose en Coolify apuntando a Luxora-Agency/shape-meet, branch main, compose infra/docker-compose.coolify.yml.",
     `Copiar las variables de ${envPath} al recurso de Coolify.`,
@@ -167,8 +189,49 @@ function nextSteps(env) {
     "Desplegar una vez con RUN_SEED=true, entrar con el bootstrap y crear hosts reales.",
     "Cambiar RUN_SEED=false y redeploy.",
     `Validar health: ${adminUrl}/api/health.`,
-    `Correr: pnpm demo:remote:check -- --env-file ${envPath} --api-flow --identity-flow --strict.`,
+    `Correr: pnpm demo:remote:check -- --env-file ${remoteEnvPath} --api-flow --identity-flow --strict.`,
+    `Actualizar el estado del demo: pnpm demo:status -- --remote-env-file ${remoteEnvPath} --remote-api-flow --remote-identity-flow.`,
   ];
+}
+
+function writeRemoteDemoEnv(path, env) {
+  const adminUrl = env.NEXT_PUBLIC_APP_URL ?? env.VITE_SHAPE_API_URL ?? "";
+  const livekitUrl = env.LIVEKIT_URL ?? "";
+  const turnHost = env.LIVEKIT_TURN_DOMAIN ?? "";
+  const hostIdentifier =
+    env.VITE_SHAPE_HOST_IDENTIFIER ?? env.HOST_BOOTSTRAP_EMAIL ?? "";
+  const hostPassword = env.HOST_BOOTSTRAP_PASSWORD ?? "";
+  const adminIdentifier =
+    env.ADMIN_BOOTSTRAP_EMAIL ?? env.HOST_BOOTSTRAP_EMAIL ?? hostIdentifier;
+  const adminPassword = env.ADMIN_BOOTSTRAP_PASSWORD ?? hostPassword;
+  const values = [
+    ["# Shape Meet remote demo verifier env."],
+    [
+      "# Do not paste this file into Coolify; keep it local because it contains demo credentials.",
+    ],
+    ["SHAPE_REMOTE_ADMIN_URL", adminUrl],
+    ["SHAPE_REMOTE_LIVEKIT_URL", livekitUrl],
+    ["SHAPE_REMOTE_TURN_HOST", turnHost],
+    ["SHAPE_REMOTE_HOST_IDENTIFIER", hostIdentifier],
+    ["SHAPE_REMOTE_HOST_PASSWORD", hostPassword],
+    ["SHAPE_REMOTE_ADMIN_IDENTIFIER", adminIdentifier],
+    ["SHAPE_REMOTE_ADMIN_PASSWORD", adminPassword],
+    ["LIVEKIT_RTC_TCP_PORT", env.LIVEKIT_RTC_TCP_PORT ?? "7881"],
+    ["LIVEKIT_TURN_UDP_PORT", env.LIVEKIT_TURN_UDP_PORT ?? "3478"],
+    ["LIVEKIT_TURN_TLS_PORT", env.LIVEKIT_TURN_TLS_PORT ?? "5349"],
+    ["LIVEKIT_TURN_SHARED_SECRET", env.LIVEKIT_TURN_SHARED_SECRET ?? ""],
+    ["LIVEKIT_TURN_TTL_SECONDS", env.LIVEKIT_TURN_TTL_SECONDS ?? "14400"],
+  ];
+
+  const content = `${values
+    .map((entry) =>
+      entry.length === 1
+        ? entry[0]
+        : `${entry[0]}=${quoteEnv(entry[1] ?? "")}`,
+    )
+    .join("\n")}\n`;
+
+  writeFileSync(path, content);
 }
 
 function firewallChecklist(env) {
@@ -249,6 +312,7 @@ function hostnameFromUrl(value) {
 
 function readme(report) {
   const coolify = report.coolify;
+  const remoteEnvPath = relativeArg(report.remoteDemoEnv);
   const firewallRows = report.firewall
     .map(
       (entry) =>
@@ -275,6 +339,7 @@ function readme(report) {
     "## Variables",
     "",
     `Env validado: \`${relativeArg(report.sourceEnvFile)}\``,
+    `Env local de verificación remota: \`${remoteEnvPath}\``,
     `Admin: ${coolify.adminUrl ?? "pendiente"}`,
     `Meeting: ${coolify.meetingUrl ?? "pendiente"}`,
     `LiveKit: ${coolify.livekitUrl ?? "pendiente"}`,
@@ -310,8 +375,11 @@ function readme(report) {
     "",
     "```bash",
     `pnpm check:coolify ${relativeArg(report.sourceEnvFile)}${report.strict ? " --strict" : ""}`,
-    `pnpm demo:remote:check -- --env-file ${relativeArg(report.sourceEnvFile)} --api-flow --identity-flow --strict`,
+    `pnpm demo:remote:check -- --env-file ${remoteEnvPath} --api-flow --identity-flow --strict`,
+    `pnpm demo:status -- --remote-env-file ${remoteEnvPath} --remote-api-flow --remote-identity-flow`,
     "```",
+    "",
+    "`remote-demo.env` es sensible: contiene credenciales de demo para ejecutar el verificador desde tu equipo, no para pegarlas en el panel de Coolify.",
     "",
     "## Pasos",
     "",
@@ -411,6 +479,12 @@ function trimForReadme(value) {
 
 function pnpmCommand() {
   return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+}
+
+function quoteEnv(value) {
+  if (value === "") return "";
+  if (/^[A-Za-z0-9_./:@-]+$/.test(value)) return value;
+  return JSON.stringify(value);
 }
 
 function fail(message) {

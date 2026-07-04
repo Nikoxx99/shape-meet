@@ -75,12 +75,14 @@ function smokeGeneratedProductionHandoff() {
   );
   assert(existsSync(join(out, "README.md")), "readme not written");
   assert(existsSync(join(out, "manifest.json")), "manifest not written");
+  assert(existsSync(join(out, "remote-demo.env")), "remote demo env not written");
   assert(
     existsSync(join(out, "bootstrap-password.txt")),
     "bootstrap password not written",
   );
 
   const env = readFileSync(join(out, "shape-meet.coolify.env"), "utf8");
+  const remoteEnv = readFileSync(join(out, "remote-demo.env"), "utf8");
   const corsLine =
     env.split(/\r?\n/).find((line) => line.startsWith("CORS_ORIGIN=")) ?? "";
   for (const origin of [
@@ -93,6 +95,30 @@ function smokeGeneratedProductionHandoff() {
     assert(
       corsLine.includes(origin),
       `generated env did not include CORS origin ${origin}`,
+    );
+  }
+  for (const expected of [
+    "SHAPE_REMOTE_ADMIN_URL=https://admin.shape-demo.test",
+    "SHAPE_REMOTE_LIVEKIT_URL=wss://livekit.shape-demo.test",
+    "SHAPE_REMOTE_TURN_HOST=turn.shape-demo.test",
+    "SHAPE_REMOTE_HOST_IDENTIFIER=admin@shape-demo.test",
+    "SHAPE_REMOTE_ADMIN_IDENTIFIER=admin@shape-demo.test",
+    "LIVEKIT_TURN_SHARED_SECRET=",
+  ]) {
+    assert(
+      remoteEnv.includes(expected),
+      `remote demo env missing ${expected}`,
+    );
+  }
+  for (const unexpected of [
+    "POSTGRES_PASSWORD=",
+    "REDIS_PASSWORD=",
+    "AUTH_SESSION_SECRET=",
+    "LIVEKIT_API_SECRET=",
+  ]) {
+    assert(
+      !remoteEnv.includes(unexpected),
+      `remote demo env leaked ${unexpected}`,
     );
   }
 
@@ -111,7 +137,9 @@ function smokeGeneratedProductionHandoff() {
     readme.includes("| turn.shape-demo.test | 3478/udp,tcp |"),
     "turn firewall row missing",
   );
+  assert(readme.includes("remote-demo.env"), "remote demo env docs missing");
   assert(readme.includes("pnpm demo:remote:check"), "remote check missing");
+  assert(readme.includes("pnpm demo:status"), "demo status command missing");
 }
 
 function smokeExampleHandoff() {
