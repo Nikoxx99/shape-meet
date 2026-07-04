@@ -1,9 +1,35 @@
 import type { NativeAiPipelineStatus } from "./native";
 
+export type AiStageState = "active" | "degraded" | "failed" | "standby" | string;
+
+// Pipeline status enriched with explicit stage health (§3): state + reason code
+// + localizable detail + resolved device/vram, on top of the native shape.
+export interface AiPipelineStatus extends NativeAiPipelineStatus {
+  state?: AiStageState;
+  reason?: string | null;
+  stateDetail?: string | null;
+  stageDevice?: string | null;
+  stageVramMb?: number | null;
+}
+
+export interface AiStageResult {
+  id: string;
+  changed: boolean;
+  reason?: string | null;
+  detail?: string | null;
+  state?: AiStageState;
+  device?: string | null;
+  vramMb?: number | null;
+  latencyMs?: number | null;
+}
+
 const DEFAULT_AI_SIDECAR_URL = "http://127.0.0.1:7851";
-const PREFLIGHT_TIMEOUT_MS = 150_000;
-const FRAME_PROCESS_TIMEOUT_MS = 80_000;
-const AUDIO_PROCESS_TIMEOUT_MS = 15_000;
+// Phase 1 timeouts (§4): the desktop (outer) must be larger than the
+// server->endpoint (inner) hop so a slow inference is attributed to the right
+// hop instead of surfacing as a generic desktop timeout.
+const PREFLIGHT_TIMEOUT_MS = 70_000;
+const FRAME_PROCESS_TIMEOUT_MS = 5_000;
+const AUDIO_PROCESS_TIMEOUT_MS = 3_000;
 const PREFLIGHT_BLOCKING_WARNINGS = new Set([
   "identity_artifact_missing",
   "background_clean_plate_missing",
@@ -67,6 +93,7 @@ export interface AiSession {
     artifactCacheMessage: string | null;
   };
   status: "running" | "stopped" | "error" | string;
+  health?: "active" | "degraded" | "failed" | "stopped" | string;
   mode: string;
   startedAt: string;
   updatedAt: string;
@@ -114,7 +141,7 @@ export interface AiSession {
       processedAt: string | null;
     };
   };
-  pipelines: NativeAiPipelineStatus[];
+  pipelines: AiPipelineStatus[];
   warnings?: string[];
   adapterError?: string | null;
 }
@@ -134,7 +161,7 @@ export interface AiFrameProcessInput {
 
 export interface AiFrameProcessResult {
   sequence: number;
-  status: "processed" | "passthrough" | "error" | string;
+  status: "processed" | "passthrough" | "degraded" | "error" | string;
   processor: string;
   frame?: {
     dataUrl: string;
@@ -150,6 +177,7 @@ export interface AiFrameProcessResult {
     resolution: string;
   };
   warnings?: string[];
+  stages?: AiStageResult[];
 }
 
 export interface AiAudioProcessInput {
@@ -163,7 +191,7 @@ export interface AiAudioProcessInput {
 
 export interface AiAudioProcessResult {
   sequence: number;
-  status: "processed" | "passthrough" | "error" | string;
+  status: "processed" | "passthrough" | "degraded" | "error" | string;
   processor: string;
   audio?: {
     audioDataBase64: string;
@@ -177,6 +205,7 @@ export interface AiAudioProcessResult {
     inputBytes: number;
   };
   warnings?: string[];
+  stages?: AiStageResult[];
 }
 
 export interface AiDiagnostics {
@@ -241,6 +270,8 @@ export interface AiDiagnostics {
     ready: boolean;
     url: string | null;
     mode: string | null;
+    device?: string | null;
+    engine?: string | null;
     stageStatus: Record<string, string>;
     stages: Array<{
       id: string;
@@ -251,7 +282,17 @@ export interface AiDiagnostics {
       mode: string;
       issues?: string[];
       warnings?: string[];
+      engine?: {
+        state?: AiStageState;
+        reason?: string | null;
+        detail?: string | null;
+        device?: string | null;
+        vramMb?: number | null;
+        loadedAt?: string | null;
+        lastLatencyMs?: number | null;
+      };
     }>;
+    loadReport?: unknown;
     message: string | null;
   };
   sentry: {
