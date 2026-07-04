@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -21,9 +23,13 @@ try {
 }
 
 function smokeWindowsReport() {
+  const checklistPath = join(tempDir, "windows-checklist.md");
   const report = runBootstrap([
     "--json",
     "--dry-run",
+    "--write-checklist",
+    "--checklist-out",
+    checklistPath,
     "--skip-hardware",
     "--skip-vcclient",
     "--profile",
@@ -47,7 +53,11 @@ function smokeWindowsReport() {
     "C:\\models\\BackgroundMattingV2\\pytorch_resnet50.pth",
     "windows BMV2 checkpoint",
   );
+  assertEqual(report.checklistWritten, true, "windows checklistWritten");
+  assertFileIncludes(checklistPath, "Shape Meet Model Workstation Checklist");
+  assertFileIncludes(checklistPath, "FaceFusion");
   assertHasCheck(report, "runtime", "warn");
+  assertHasCheck(report, "checklist", "ok");
   assertNextStep(report, "--write-runtime");
 }
 
@@ -147,5 +157,15 @@ function assertNoCheck(report, label, status) {
 function assertNextStep(report, value) {
   if (!report.nextSteps?.some((step) => step.includes(value))) {
     throw new Error(`expected next step containing ${value}`);
+  }
+}
+
+function assertFileIncludes(filePath, value) {
+  if (!existsSync(filePath)) {
+    throw new Error(`expected file to exist: ${filePath}`);
+  }
+  const content = readFileSync(filePath, "utf8");
+  if (!content.includes(value)) {
+    throw new Error(`expected ${filePath} to include ${value}`);
   }
 }

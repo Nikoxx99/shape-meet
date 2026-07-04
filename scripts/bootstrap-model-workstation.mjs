@@ -21,6 +21,7 @@ const dryRun = args.includes("--dry-run");
 const initDirs = args.includes("--init-dirs");
 const cloneRepos = args.includes("--clone");
 const writeRuntime = args.includes("--write-runtime") && !dryRun;
+const writeChecklist = args.includes("--write-checklist");
 const skipHardware = args.includes("--skip-hardware");
 const skipVcclient = args.includes("--skip-vcclient");
 const profile = normalizeProfile(
@@ -33,6 +34,10 @@ const runtimeEnvPath =
   argValue("--out") ??
   process.env.SHAPE_AI_RUNTIME_ENV_FILE ??
   defaultRuntimeEnvPath();
+const checklistPath =
+  argValue("--checklist-out") ??
+  process.env.SHAPE_MODEL_WORKSTATION_CHECKLIST ??
+  defaultChecklistPath(profile);
 const facefusionRepo =
   argValue("--facefusion-repo") ??
   process.env.FACEFUSION_REPO_URL ??
@@ -50,6 +55,7 @@ const nextSteps = [];
 let runtimeEnv = {};
 let runtimeEnvContent = "";
 let tempDir = null;
+let checklistWritten = false;
 
 try {
   main();
@@ -544,13 +550,15 @@ function parseEnv(content) {
   return values;
 }
 
-function printReport(modelPaths) {
-  const report = {
+function buildReport(modelPaths) {
+  return {
     ok: !hasErrors() && (!strict || !hasWarnings()),
     profile,
     workspaceRoot,
     runtimeEnvPath,
     runtimeWritten: writeRuntime,
+    checklistPath,
+    checklistWritten,
     dryRun,
     modelPaths,
     runtimeEnv: {
@@ -564,6 +572,15 @@ function printReport(modelPaths) {
     checks,
     nextSteps,
   };
+}
+
+function printReport(modelPaths) {
+  let report = buildReport(modelPaths);
+
+  if (writeChecklist) {
+    writeChecklistFile(report);
+    report = buildReport(modelPaths);
+  }
 
   if (json) {
     console.log(JSON.stringify(report, null, 2));
@@ -574,10 +591,87 @@ function printReport(modelPaths) {
   console.log(`Perfil: ${profile}`);
   console.log(`Workspace: ${workspaceRoot}`);
   console.log(`Runtime env: ${writeRuntime ? runtimeEnvPath : "no escrito"}`);
+  if (writeChecklist) {
+    console.log(
+      `Checklist: ${checklistWritten ? checklistPath : "no escrito"}`,
+    );
+  }
   for (const check of checks) {
     console.log(`${check.status}: ${check.label}: ${check.message}`);
   }
   for (const step of nextSteps) console.log(`next: ${step}`);
+}
+
+function writeChecklistFile(report) {
+  const target = fsPath(checklistPath);
+  if (!target) {
+    warn(
+      "checklist",
+      `Ruta checklist no verificable en ${platform()}: ${checklistPath}`,
+    );
+    return;
+  }
+
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, renderChecklist(report));
+  checklistWritten = true;
+  ok("checklist", `Checklist escrito: ${checklistPath}`);
+}
+
+function renderChecklist(report) {
+  const statusCounts = {
+    ok: report.checks.filter((check) => check.status === "ok").length,
+    warn: report.checks.filter((check) => check.status === "warn").length,
+    error: report.checks.filter((check) => check.status === "error").length,
+  };
+  const checkItems = report.checks
+    .map((check) => {
+      const mark = check.status === "ok" ? "x" : " ";
+      return `- [${mark}] ${check.status.toUpperCase()} ${check.label}: ${check.message}`;
+    })
+    .join("\n");
+  const nextStepItems = report.nextSteps.length
+    ? report.nextSteps.map((step, index) => `${index + 1}. ${step}`).join("\n")
+    : "No quedan siguientes pasos detectados por el bootstrap.";
+
+  return `# Shape Meet Model Workstation Checklist
+
+Perfil: ${report.profile}
+Workspace: ${report.workspaceRoot}
+Runtime env: ${report.runtimeWritten ? report.runtimeEnvPath : "pendiente"}
+Dry-run: ${report.dryRun ? "si" : "no"}
+
+## Estado
+
+- OK: ${statusCounts.ok}
+- Advertencias: ${statusCounts.warn}
+- Errores: ${statusCounts.error}
+
+## Rutas
+
+- FaceFusion: ${report.modelPaths.facefusionDir}
+- Python FaceFusion: ${report.modelPaths.facefusionPython}
+- BackgroundMattingV2: ${report.modelPaths.bmv2RepoDir}
+- Python BackgroundMattingV2: ${report.modelPaths.bmv2Python}
+- Checkpoint BackgroundMattingV2: ${report.modelPaths.bmv2Checkpoint}
+- VCClient: ${report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT || "no configurado"}
+
+## Checks
+
+${checkItems || "No se ejecutaron checks."}
+
+## Siguientes Pasos
+
+${nextStepItems}
+
+## Comandos
+
+\`\`\`bash
+pnpm models:bootstrap -- --profile ${report.profile} --dry-run --write-checklist
+pnpm models:bootstrap -- --profile ${report.profile} --write-runtime --strict --write-checklist
+pnpm demo:real:check -- --env-file "${report.runtimeEnvPath}" --include-desktop
+\`\`\`
+`;
 }
 
 function ok(label, message) {
@@ -659,6 +753,15 @@ function defaultRuntimeEnvPath() {
     process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"),
     "shape-meet",
     "shape-ai-runtime.env",
+  );
+}
+
+function defaultChecklistPath(selectedProfile) {
+  return join(
+    repoRoot,
+    "output",
+    "model-workstation",
+    `shape-model-workstation-${selectedProfile}.md`,
   );
 }
 

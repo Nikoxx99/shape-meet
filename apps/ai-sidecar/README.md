@@ -159,8 +159,8 @@ modelos no están instalados. Para activar modelos reales en la estación
 Windows/NVIDIA del demo, usa el perfil estricto:
 
 ```bash
-pnpm models:bootstrap -- --profile windows-nvidia --dry-run
-pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict
+pnpm models:bootstrap -- --profile windows-nvidia --dry-run --write-checklist
+pnpm models:bootstrap -- --profile windows-nvidia --write-runtime --strict --write-checklist
 ```
 
 Ese perfil asume `C:\models\FaceFusion`,
@@ -182,7 +182,9 @@ como `FACEFUSION_DIR`, `BMV2_REPO_DIR`, `BMV2_MODEL_CHECKPOINT` y
 modelos pesados; usa `--env-file` para revisar un runtime concreto.
 `pnpm models:bootstrap` envuelve esa preparación: puede crear carpetas con
 `--init-dirs`, clonar los repos con `--clone`, validar GPU/rutas/checkpoints y
-escribir el runtime final con `--write-runtime`.
+escribir el runtime final con `--write-runtime`. Con `--write-checklist` deja
+un reporte Markdown en `output/model-workstation/` con checks, rutas y
+siguientes pasos de la estación.
 Después del bootstrap, `pnpm models:preflight` arranca un sidecar temporal con
 ese runtime y ejecuta frame/audio contra los procesadores configurados:
 
