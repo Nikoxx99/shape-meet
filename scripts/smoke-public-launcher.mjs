@@ -21,7 +21,7 @@ async function main() {
   const login = await request("/api/auth/host/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ identifier, password })
+    body: JSON.stringify({ identifier, password }),
   });
   assertOk("host login", login);
 
@@ -33,34 +33,40 @@ async function main() {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${token}`
+      authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
       title,
       startsAt: new Date(Date.now() + 10 * 60_000).toISOString(),
       access: "PUBLIC_LINK",
       maxParticipants: 4,
-      invitedEmails: []
-    })
+      invitedEmails: [],
+    }),
   });
   assertOk("create meeting", created, 201);
 
   const meeting = created.data.meeting;
-  if (!meeting?.code) fail("create meeting", created, "No meeting code returned.");
+  if (!meeting?.code)
+    fail("create meeting", created, "No meeting code returned.");
 
   const launcher = await requestText(`/r/${encodeURIComponent(meeting.code)}`);
   assertTextOk("public launcher", launcher);
   assertIncludes("public launcher", launcher, title);
   assertIncludes("public launcher", launcher, meeting.code);
-  assertIncludes("public launcher", launcher, `shapemeet://r/${meeting.code}`);
+  assertIncludes("public launcher", launcher, "Entrar a la reunión");
+  assertIncludes("public launcher", launcher, "Nombre");
+  assertIncludes(
+    "public launcher",
+    launcher,
+    "¿Eres el host? Abrir en la app de escritorio",
+  );
+  assertNotIncludes("public launcher", launcher, "Abrir app");
   console.log(`launcher ok: ${meeting.code}`);
 
   const invalidLauncher = await requestText("/r/not-a-code");
   assertTextOk("invalid launcher", invalidLauncher);
   assertIncludes("invalid launcher", invalidLauncher, "Enlace no válido");
-  if (invalidLauncher.text.includes("shapemeet://r/not-a-code")) {
-    failText("invalid launcher", invalidLauncher, "Invalid code rendered a native deep link.");
-  }
+  assertNotIncludes("invalid launcher", invalidLauncher, "Entrar a la reunión");
   console.log("invalid launcher ok");
 }
 
@@ -101,6 +107,12 @@ function assertIncludes(label, result, expected) {
   }
 }
 
+function assertNotIncludes(label, result, unexpected) {
+  if (result.text.includes(unexpected)) {
+    failText(label, result, `Rendered HTML should not include: ${unexpected}`);
+  }
+}
+
 function fail(label, result, message = null) {
   console.error(`${label} failed: HTTP ${result.response.status}`);
   if (message) console.error(message);
@@ -124,7 +136,10 @@ function readEnvFileValue(file, key) {
 
   if (!line) return null;
 
-  return line.slice(key.length + 1).trim().replace(/^['"]|['"]$/g, "");
+  return line
+    .slice(key.length + 1)
+    .trim()
+    .replace(/^['"]|['"]$/g, "");
 }
 
 function redact(value) {
@@ -134,7 +149,7 @@ function redact(value) {
   return Object.fromEntries(
     Object.entries(value).map(([key, entry]) => [
       key,
-      /token|password|secret|dsn|key/i.test(key) ? "<redacted>" : redact(entry)
-    ])
+      /token|password|secret|dsn|key/i.test(key) ? "<redacted>" : redact(entry),
+    ]),
   );
 }

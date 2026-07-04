@@ -71,6 +71,7 @@
     "smoke:windows-handoff": "node scripts/smoke-windows-demo-handoff.mjs",
     "smoke:livekit-handshake": "node scripts/smoke-livekit-handshake.mjs",
     "smoke:meeting-flow": "node scripts/smoke-meeting-flow.mjs",
+    "smoke:web-guest-room": "node scripts/smoke-web-guest-room.mjs",
     "smoke:sentry-local": "node scripts/smoke-sentry-local-config.mjs",
     "smoke:ai-contract": "node scripts/smoke-ai-sidecar-contract.mjs",
     "smoke:ai-demo": "node scripts/smoke-ai-demo-processor.mjs",

@@ -8,7 +8,9 @@ type PageParams = {
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: PageParams): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: PageParams): Promise<Metadata> {
   const { code } = await params;
   const normalizedCode = normalizeMeetingCode(code);
 
@@ -32,6 +34,7 @@ export default async function PublicMeetingPage({ params }: PageParams) {
         title: meeting?.title ?? "Reunión",
         startsAt: meeting?.startsAt?.toISOString() ?? null,
         status: meeting?.status ?? null,
+        access: meeting?.access ?? null,
         maxParticipants: meeting?.maxParticipants ?? null,
         found: Boolean(meeting),
         valid,
@@ -49,6 +52,7 @@ async function publicMeetingSummary(code: string) {
         code: true,
         startsAt: true,
         status: true,
+        access: true,
         maxParticipants: true,
       },
     });

@@ -22,6 +22,7 @@
     "bcryptjs": "latest",
     "dotenv": "latest",
     "jose": "latest",
+    "livekit-client": "latest",
     "livekit-server-sdk": "latest",
     "lucide-react": "latest",
     "next": "latest",

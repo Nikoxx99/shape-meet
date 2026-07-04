@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   getAuthenticatedHost,
   participantTokenMatches,
+  signMeetingParticipantToken,
 } from "../../../../../lib/auth";
 import { serializeMeeting } from "../../../../../lib/formatters";
 import { prisma } from "../../../../../lib/prisma";
@@ -192,12 +193,21 @@ export async function POST(
       canSubscribe: true,
     });
 
+    const participantToken = isHost
+      ? null
+      : await signMeetingParticipantToken({
+          meetingId: meeting.id,
+          meetingCode: meeting.code,
+          participantId: participant.id,
+        });
+
     return NextResponse.json({
       meeting: serializeMeeting(updatedMeeting, {
         includeInvites: isHost,
         includeParticipantEmails: isHost,
       }),
       livekit,
+      participantToken,
     });
   } catch (error) {
     return apiErrorResponse(error, {
