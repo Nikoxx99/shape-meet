@@ -14,7 +14,6 @@ const skipNetwork = args.includes("--skip-network");
 const skipTurnAuth = args.includes("--skip-turn-auth");
 const skipTurnutils = args.includes("--skip-turnutils");
 const skipJsTurnAuth = args.includes("--skip-js-turn-auth");
-const skipTurnTls = args.includes("--skip-turn-tls");
 const skipLiveKitHandshake = args.includes("--skip-livekit-handshake");
 const apiFlow =
   args.includes("--api-flow") || args.includes("--check-api-flow");
@@ -27,6 +26,18 @@ const env = {
   ...(envFile ? readEnvFile(resolve(envFile)) : {}),
   ...process.env,
 };
+const skipTurnTls =
+  args.includes("--skip-turn-tls") ||
+  envFlag(env.SHAPE_REMOTE_SKIP_TURN_TLS) ||
+  envFlag(env.LIVEKIT_SKIP_TURN_TLS);
+const retryAttempts = positiveInteger(
+  argValue("--retry-attempts") ?? env.SHAPE_REMOTE_RETRY_ATTEMPTS,
+  3,
+);
+const retryDelayMs = positiveInteger(
+  argValue("--retry-delay-ms") ?? env.SHAPE_REMOTE_RETRY_DELAY_MS,
+  1000,
+);
 const checks = [];
 const warnings = [];
 const issues = [];
@@ -255,7 +266,9 @@ async function checkAdminHealth() {
   const started = Date.now();
 
   try {
-    const response = await fetchWithTimeout(healthUrl, timeoutMs);
+    const response = await retryAsync(() =>
+      fetchWithTimeout(healthUrl, timeoutMs),
+    );
     const text = await response.text();
     const data = parseJson(text);
     if (!response.ok) {
@@ -320,7 +333,9 @@ async function checkLiveKitHttp() {
   const started = Date.now();
 
   try {
-    const response = await fetchWithTimeout(httpUrl, timeoutMs);
+    const response = await retryAsync(() =>
+      fetchWithTimeout(httpUrl, timeoutMs),
+    );
     if (!response.ok) {
       issue(
         "network.livekit-http",
@@ -648,9 +663,8 @@ async function checkLiveKitClientHandshake(livekit) {
 
   const started = Date.now();
   try {
-    const response = await websocketUpgrade(
-      liveKitRtcUrl(livekit.url, livekit.token),
-      timeoutMs,
+    const response = await retryAsync(() =>
+      websocketUpgrade(liveKitRtcUrl(livekit.url, livekit.token), timeoutMs),
     );
 
     if (response.statusCode !== 101) {
@@ -1019,6 +1033,26 @@ async function fetchWithTimeout(url, timeout, init = {}) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+async function retryAsync(callback, attempts = retryAttempts) {
+  let lastError = null;
+  const totalAttempts = Math.max(1, attempts);
+
+  for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
+    try {
+      return await callback(attempt);
+    } catch (error) {
+      lastError = error;
+      if (attempt < totalAttempts) await sleep(retryDelayMs);
+    }
+  }
+
+  throw lastError;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function tcpConnect(host, port, timeout) {
@@ -1519,6 +1553,15 @@ function argValue(name) {
   if (inline) return inline.slice(prefix.length);
   const index = args.indexOf(name);
   return index >= 0 ? (args[index + 1] ?? null) : null;
+}
+
+function envFlag(value) {
+  return /^(1|true|yes|on)$/i.test(String(value ?? "").trim());
+}
+
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function isLocalHost(hostname) {

@@ -1,19 +1,11 @@
 import { randomBytes } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 const repoRoot = resolve(import.meta.dirname, "..");
-const defaultCoolifyEnv = resolve(
-  repoRoot,
-  "../pos/.claude/coolify.local.env",
-);
+const defaultCoolifyEnv = resolve(repoRoot, "../pos/.claude/coolify.local.env");
 const coolifyEnvFile =
   argValue("--coolify-env-file") ??
   process.env.COOLIFY_ENV_FILE ??
@@ -32,8 +24,7 @@ const composeLocation =
 const githubAppOrg = argValue("--github-app-org") ?? "Luxora-Agency";
 const sentryDsn = argValue("--sentry-dsn") ?? process.env.SENTRY_DSN ?? "";
 const release = argValue("--release") ?? "0.1.0";
-const bootstrapEmail =
-  argValue("--bootstrap-email") ?? "host@shape-meet.local";
+const bootstrapEmail = argValue("--bootstrap-email") ?? "host@shape-meet.local";
 const deploy = !args.includes("--skip-deploy");
 const waitForHealth = !args.includes("--no-wait");
 
@@ -243,9 +234,7 @@ async function resolveServer(api) {
     fail("Coolify no tiene servidores disponibles.");
   }
   const server = requested
-    ? servers.find(
-        (item) => item.uuid === requested || item.name === requested,
-      )
+    ? servers.find((item) => item.uuid === requested || item.name === requested)
     : servers[0];
   if (!server) fail(`No encontre servidor Coolify: ${requested}`);
   return server;
@@ -350,7 +339,9 @@ async function ensureApplication(
         body: JSON.stringify(updatePayload),
       });
     } catch (error) {
-      if (!String(error.message).includes("Cannot set docker_compose_domains")) {
+      if (
+        !String(error.message).includes("Cannot set docker_compose_domains")
+      ) {
         throw error;
       }
       const { docker_compose_domains: _domains, ...withoutDomains } =
@@ -426,7 +417,11 @@ async function renderEnvFile() {
     writeFileSync(
       join(outputDir, "bootstrap-password.txt"),
       `${passwordMatch[1].trim()}\n`,
-      { flag: existsSync(join(outputDir, "bootstrap-password.txt")) ? "w" : "wx" },
+      {
+        flag: existsSync(join(outputDir, "bootstrap-password.txt"))
+          ? "w"
+          : "wx",
+      },
     );
   }
 
@@ -479,7 +474,9 @@ async function waitForComposeLoad(api, uuid) {
     }
     await sleep(3000);
   }
-  console.log("Compose load still pending; continuing with deployment request.");
+  console.log(
+    "Compose load still pending; continuing with deployment request.",
+  );
 }
 
 async function startDeployment(api, uuid) {
@@ -501,6 +498,7 @@ function writeRemoteDemoEnv(env) {
     ["LIVEKIT_RTC_TCP_PORT", env.LIVEKIT_RTC_TCP_PORT],
     ["LIVEKIT_TURN_UDP_PORT", env.LIVEKIT_TURN_UDP_PORT],
     ["LIVEKIT_TURN_TLS_PORT", env.LIVEKIT_TURN_TLS_PORT],
+    ["SHAPE_REMOTE_SKIP_TURN_TLS", "true"],
     ["LIVEKIT_TURN_SHARED_SECRET", env.LIVEKIT_TURN_SHARED_SECRET],
     ["LIVEKIT_TURN_TTL_SECONDS", env.LIVEKIT_TURN_TTL_SECONDS],
   ];
@@ -569,9 +567,7 @@ function safeTimestamp(date) {
 }
 
 function relativePath(path) {
-  return path.startsWith(repoRoot)
-    ? path.slice(repoRoot.length + 1)
-    : path;
+  return path.startsWith(repoRoot) ? path.slice(repoRoot.length + 1) : path;
 }
 
 function sleep(ms) {

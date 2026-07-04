@@ -1,9 +1,12 @@
 import { spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,7 +32,10 @@ const sentryLive =
   args.includes("--sentry-live") ||
   args.includes("--live") ||
   args.includes("--send-test-event");
-const remoteEnvFile = argValue("--remote-env-file");
+const explicitRemoteEnvFile = argValue("--remote-env-file");
+const remoteEnvFile =
+  explicitRemoteEnvFile ??
+  (args.includes("--no-auto-remote") ? null : findLatestRemoteEnvFile());
 const verifyRemote =
   args.includes("--verify-remote") || Boolean(remoteEnvFile && !skipRemote);
 const remoteApiFlow =
@@ -233,6 +239,13 @@ function runRemoteDeploymentCheck() {
   forwardRemoteFlag(commandArgs, "--skip-turnutils");
   forwardRemoteFlag(commandArgs, "--skip-js-turn-auth");
   forwardRemoteFlag(commandArgs, "--skip-livekit-handshake");
+  forwardRemoteFlag(commandArgs, "--skip-turn-tls");
+  if (
+    !commandArgs.includes("--skip-turn-tls") &&
+    envFileFlag(remoteEnvFile, "SHAPE_REMOTE_SKIP_TURN_TLS")
+  ) {
+    commandArgs.push("--skip-turn-tls");
+  }
 
   const step = commandStep("Demo remoto", commandArgs, {
     parseJson: true,
@@ -543,6 +556,28 @@ function readEnvValue(path, key) {
     return null;
   }
   return null;
+}
+
+function envFileFlag(path, key) {
+  const value = path ? readEnvValue(path, key) : null;
+  return /^(1|true|yes|on)$/i.test(value ?? "");
+}
+
+function findLatestRemoteEnvFile() {
+  const root = resolve("output/coolify-deploy");
+  if (!existsSync(root)) return null;
+
+  const candidates = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const envPath = resolve(root, entry.name, "remote-demo.env");
+    if (!existsSync(envPath)) continue;
+    const stats = statSync(envPath);
+    candidates.push({ path: envPath, mtimeMs: stats.mtimeMs });
+  }
+
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return candidates[0]?.path ?? null;
 }
 
 function unquote(value) {
