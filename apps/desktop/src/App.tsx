@@ -520,8 +520,10 @@ const preflightWarningMessages: Record<string, string> = {
   audio_model_output_missing: "El modelo de voz no devolvió audio procesado.",
   model_adapters_not_loaded: "Los adaptadores de modelos no están cargados.",
   voice_adapter_not_loaded: "El adaptador de voz no está cargado.",
-  demo_video_processor: "Procesador demo de video activo; no son modelos reales.",
-  demo_audio_passthrough: "Procesador demo de voz activo; audio en passthrough.",
+  demo_video_processor:
+    "Procesador demo de video activo; no son modelos reales.",
+  demo_audio_passthrough:
+    "Procesador demo de voz activo; audio en passthrough.",
 };
 
 const aiWarningStageLabels: Record<string, string> = {
@@ -639,7 +641,11 @@ function boolStatus(value?: boolean) {
 function modelRuntimeInputFromContent(
   content: string,
 ): NativeModelAiRuntimeInput {
+  const faceEndpoint = envContentValue(content, "SHAPE_FACE_ENDPOINT") ?? "";
   return {
+    runtimePreset:
+      envContentValue(content, "SHAPE_MODEL_RUNTIME_PRESET") ??
+      (faceEndpoint ? "local-endpoints" : "local-wrappers"),
     workstationProfile:
       envContentValue(content, "SHAPE_MODEL_WORKSTATION_PROFILE") ?? "manual",
     wrapperPassthrough: !["0", "false", "no", "off"].includes(
@@ -651,6 +657,22 @@ function modelRuntimeInputFromContent(
       envContentUrlPort(content, "SHAPE_VIDEO_PROCESSOR_ENDPOINT") ?? "7860",
     audioProcessorPort:
       envContentUrlPort(content, "SHAPE_AUDIO_PROCESSOR_ENDPOINT") ?? "7861",
+    modelEndpointHost:
+      envContentValue(content, "SHAPE_MODEL_ENDPOINT_HOST") ??
+      envContentUrlHost(content, "SHAPE_FACE_ENDPOINT") ??
+      "127.0.0.1",
+    modelEndpointPort:
+      envContentValue(content, "SHAPE_MODEL_ENDPOINT_PORT") ??
+      envContentUrlPort(content, "SHAPE_FACE_ENDPOINT") ??
+      "9100",
+    videoFrameEndpoint:
+      envContentValue(content, "SHAPE_VIDEO_FRAME_ENDPOINT") ?? "",
+    faceEndpoint,
+    backgroundEndpoint:
+      envContentValue(content, "SHAPE_BACKGROUND_ENDPOINT") ?? "",
+    audioChunkEndpoint:
+      envContentValue(content, "SHAPE_AUDIO_CHUNK_ENDPOINT") ?? "",
+    voiceEndpoint: envContentValue(content, "SHAPE_VOICE_ENDPOINT") ?? "",
     facefusionDir: envContentValue(content, "FACEFUSION_DIR") ?? "",
     facefusionPython: envContentValue(content, "FACEFUSION_PYTHON") ?? "",
     facefusionProviders:
@@ -679,10 +701,18 @@ function normalizeModelRuntimeInput(
   input: NativeModelAiRuntimeInput,
 ): NativeModelAiRuntimeInput {
   return {
+    runtimePreset: input.runtimePreset?.trim() || null,
     workstationProfile: input.workstationProfile?.trim() || null,
     wrapperPassthrough: input.wrapperPassthrough,
     videoProcessorPort: input.videoProcessorPort?.trim() || null,
     audioProcessorPort: input.audioProcessorPort?.trim() || null,
+    modelEndpointHost: input.modelEndpointHost?.trim() || null,
+    modelEndpointPort: input.modelEndpointPort?.trim() || null,
+    videoFrameEndpoint: input.videoFrameEndpoint?.trim() || null,
+    faceEndpoint: input.faceEndpoint?.trim() || null,
+    backgroundEndpoint: input.backgroundEndpoint?.trim() || null,
+    audioChunkEndpoint: input.audioChunkEndpoint?.trim() || null,
+    voiceEndpoint: input.voiceEndpoint?.trim() || null,
     facefusionDir: input.facefusionDir?.trim() || null,
     facefusionPython: input.facefusionPython?.trim() || null,
     facefusionProviders: input.facefusionProviders?.trim() || null,
@@ -712,7 +742,10 @@ function modelRuntimeProfileDefaults(
 ): Partial<NativeModelAiRuntimeInput> {
   if (profile === "windows-nvidia") {
     return {
+      runtimePreset: "local-wrappers",
       wrapperPassthrough: false,
+      modelEndpointHost: "127.0.0.1",
+      modelEndpointPort: "9100",
       facefusionDir: "C:\\models\\FaceFusion",
       facefusionPython: "C:\\models\\FaceFusion\\.venv\\Scripts\\python.exe",
       facefusionProviders: "cuda",
@@ -732,7 +765,10 @@ function modelRuntimeProfileDefaults(
 
   if (profile === "apple-silicon") {
     return {
+      runtimePreset: "local-wrappers",
       wrapperPassthrough: true,
+      modelEndpointHost: "127.0.0.1",
+      modelEndpointPort: "9100",
       facefusionDir: "~/models/FaceFusion",
       facefusionPython: "~/models/FaceFusion/.venv/bin/python",
       facefusionProviders: "cpu",
@@ -782,6 +818,17 @@ function envContentUrlPort(content: string, key: string) {
     return url.port || null;
   } catch {
     return value.match(/:(\d{1,5})(?:\/|$)/)?.[1] ?? null;
+  }
+}
+
+function envContentUrlHost(content: string, key: string) {
+  const value = envContentValue(content, key);
+  if (!value) return null;
+
+  try {
+    return new URL(value).hostname || null;
+  } catch {
+    return value.match(/^https?:\/\/([^/:]+)/)?.[1] ?? null;
   }
 }
 
@@ -3502,10 +3549,18 @@ function AiRuntimeScreen({
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [modelRuntimeInput, setModelRuntimeInput] =
     useState<NativeModelAiRuntimeInput>({
+      runtimePreset: "local-wrappers",
       workstationProfile: "manual",
       wrapperPassthrough: true,
       videoProcessorPort: "7860",
       audioProcessorPort: "7861",
+      modelEndpointHost: "127.0.0.1",
+      modelEndpointPort: "9100",
+      videoFrameEndpoint: "",
+      faceEndpoint: "",
+      backgroundEndpoint: "",
+      audioChunkEndpoint: "",
+      voiceEndpoint: "",
       facefusionDir: "",
       facefusionPython: "",
       facefusionProviders: "cuda",
@@ -3598,13 +3653,25 @@ function AiRuntimeScreen({
     }
   }
 
-  async function handlePrepareModelRuntime() {
+  async function handlePrepareModelRuntime(
+    runtimePreset:
+      "local-wrappers" | "local-endpoints" = modelRuntimeInput.runtimePreset ===
+    "local-endpoints"
+      ? "local-endpoints"
+      : "local-wrappers",
+  ) {
     setSaving(true);
     setRuntimeMessage(null);
     try {
-      const prepared = await prepareModelAiRuntimeEnv(
-        normalizeModelRuntimeInput(modelRuntimeInput),
-      );
+      const normalized = normalizeModelRuntimeInput({
+        ...modelRuntimeInput,
+        runtimePreset,
+        wrapperPassthrough:
+          runtimePreset === "local-endpoints"
+            ? false
+            : modelRuntimeInput.wrapperPassthrough,
+      });
+      const prepared = await prepareModelAiRuntimeEnv(normalized);
       setEnvFile(prepared);
       setContent(prepared.content);
       setRuntimeError(null);
@@ -3615,12 +3682,16 @@ function AiRuntimeScreen({
       await onStopSidecar();
       await onStartSidecar();
       await loadRuntimeState();
-      setRuntimeMessage("Wrappers IA cargados y sidecar reiniciado.");
+      setRuntimeMessage(
+        runtimePreset === "local-endpoints"
+          ? "Endpoints IA cargados y sidecar reiniciado."
+          : "Wrappers IA cargados y sidecar reiniciado.",
+      );
     } catch (error) {
       setRuntimeError(
         error instanceof Error
           ? error.message
-          : "No se pudo preparar runtime de wrappers.",
+          : "No se pudo preparar runtime de modelos.",
       );
     } finally {
       setSaving(false);
@@ -3733,6 +3804,24 @@ function AiRuntimeScreen({
           </div>
           <div className="runtime-model-form">
             <SelectField
+              label="Modo runtime"
+              value={modelRuntimeInput.runtimePreset ?? "local-wrappers"}
+              options={[
+                { value: "local-wrappers", label: "Wrappers locales" },
+                { value: "local-endpoints", label: "Endpoints locales" },
+              ]}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  runtimePreset: value,
+                  wrapperPassthrough:
+                    value === "local-endpoints"
+                      ? false
+                      : current.wrapperPassthrough,
+                }))
+              }
+            />
+            <SelectField
               label="Perfil workstation"
               value={modelRuntimeInput.workstationProfile ?? "manual"}
               options={[
@@ -3772,6 +3861,29 @@ function AiRuntimeScreen({
                 setModelRuntimeInput((current) => ({
                   ...current,
                   audioProcessorPort: value,
+                }))
+              }
+              type="number"
+            />
+            <TextField
+              label="Host endpoints"
+              icon={<Settings />}
+              value={modelRuntimeInput.modelEndpointHost ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  modelEndpointHost: value,
+                }))
+              }
+            />
+            <TextField
+              label="Puerto endpoints"
+              icon={<Settings />}
+              value={modelRuntimeInput.modelEndpointPort ?? ""}
+              onChange={(value) =>
+                setModelRuntimeInput((current) => ({
+                  ...current,
+                  modelEndpointPort: value,
                 }))
               }
               type="number"
@@ -4005,10 +4117,18 @@ function AiRuntimeScreen({
             <Button
               variant="outline"
               icon={<Settings />}
-              onClick={() => void handlePrepareModelRuntime()}
+              onClick={() => void handlePrepareModelRuntime("local-wrappers")}
               disabled={saving}
             >
               Cargar wrappers
+            </Button>
+            <Button
+              variant="outline"
+              icon={<Sparkles />}
+              onClick={() => void handlePrepareModelRuntime("local-endpoints")}
+              disabled={saving}
+            >
+              Cargar endpoints
             </Button>
             <Button
               variant="outline"

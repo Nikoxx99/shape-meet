@@ -120,10 +120,18 @@ export interface NativeDemoAiRuntimeInput {
 }
 
 export interface NativeModelAiRuntimeInput {
+  runtimePreset?: string | null;
   workstationProfile?: string | null;
   wrapperPassthrough: boolean;
   videoProcessorPort?: string | null;
   audioProcessorPort?: string | null;
+  modelEndpointHost?: string | null;
+  modelEndpointPort?: string | null;
+  videoFrameEndpoint?: string | null;
+  faceEndpoint?: string | null;
+  backgroundEndpoint?: string | null;
+  audioChunkEndpoint?: string | null;
+  voiceEndpoint?: string | null;
   facefusionDir?: string | null;
   facefusionPython?: string | null;
   facefusionProviders?: string | null;

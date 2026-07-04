@@ -180,10 +180,18 @@ struct PrepareDemoAiRuntimeEnvInput {
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct PrepareModelAiRuntimeEnvInput {
+    runtime_preset: Option<String>,
     workstation_profile: Option<String>,
     wrapper_passthrough: Option<bool>,
     video_processor_port: Option<String>,
     audio_processor_port: Option<String>,
+    model_endpoint_host: Option<String>,
+    model_endpoint_port: Option<String>,
+    video_frame_endpoint: Option<String>,
+    face_endpoint: Option<String>,
+    background_endpoint: Option<String>,
+    audio_chunk_endpoint: Option<String>,
+    voice_endpoint: Option<String>,
     facefusion_dir: Option<String>,
     facefusion_python: Option<String>,
     facefusion_providers: Option<String>,
@@ -2101,20 +2109,10 @@ fn model_ai_runtime_env_content(
     processor_command: &str,
     input: Option<&PrepareModelAiRuntimeEnvInput>,
 ) -> Result<String, String> {
-    let python =
-        shell_quote(&env_non_empty("SHAPE_AI_PYTHON").unwrap_or_else(default_python_command));
-    let face_wrapper = wrapper_script_path("facefusion_frame.py").ok_or_else(|| {
-        "No se encontró wrapper FaceFusion. Define SHAPE_AI_WRAPPERS_DIR o ejecuta desde el repo."
-            .to_string()
-    })?;
-    let background_wrapper = wrapper_script_path("backgroundmattingv2_frame.py").ok_or_else(|| {
-        "No se encontró wrapper BackgroundMattingV2. Define SHAPE_AI_WRAPPERS_DIR o ejecuta desde el repo."
-            .to_string()
-    })?;
-    let voice_wrapper = wrapper_script_path("vcclient000_chunk.py").ok_or_else(|| {
-        "No se encontró wrapper vcclient000. Define SHAPE_AI_WRAPPERS_DIR o ejecuta desde el repo."
-            .to_string()
-    })?;
+    let runtime_preset =
+        trimmed_model_input_value(input.and_then(|value| value.runtime_preset.as_deref()))
+            .unwrap_or_else(|| "local-wrappers".to_string());
+    let endpoint_runtime = matches!(runtime_preset.as_str(), "local-endpoints" | "endpoints");
     let wrapper_passthrough = input
         .and_then(|value| value.wrapper_passthrough)
         .unwrap_or(true);
@@ -2131,11 +2129,20 @@ fn model_ai_runtime_env_content(
 
     let mut lines = vec![
         "# Shape Meet model AI runtime".to_string(),
-        "# Wrappers locales para FaceFusion, BackgroundMattingV2 y vcclient000.".to_string(),
+        if endpoint_runtime {
+            "# Endpoints locales persistentes para FaceFusion, BackgroundMattingV2 y vcclient000."
+                .to_string()
+        } else {
+            "# Wrappers locales para FaceFusion, BackgroundMattingV2 y vcclient000.".to_string()
+        },
         "SHAPE_AI_MODE=adapter-contract".to_string(),
         "SHAPE_FACE_ENGINE=facefusion".to_string(),
         "SHAPE_BACKGROUND_ENGINE=backgroundmattingv2".to_string(),
         "SHAPE_VOICE_ENGINE=vcclient000".to_string(),
+        format!(
+            "SHAPE_MODEL_RUNTIME_PRESET={}",
+            render_env_value(&runtime_preset)
+        ),
         format!(
             "SHAPE_MODEL_WORKSTATION_PROFILE={}",
             render_env_value(
@@ -2166,14 +2173,6 @@ fn model_ai_runtime_env_content(
             ports.video
         ),
         format!(
-            "SHAPE_FACE_COMMAND={python} {} --input {{input}} --output {{output}} --identity {{identity}}",
-            shell_quote_path(&face_wrapper)
-        ),
-        format!(
-            "SHAPE_BACKGROUND_COMMAND={python} {} --input {{input}} --output {{output}} --clean-plate {{clean_plate}}",
-            shell_quote_path(&background_wrapper)
-        ),
-        format!(
             "SHAPE_AUDIO_PROCESSOR_COMMAND={processor_command} --kind audio --host 127.0.0.1 --port {}",
             ports.audio
         ),
@@ -2185,12 +2184,93 @@ fn model_ai_runtime_env_content(
             "SHAPE_AUDIO_PROCESSOR_HEALTH_URL=http://127.0.0.1:{}/health",
             ports.audio
         ),
-        format!(
+    ];
+
+    if endpoint_runtime {
+        let endpoint_host =
+            trimmed_model_input_value(input.and_then(|value| value.model_endpoint_host.as_deref()))
+                .unwrap_or_else(|| "127.0.0.1".to_string());
+        let endpoint_port =
+            trimmed_model_input_value(input.and_then(|value| value.model_endpoint_port.as_deref()))
+                .unwrap_or_else(|| "9100".to_string());
+        let endpoint_base_url = format!("http://{endpoint_host}:{endpoint_port}");
+        let face_endpoint =
+            trimmed_model_input_value(input.and_then(|value| value.face_endpoint.as_deref()))
+                .unwrap_or_else(|| format!("{endpoint_base_url}/face"));
+        let background_endpoint =
+            trimmed_model_input_value(input.and_then(|value| value.background_endpoint.as_deref()))
+                .unwrap_or_else(|| format!("{endpoint_base_url}/background"));
+        let voice_endpoint =
+            trimmed_model_input_value(input.and_then(|value| value.voice_endpoint.as_deref()))
+                .unwrap_or_else(|| format!("{endpoint_base_url}/voice"));
+
+        lines.push(format!(
+            "SHAPE_MODEL_ENDPOINT_HOST={}",
+            render_env_value(&endpoint_host)
+        ));
+        lines.push(format!(
+            "SHAPE_MODEL_ENDPOINT_PORT={}",
+            render_env_value(&endpoint_port)
+        ));
+        if let Some(video_frame_endpoint) =
+            trimmed_model_input_value(input.and_then(|value| value.video_frame_endpoint.as_deref()))
+        {
+            lines.push(format!(
+                "SHAPE_VIDEO_FRAME_ENDPOINT={}",
+                render_env_value(&video_frame_endpoint)
+            ));
+        }
+        lines.push(format!(
+            "SHAPE_FACE_ENDPOINT={}",
+            render_env_value(&face_endpoint)
+        ));
+        lines.push(format!(
+            "SHAPE_BACKGROUND_ENDPOINT={}",
+            render_env_value(&background_endpoint)
+        ));
+        if let Some(audio_chunk_endpoint) =
+            trimmed_model_input_value(input.and_then(|value| value.audio_chunk_endpoint.as_deref()))
+        {
+            lines.push(format!(
+                "SHAPE_AUDIO_CHUNK_ENDPOINT={}",
+                render_env_value(&audio_chunk_endpoint)
+            ));
+        }
+        lines.push(format!(
+            "SHAPE_VOICE_ENDPOINT={}",
+            render_env_value(&voice_endpoint)
+        ));
+    } else {
+        let python =
+            shell_quote(&env_non_empty("SHAPE_AI_PYTHON").unwrap_or_else(default_python_command));
+        let face_wrapper = wrapper_script_path("facefusion_frame.py").ok_or_else(|| {
+            "No se encontró wrapper FaceFusion. Define SHAPE_AI_WRAPPERS_DIR o ejecuta desde el repo."
+                .to_string()
+        })?;
+        let background_wrapper =
+            wrapper_script_path("backgroundmattingv2_frame.py").ok_or_else(|| {
+                "No se encontró wrapper BackgroundMattingV2. Define SHAPE_AI_WRAPPERS_DIR o ejecuta desde el repo."
+                    .to_string()
+            })?;
+        let voice_wrapper = wrapper_script_path("vcclient000_chunk.py").ok_or_else(|| {
+            "No se encontró wrapper vcclient000. Define SHAPE_AI_WRAPPERS_DIR o ejecuta desde el repo."
+                .to_string()
+        })?;
+
+        lines.push(format!(
+            "SHAPE_FACE_COMMAND={python} {} --input {{input}} --output {{output}} --identity {{identity}}",
+            shell_quote_path(&face_wrapper)
+        ));
+        lines.push(format!(
+            "SHAPE_BACKGROUND_COMMAND={python} {} --input {{input}} --output {{output}} --clean-plate {{clean_plate}}",
+            shell_quote_path(&background_wrapper)
+        ));
+        lines.push(format!(
             "SHAPE_VOICE_COMMAND={python} {} --input {{input}} --output {{output}} --sample-rate {{sample_rate}} --channels {{channels}} --format {{format}}",
             shell_quote_path(&voice_wrapper)
-        ),
-        format!("SHAPE_WRAPPER_PASSTHROUGH={wrapper_passthrough}"),
-    ];
+        ));
+        lines.push(format!("SHAPE_WRAPPER_PASSTHROUGH={wrapper_passthrough}"));
+    }
 
     push_model_env_line(
         &mut lines,
@@ -3294,10 +3374,18 @@ mod tests {
     #[test]
     fn model_ai_runtime_env_accepts_real_paths() {
         let input = PrepareModelAiRuntimeEnvInput {
+            runtime_preset: None,
             workstation_profile: Some("windows-nvidia".to_string()),
             wrapper_passthrough: Some(false),
             video_processor_port: Some("7960".to_string()),
             audio_processor_port: Some("7961".to_string()),
+            model_endpoint_host: None,
+            model_endpoint_port: None,
+            video_frame_endpoint: None,
+            face_endpoint: None,
+            background_endpoint: None,
+            audio_chunk_endpoint: None,
+            voice_endpoint: None,
             facefusion_dir: Some(r"C:\models\FaceFusion".to_string()),
             facefusion_python: Some(r"C:\models\FaceFusion\.venv\Scripts\python.exe".to_string()),
             facefusion_providers: Some("cuda".to_string()),
@@ -3375,6 +3463,72 @@ mod tests {
             .values
             .iter()
             .any(|(key, value)| key == "SHAPE_PROCESSOR_TIMEOUT_SECS" && value == "75"));
+    }
+
+    #[test]
+    fn model_ai_runtime_env_accepts_local_endpoints() {
+        let input = PrepareModelAiRuntimeEnvInput {
+            runtime_preset: Some("local-endpoints".to_string()),
+            workstation_profile: Some("manual".to_string()),
+            wrapper_passthrough: Some(false),
+            video_processor_port: Some("8060".to_string()),
+            audio_processor_port: Some("8061".to_string()),
+            model_endpoint_host: Some("127.0.0.1".to_string()),
+            model_endpoint_port: Some("9200".to_string()),
+            video_frame_endpoint: None,
+            face_endpoint: None,
+            background_endpoint: None,
+            audio_chunk_endpoint: None,
+            voice_endpoint: None,
+            facefusion_dir: None,
+            facefusion_python: None,
+            facefusion_providers: None,
+            facefusion_processors: None,
+            facefusion_extra_args: None,
+            bmv2_repo_dir: None,
+            bmv2_python: None,
+            bmv2_checkpoint: None,
+            bmv2_device: None,
+            bmv2_extra_args: None,
+            vcclient000_http_endpoint: None,
+            vcclient000_http_mode: None,
+            model_timeout_secs: Some("30".to_string()),
+            processor_timeout_secs: Some("75".to_string()),
+        };
+        let content =
+            model_ai_runtime_env_content("python3 /tmp/shape_processor_command.py", Some(&input))
+                .expect("endpoint runtime content should render without wrappers");
+        let parsed = parse_ai_runtime_env(&content);
+
+        assert!(parsed.errors.is_empty());
+        assert!(parsed.warnings.is_empty());
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_MODEL_RUNTIME_PRESET" && value == "local-endpoints"));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_FACE_ENDPOINT"
+                && value == "http://127.0.0.1:9200/face"));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_BACKGROUND_ENDPOINT"
+                && value == "http://127.0.0.1:9200/background"));
+        assert!(parsed
+            .values
+            .iter()
+            .any(|(key, value)| key == "SHAPE_VOICE_ENDPOINT"
+                && value == "http://127.0.0.1:9200/voice"));
+        assert!(!parsed
+            .values
+            .iter()
+            .any(|(key, _)| key == "SHAPE_FACE_COMMAND"));
+        assert!(!parsed
+            .values
+            .iter()
+            .any(|(key, _)| key == "SHAPE_WRAPPER_PASSTHROUGH"));
     }
 
     #[test]
