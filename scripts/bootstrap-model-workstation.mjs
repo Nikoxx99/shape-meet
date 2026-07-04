@@ -33,12 +33,62 @@ const profile = normalizeProfile(
     process.env.SHAPE_MODEL_WORKSTATION_PROFILE ??
     defaultProfile(),
 );
+// --engine inproc genera el runtime persistente (motores in-process en :9100,
+// saltos colapsados). Sin --engine se conserva el flujo wrappers/legacy intacto.
+const engineMode = normalizeEngineMode(
+  argValue("--engine") ?? process.env.SHAPE_MODEL_ENDPOINT_ENGINE ?? "",
+);
+const inproc = engineMode === "inproc";
 const runtimePreset = normalizeRuntimePreset(
   argValue("--runtime-preset") ??
     argValue("--preset") ??
     process.env.SHAPE_MODEL_RUNTIME_PRESET ??
-    "local-wrappers",
+    (inproc ? "local-endpoints" : "local-wrappers"),
 );
+if (inproc && runtimePreset !== "local-endpoints") {
+  fail(
+    "--engine inproc requiere --runtime-preset local-endpoints (saltos colapsados server.py -> :9100).",
+  );
+}
+// Pesos in-process (modo inproc). El RVM torchscript se descarga del release
+// oficial (MIT) con verificación de sha256/tamaño; inswapper_128.onnx es un
+// modelo gated de InsightFace y NUNCA se descarga/redistribuye aquí.
+const RVM_WEIGHT_FILE = "rvm_mobilenetv3_fp32.torchscript";
+const RVM_WEIGHT_URL =
+  "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.torchscript";
+const RVM_WEIGHT_SHA256 =
+  "f01e0c9338b9a6a31b881ea6d4360d70c1e549701b3792e14c9ed88d6196c5a1";
+const RVM_WEIGHT_BYTES = 15501891;
+const inprocBackgroundEngine = normalizeBackgroundEngine(
+  argValue("--background-engine") ??
+    process.env.SHAPE_BACKGROUND_ENGINE ??
+    "rvm",
+);
+const weightsDir =
+  argValue("--weights-dir") ??
+  process.env.SHAPE_MODEL_WEIGHTS_DIR ??
+  join(homedir(), ".cache", "shape-meet-airuntime", "weights");
+const inswapperModelPath =
+  argValue("--inswapper-model") ??
+  process.env.SHAPE_INSWAPPER_MODEL ??
+  join(weightsDir, "inswapper_128.onnx");
+const rvmModelPath =
+  argValue("--rvm-model") ??
+  process.env.SHAPE_RVM_MODEL ??
+  join(weightsDir, RVM_WEIGHT_FILE);
+const bmv2InprocCheckpoint =
+  argValue("--bmv2-checkpoint") ??
+  process.env.BMV2_MODEL_CHECKPOINT ??
+  join(weightsDir, "torchscript_resnet50_fp32.pth");
+const insightfaceHome =
+  argValue("--insightface-home") ??
+  process.env.SHAPE_INSIGHTFACE_HOME ??
+  process.env.INSIGHTFACE_HOME ??
+  join(homedir(), ".insightface");
+const faceProviders =
+  argValue("--face-providers") ??
+  process.env.SHAPE_FACE_EXECUTION_PROVIDERS ??
+  (profile === "windows-nvidia" ? "cuda" : "coreml,cpu");
 const workspaceRoot = argValue("--workspace") ?? defaultWorkspaceRoot(profile);
 const runtimeEnvPath =
   argValue("--out") ??
@@ -80,7 +130,9 @@ const modelEndpointBaseUrl = `http://${modelEndpointHost}:${modelEndpointPort}`;
 const videoFrameEndpoint =
   argValue("--video-frame-endpoint") ??
   process.env.SHAPE_VIDEO_FRAME_ENDPOINT ??
-  (runtimePreset === "local-endpoints"
+  // En inproc los saltos se colapsan a /process-frame|/process-audio y no se
+  // usan los endpoints por etapa del preset local-endpoints legacy.
+  (runtimePreset === "local-endpoints" && !inproc
     ? `${modelEndpointBaseUrl}/video-frame`
     : null);
 const faceEndpoint =
@@ -115,8 +167,10 @@ function main() {
   const modelPaths = buildModelPaths(profile, workspaceRoot);
 
   maybeCreateWorkspace(modelPaths);
-  maybeCloneRepo("FaceFusion", facefusionRepo, modelPaths.facefusionDir);
-  maybeCloneRepo("BackgroundMattingV2", bmv2Repo, modelPaths.bmv2RepoDir);
+  if (!inproc) {
+    maybeCloneRepo("FaceFusion", facefusionRepo, modelPaths.facefusionDir);
+    maybeCloneRepo("BackgroundMattingV2", bmv2Repo, modelPaths.bmv2RepoDir);
+  }
 
   runtimeEnvContent = renderRuntimeEnv(modelPaths);
   runtimeEnv = parseEnv(runtimeEnvContent);
@@ -147,8 +201,12 @@ function main() {
   checkCommand("git", "Git");
   checkCommand(basePythonCommand(), "Python base");
   if (profile === "windows-nvidia" && !skipHardware) checkNvidia();
-  checkFaceFusion(modelPaths);
-  checkBackgroundMatting(modelPaths);
+  if (inproc) {
+    checkInprocRuntime(modelPaths);
+  } else {
+    checkFaceFusion(modelPaths);
+    checkBackgroundMatting(modelPaths);
+  }
   if (!skipVcclient) checkVcClient(vcclientEndpoint, vcclientHttpMode);
 
   runDoctor(writeTempRuntimeEnv());
@@ -238,6 +296,46 @@ function runPrepareRuntime(modelPaths, printOnly) {
     runtimePreset,
     "--out",
     runtimeEnvPath,
+  ];
+
+  if (inproc) {
+    commandArgs.push(
+      "--engine",
+      "inproc",
+      "--background-engine",
+      inprocBackgroundEngine,
+      "--inswapper-model",
+      modelPaths.inswapperModel,
+      "--rvm-model",
+      modelPaths.rvmModel,
+      "--insightface-home",
+      modelPaths.insightfaceHome,
+      "--face-providers",
+      modelPaths.faceProviders,
+      "--endpoint-python",
+      modelPaths.inprocPython,
+      "--model-endpoint-host",
+      modelEndpointHost,
+      "--model-endpoint-port",
+      modelEndpointPort,
+    );
+    if (inprocBackgroundEngine === "bmv2") {
+      commandArgs.push(
+        "--bmv2-checkpoint",
+        modelPaths.bmv2TorchscriptCheckpoint,
+      );
+    }
+    if (vcclientEndpoint) {
+      commandArgs.push("--vcclient000-http-endpoint", vcclientEndpoint);
+    }
+    if (vcclientHttpMode) {
+      commandArgs.push("--vcclient000-http-mode", vcclientHttpMode);
+    }
+    if (printOnly) commandArgs.push("--print");
+    return spawnPrepareRuntime(commandArgs);
+  }
+
+  commandArgs.push(
     "--facefusion-dir",
     modelPaths.facefusionDir,
     "--facefusion-python",
@@ -248,7 +346,7 @@ function runPrepareRuntime(modelPaths, printOnly) {
     modelPaths.bmv2Python,
     "--bmv2-checkpoint",
     modelPaths.bmv2Checkpoint,
-  ];
+  );
 
   if (modelPaths.facefusionProviders) {
     commandArgs.push("--facefusion-providers", modelPaths.facefusionProviders);
@@ -282,7 +380,10 @@ function runPrepareRuntime(modelPaths, printOnly) {
   }
   if (voiceEndpoint) commandArgs.push("--voice-endpoint", voiceEndpoint);
   if (printOnly) commandArgs.push("--print");
+  return spawnPrepareRuntime(commandArgs);
+}
 
+function spawnPrepareRuntime(commandArgs) {
   const result = spawnSync(process.execPath, commandArgs, {
     cwd: repoRoot,
     encoding: "utf8",
@@ -613,6 +714,38 @@ function writeTempRuntimeEnv() {
 }
 
 function buildModelPaths(selectedProfile, root) {
+  // Rutas del runtime persistente (engine inproc). El venv del endpoint vive en
+  // el repo (apps/ai-sidecar/.venv-inproc) y los pesos en un cache del host;
+  // ambos se referencian por env absolutas en el runtime generado.
+  const inprocPaths = {
+    engine: inproc ? "inproc" : "wrappers",
+    weightsDir,
+    inswapperModel: inswapperModelPath,
+    rvmModel: rvmModelPath,
+    bmv2TorchscriptCheckpoint: bmv2InprocCheckpoint,
+    insightfaceHome,
+    faceProviders: inproc
+      ? faceProviders
+      : selectedProfile === "windows-nvidia"
+        ? "cuda"
+        : "cpu",
+    inprocBackgroundEngine,
+    inprocVenvDir: join(repoRoot, "apps", "ai-sidecar", ".venv-inproc"),
+    inprocPython: join(
+      repoRoot,
+      "apps",
+      "ai-sidecar",
+      ".venv-inproc",
+      ...(selectedProfile === "windows-nvidia"
+        ? ["Scripts", "python.exe"]
+        : ["bin", "python"]),
+    ),
+    inprocRequirements:
+      selectedProfile === "windows-nvidia"
+        ? "apps/ai-sidecar/requirements-inproc-cuda.txt"
+        : "apps/ai-sidecar/requirements-inproc-mac.txt",
+  };
+
   if (selectedProfile === "apple-silicon") {
     return {
       workspaceRoot: root,
@@ -626,6 +759,7 @@ function buildModelPaths(selectedProfile, root) {
         "BackgroundMattingV2/pytorch_resnet50.pth",
       ),
       bmv2Device: "mps",
+      ...inprocPaths,
     };
   }
 
@@ -647,7 +781,86 @@ function buildModelPaths(selectedProfile, root) {
       "BackgroundMattingV2\\pytorch_resnet50.pth",
     ),
     bmv2Device: "cuda",
+    ...inprocPaths,
   };
+}
+
+function checkInprocRuntime(modelPaths) {
+  const requirementsPath = join(repoRoot, modelPaths.inprocRequirements);
+  if (existsSync(requirementsPath)) {
+    ok("inproc", `Requirements del endpoint: ${modelPaths.inprocRequirements}`);
+  } else {
+    error("inproc", `Faltan requirements: ${modelPaths.inprocRequirements}`);
+  }
+
+  if (existsSync(modelPaths.inprocPython)) {
+    ok("inproc", `Venv del endpoint listo: ${modelPaths.inprocPython}`);
+  } else {
+    warn(
+      "inproc",
+      `Venv del endpoint no existe todavía: ${modelPaths.inprocPython}`,
+    );
+    nextStep(
+      "Ejecuta el setup script generado (crea el venv del endpoint e instala requirements-inproc).",
+    );
+  }
+
+  const inswapper = fsPath(modelPaths.inswapperModel);
+  if (inswapper && existsSync(inswapper) && statSync(inswapper).size > 0) {
+    ok("pesos", `inswapper_128.onnx listo: ${modelPaths.inswapperModel}`);
+  } else {
+    error(
+      "pesos",
+      `inswapper_128.onnx faltante: ${modelPaths.inswapperModel} (modelo gated de InsightFace; descarga manual, no redistribuible).`,
+    );
+    nextStep(
+      `Descarga inswapper_128.onnx (gated, licencia InsightFace no comercial) y colócalo en ${modelPaths.inswapperModel}.`,
+    );
+  }
+
+  if (modelPaths.inprocBackgroundEngine === "bmv2") {
+    const checkpoint = fsPath(modelPaths.bmv2TorchscriptCheckpoint);
+    if (checkpoint && existsSync(checkpoint) && statSync(checkpoint).size > 0) {
+      ok(
+        "pesos",
+        `BMV2 torchscript listo: ${modelPaths.bmv2TorchscriptCheckpoint}`,
+      );
+    } else {
+      error(
+        "pesos",
+        `BMV2 torchscript faltante: ${modelPaths.bmv2TorchscriptCheckpoint} (SHAPE_BACKGROUND_ENGINE=bmv2).`,
+      );
+      nextStep(
+        "Descarga el checkpoint torchscript de BackgroundMattingV2 o usa --background-engine rvm.",
+      );
+    }
+  } else {
+    const rvm = fsPath(modelPaths.rvmModel);
+    if (rvm && existsSync(rvm) && statSync(rvm).size > 0) {
+      ok("pesos", `RVM torchscript listo: ${modelPaths.rvmModel}`);
+    } else {
+      warn(
+        "pesos",
+        `RVM torchscript faltante: ${modelPaths.rvmModel} (el setup script lo descarga del release oficial con verificación sha256).`,
+      );
+      nextStep(
+        "Ejecuta el setup script generado para descargar rvm_mobilenetv3_fp32.torchscript (MIT).",
+      );
+    }
+  }
+
+  const insightface = fsPath(modelPaths.insightfaceHome);
+  if (insightface && existsSync(join(insightface, "models", "buffalo_l"))) {
+    ok(
+      "pesos",
+      `buffalo_l en cache insightface: ${modelPaths.insightfaceHome}`,
+    );
+  } else {
+    warn(
+      "pesos",
+      `buffalo_l pendiente en ${modelPaths.insightfaceHome}; el setup script hace el warm-up de descarga.`,
+    );
+  }
 }
 
 function joinProfilePath(root, child) {
@@ -719,6 +932,7 @@ function buildReport(modelPaths) {
   return {
     ok: !hasErrors() && (!strict || !hasWarnings()),
     profile,
+    engine: inproc ? "inproc" : "wrappers",
     workspaceRoot,
     runtimePreset,
     runtimeEnvPath,
@@ -736,13 +950,33 @@ function buildReport(modelPaths) {
       SHAPE_MODEL_WORKSTATION_PROFILE:
         runtimeEnv.SHAPE_MODEL_WORKSTATION_PROFILE,
       SHAPE_MODEL_RUNTIME_PRESET: runtimeEnv.SHAPE_MODEL_RUNTIME_PRESET,
+      SHAPE_MODEL_ENDPOINT_ENGINE: runtimeEnv.SHAPE_MODEL_ENDPOINT_ENGINE,
       SHAPE_MODEL_ENDPOINT_HOST: runtimeEnv.SHAPE_MODEL_ENDPOINT_HOST,
       SHAPE_MODEL_ENDPOINT_PORT: runtimeEnv.SHAPE_MODEL_ENDPOINT_PORT,
+      SHAPE_MODEL_ENDPOINT_PYTHON: runtimeEnv.SHAPE_MODEL_ENDPOINT_PYTHON,
+      SHAPE_VIDEO_PROCESSOR_ENDPOINT: runtimeEnv.SHAPE_VIDEO_PROCESSOR_ENDPOINT,
+      SHAPE_VIDEO_PROCESSOR_COMMAND: runtimeEnv.SHAPE_VIDEO_PROCESSOR_COMMAND,
+      SHAPE_AUDIO_PROCESSOR_ENDPOINT: runtimeEnv.SHAPE_AUDIO_PROCESSOR_ENDPOINT,
+      SHAPE_AUDIO_PROCESSOR_COMMAND: runtimeEnv.SHAPE_AUDIO_PROCESSOR_COMMAND,
       SHAPE_VIDEO_FRAME_ENDPOINT: runtimeEnv.SHAPE_VIDEO_FRAME_ENDPOINT,
       SHAPE_FACE_ENDPOINT: runtimeEnv.SHAPE_FACE_ENDPOINT,
       SHAPE_BACKGROUND_ENDPOINT: runtimeEnv.SHAPE_BACKGROUND_ENDPOINT,
       SHAPE_AUDIO_CHUNK_ENDPOINT: runtimeEnv.SHAPE_AUDIO_CHUNK_ENDPOINT,
       SHAPE_VOICE_ENDPOINT: runtimeEnv.SHAPE_VOICE_ENDPOINT,
+      SHAPE_BACKGROUND_ENGINE: runtimeEnv.SHAPE_BACKGROUND_ENGINE,
+      SHAPE_FACE_EXECUTION_PROVIDERS: runtimeEnv.SHAPE_FACE_EXECUTION_PROVIDERS,
+      SHAPE_INSWAPPER_MODEL: runtimeEnv.SHAPE_INSWAPPER_MODEL,
+      SHAPE_RVM_MODEL: runtimeEnv.SHAPE_RVM_MODEL,
+      INSIGHTFACE_HOME: runtimeEnv.INSIGHTFACE_HOME,
+      SHAPE_PROCESSOR_TIMEOUT_SECS: runtimeEnv.SHAPE_PROCESSOR_TIMEOUT_SECS,
+      SHAPE_AUDIO_PROCESSOR_TIMEOUT_SECS:
+        runtimeEnv.SHAPE_AUDIO_PROCESSOR_TIMEOUT_SECS,
+      SHAPE_MODEL_ENDPOINT_TIMEOUT_SECS:
+        runtimeEnv.SHAPE_MODEL_ENDPOINT_TIMEOUT_SECS,
+      SHAPE_VOICE_ENDPOINT_TIMEOUT_SECS:
+        runtimeEnv.SHAPE_VOICE_ENDPOINT_TIMEOUT_SECS,
+      SHAPE_MODEL_ENDPOINT_LOAD_TIMEOUT_SECS:
+        runtimeEnv.SHAPE_MODEL_ENDPOINT_LOAD_TIMEOUT_SECS,
       FACEFUSION_DIR: runtimeEnv.FACEFUSION_DIR,
       BMV2_REPO_DIR: runtimeEnv.BMV2_REPO_DIR,
       BMV2_MODEL_CHECKPOINT: runtimeEnv.BMV2_MODEL_CHECKPOINT,
@@ -849,6 +1083,7 @@ function printReport(modelPaths) {
 
   console.log("Shape Meet model workstation bootstrap");
   console.log(`Perfil: ${profile}`);
+  console.log(`Engine: ${inproc ? "inproc" : "wrappers"}`);
   console.log(`Workspace: ${workspaceRoot}`);
   console.log(`Runtime preset: ${runtimePreset}`);
   console.log(`Runtime env: ${writeRuntime ? runtimeEnvPath : "no escrito"}`);
@@ -920,9 +1155,41 @@ function renderChecklist(report) {
     : "No quedan siguientes pasos detectados por el bootstrap.";
   const readinessSection = renderReadinessSection(report);
 
+  const routesSection = inproc
+    ? [
+        `- Engine: inproc (fondo ${report.modelPaths.inprocBackgroundEngine})`,
+        `- Venv endpoint: ${report.modelPaths.inprocPython}`,
+        `- Requirements endpoint: ${report.modelPaths.inprocRequirements}`,
+        `- inswapper_128.onnx (gated, manual): ${report.modelPaths.inswapperModel}`,
+        `- RVM torchscript (descarga MIT): ${report.modelPaths.rvmModel}`,
+        `- INSIGHTFACE_HOME (buffalo_l): ${report.modelPaths.insightfaceHome}`,
+        `- Providers rostro: ${report.modelPaths.faceProviders}`,
+        `- Endpoint video (colapsado): ${report.runtimeEnv.SHAPE_VIDEO_PROCESSOR_ENDPOINT || "no configurado"}`,
+        `- Endpoint audio (colapsado): ${report.runtimeEnv.SHAPE_AUDIO_PROCESSOR_ENDPOINT || "no configurado"}`,
+        `- VCClient (w-okada): ${report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT || "no configurado"}`,
+        `- Setup script: ${report.setupScriptWritten ? report.setupScriptPath : "pendiente"}`,
+        `- Assets técnicos escritos: ${report.demoAssetsWritten ? "si" : "no"}`,
+      ].join("\n")
+    : [
+        `- FaceFusion: ${report.modelPaths.facefusionDir}`,
+        `- Python FaceFusion: ${report.modelPaths.facefusionPython}`,
+        `- BackgroundMattingV2: ${report.modelPaths.bmv2RepoDir}`,
+        `- Python BackgroundMattingV2: ${report.modelPaths.bmv2Python}`,
+        `- Checkpoint BackgroundMattingV2: ${report.modelPaths.bmv2Checkpoint}`,
+        `- VCClient: ${report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT || "no configurado"}`,
+        `- VCClient mode: ${report.runtimeEnv.VCCLIENT000_HTTP_MODE || "auto"}`,
+        `- Endpoint video combinado: ${report.runtimeEnv.SHAPE_VIDEO_FRAME_ENDPOINT || "no configurado"}`,
+        `- Endpoint rostro: ${report.runtimeEnv.SHAPE_FACE_ENDPOINT || "no configurado"}`,
+        `- Endpoint fondo: ${report.runtimeEnv.SHAPE_BACKGROUND_ENDPOINT || "no configurado"}`,
+        `- Endpoint voz: ${report.runtimeEnv.SHAPE_VOICE_ENDPOINT || "no configurado"}`,
+        `- Setup script: ${report.setupScriptWritten ? report.setupScriptPath : "pendiente"}`,
+        `- Assets técnicos escritos: ${report.demoAssetsWritten ? "si" : "no"}`,
+      ].join("\n");
+
   return `# Shape Meet Model Workstation Checklist
 
 Perfil: ${report.profile}
+Engine: ${report.engine}
 Workspace: ${report.workspaceRoot}
 Runtime preset: ${report.runtimePreset}
 Runtime env: ${report.runtimeWritten ? report.runtimeEnvPath : "pendiente"}
@@ -936,19 +1203,7 @@ Dry-run: ${report.dryRun ? "si" : "no"}
 
 ## Rutas
 
-- FaceFusion: ${report.modelPaths.facefusionDir}
-- Python FaceFusion: ${report.modelPaths.facefusionPython}
-- BackgroundMattingV2: ${report.modelPaths.bmv2RepoDir}
-- Python BackgroundMattingV2: ${report.modelPaths.bmv2Python}
-- Checkpoint BackgroundMattingV2: ${report.modelPaths.bmv2Checkpoint}
-- VCClient: ${report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT || "no configurado"}
-- VCClient mode: ${report.runtimeEnv.VCCLIENT000_HTTP_MODE || "auto"}
-- Endpoint video combinado: ${report.runtimeEnv.SHAPE_VIDEO_FRAME_ENDPOINT || "no configurado"}
-- Endpoint rostro: ${report.runtimeEnv.SHAPE_FACE_ENDPOINT || "no configurado"}
-- Endpoint fondo: ${report.runtimeEnv.SHAPE_BACKGROUND_ENDPOINT || "no configurado"}
-- Endpoint voz: ${report.runtimeEnv.SHAPE_VOICE_ENDPOINT || "no configurado"}
-- Setup script: ${report.setupScriptWritten ? report.setupScriptPath : "pendiente"}
-- Assets técnicos escritos: ${report.demoAssetsWritten ? "si" : "no"}
+${routesSection}
 
 ## Checks
 
@@ -1028,9 +1283,181 @@ ${warnings}`;
 }
 
 function renderSetupScript(modelPaths) {
+  if (inproc) {
+    return profile === "windows-nvidia"
+      ? renderWindowsInprocSetupScript(modelPaths)
+      : renderAppleInprocSetupScript(modelPaths);
+  }
   return profile === "windows-nvidia"
     ? renderWindowsSetupScript(modelPaths)
     : renderAppleSetupScript(modelPaths);
+}
+
+function wokadaProbeBufferBase64() {
+  // 480 muestras S16 mono en silencio: payload mínimo válido para POST /test.
+  return Buffer.alloc(480 * 2).toString("base64");
+}
+
+function renderAppleInprocSetupScript(modelPaths) {
+  const doctorCommand = `pnpm models:doctor -- --profile apple-silicon --env-file "${runtimeEnvPath}"`;
+  return `#!/usr/bin/env bash
+# Shape Meet Apple Silicon in-process AI runtime setup (engine inproc)
+# Ejecuta desde la raíz del repo shape-meet. Descarga solo pesos con licencia
+# permisiva (RVM, MIT); inswapper_128.onnx es gated y NO se redistribuye.
+set -euo pipefail
+
+VENV_DIR=${shQuote(modelPaths.inprocVenvDir)}
+VENV_PYTHON=${shQuote(modelPaths.inprocPython)}
+REQUIREMENTS=${shQuote(modelPaths.inprocRequirements)}
+WEIGHTS_DIR=${shQuote(modelPaths.weightsDir)}
+RVM_PATH=${shQuote(modelPaths.rvmModel)}
+RVM_URL=${shQuote(RVM_WEIGHT_URL)}
+RVM_SHA256=${shQuote(RVM_WEIGHT_SHA256)}
+RVM_BYTES=${shQuote(String(RVM_WEIGHT_BYTES))}
+INSWAPPER_PATH=${shQuote(modelPaths.inswapperModel)}
+INSIGHTFACE_HOME_DIR=${shQuote(modelPaths.insightfaceHome)}
+WOKADA_ENDPOINT=${shQuote(vcclientEndpoint || "http://127.0.0.1:18888/test")}
+WOKADA_BUFFER=${shQuote(wokadaProbeBufferBase64())}
+
+if [ ! -f "$REQUIREMENTS" ]; then
+  echo "error: ejecuta este script desde la raíz del repo shape-meet ($REQUIREMENTS no encontrado)." >&2
+  exit 1
+fi
+
+echo "== Venv del endpoint (inproc) =="
+if [ ! -x "$VENV_PYTHON" ]; then
+  python3 -m venv "$VENV_DIR"
+fi
+"$VENV_PYTHON" -m pip install --upgrade pip
+"$VENV_PYTHON" -m pip install -r "$REQUIREMENTS"
+
+echo "== Pesos (RVM, MIT — descarga verificada) =="
+mkdir -p "$WEIGHTS_DIR" "$INSIGHTFACE_HOME_DIR"
+if [ ! -f "$RVM_PATH" ]; then
+  curl -fL --retry 3 -o "$RVM_PATH" "$RVM_URL"
+fi
+ACTUAL_SHA=$(shasum -a 256 "$RVM_PATH" | awk '{print $1}')
+ACTUAL_BYTES=$(stat -f%z "$RVM_PATH" 2>/dev/null || stat -c%s "$RVM_PATH")
+if [ "$ACTUAL_SHA" != "$RVM_SHA256" ] || [ "$ACTUAL_BYTES" != "$RVM_BYTES" ]; then
+  echo "error: RVM torchscript corrupto (sha=$ACTUAL_SHA bytes=$ACTUAL_BYTES); se elimina." >&2
+  rm -f "$RVM_PATH"
+  exit 1
+fi
+echo "RVM verificado: $RVM_PATH"
+
+echo "== buffalo_l warm-up (INSIGHTFACE_HOME fijo) =="
+INSIGHTFACE_HOME="$INSIGHTFACE_HOME_DIR" "$VENV_PYTHON" - <<PYEOF
+import os
+from insightface.app import FaceAnalysis
+home = os.environ["INSIGHTFACE_HOME"]
+analyzer = FaceAnalysis(name="buffalo_l", root=home, providers=["CPUExecutionProvider"])
+analyzer.prepare(ctx_id=0, det_size=(640, 640))
+print(f"buffalo_l listo en {home}")
+PYEOF
+
+echo "== inswapper_128.onnx (gated, manual) =="
+if [ -s "$INSWAPPER_PATH" ]; then
+  echo "inswapper_128.onnx presente: $INSWAPPER_PATH"
+else
+  echo "PENDIENTE MANUAL: descarga inswapper_128.onnx (modelo gated de InsightFace,"
+  echo "licencia no comercial; este script no lo redistribuye) y colócalo en:"
+  echo "  $INSWAPPER_PATH"
+fi
+
+echo "== Probe w-okada (POST /test) =="
+if curl -fsS -m 5 -X POST -H 'content-type: application/json' \\
+  -d "{\\"timestamp\\":0,\\"buffer\\":\\"$WOKADA_BUFFER\\"}" \\
+  "$WOKADA_ENDPOINT" | grep -q changedVoiceBase64; then
+  echo "w-okada responde con changedVoiceBase64 en $WOKADA_ENDPOINT"
+else
+  echo "warn: w-okada no respondió en $WOKADA_ENDPOINT; arráncalo con un slot RVC cargado antes del demo."
+fi
+
+echo "== Doctor final =="
+${doctorCommand}
+`;
+}
+
+function renderWindowsInprocSetupScript(modelPaths) {
+  const doctorCommand = `pnpm models:doctor -- --profile windows-nvidia --env-file "${runtimeEnvPath}"`;
+  return `# Shape Meet Windows/NVIDIA in-process AI runtime setup (engine inproc)
+# Ejecuta desde PowerShell en la raíz del repo shape-meet de la estación RTX.
+# Descarga solo pesos con licencia permisiva (RVM, MIT); inswapper_128.onnx es
+# gated y NO se redistribuye.
+$ErrorActionPreference = "Stop"
+
+$VenvDir = ${psQuote(modelPaths.inprocVenvDir)}
+$VenvPython = ${psQuote(modelPaths.inprocPython)}
+$Requirements = ${psQuote(modelPaths.inprocRequirements.replace(/\//g, "\\"))}
+$WeightsDir = ${psQuote(modelPaths.weightsDir)}
+$RvmPath = ${psQuote(modelPaths.rvmModel)}
+$RvmUrl = ${psQuote(RVM_WEIGHT_URL)}
+$RvmSha256 = ${psQuote(RVM_WEIGHT_SHA256)}
+$RvmBytes = ${RVM_WEIGHT_BYTES}
+$InswapperPath = ${psQuote(modelPaths.inswapperModel)}
+$InsightfaceHome = ${psQuote(modelPaths.insightfaceHome)}
+$WokadaEndpoint = ${psQuote(vcclientEndpoint || "http://127.0.0.1:18888/test")}
+$WokadaBuffer = ${psQuote(wokadaProbeBufferBase64())}
+
+if (!(Test-Path $Requirements)) {
+  throw "Ejecuta este script desde la raíz del repo shape-meet ($Requirements no encontrado)."
+}
+
+Write-Host "== Venv del endpoint (inproc) =="
+if (!(Test-Path $VenvPython)) {
+  if (Get-Command py -ErrorAction SilentlyContinue) {
+    py -3 -m venv $VenvDir
+  } else {
+    python -m venv $VenvDir
+  }
+}
+& $VenvPython -m pip install --upgrade pip
+& $VenvPython -m pip install -r $Requirements
+
+Write-Host "== Pesos (RVM, MIT - descarga verificada) =="
+New-Item -ItemType Directory -Force -Path $WeightsDir | Out-Null
+New-Item -ItemType Directory -Force -Path $InsightfaceHome | Out-Null
+if (!(Test-Path $RvmPath)) {
+  Invoke-WebRequest -Uri $RvmUrl -OutFile $RvmPath
+}
+$ActualSha = (Get-FileHash -Algorithm SHA256 $RvmPath).Hash.ToLowerInvariant()
+$ActualBytes = (Get-Item $RvmPath).Length
+if ($ActualSha -ne $RvmSha256 -or $ActualBytes -ne $RvmBytes) {
+  Remove-Item $RvmPath -Force
+  throw "RVM torchscript corrupto (sha=$ActualSha bytes=$ActualBytes); descarga de nuevo."
+}
+Write-Host "RVM verificado: $RvmPath"
+
+Write-Host "== buffalo_l warm-up (INSIGHTFACE_HOME fijo) =="
+$env:INSIGHTFACE_HOME = $InsightfaceHome
+$WarmupCode = "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l', root=r'$InsightfaceHome', providers=['CPUExecutionProvider']).prepare(ctx_id=0, det_size=(640, 640)); print('buffalo_l listo')"
+& $VenvPython -c $WarmupCode
+
+Write-Host "== inswapper_128.onnx (gated, manual) =="
+if ((Test-Path $InswapperPath) -and ((Get-Item $InswapperPath).Length -gt 0)) {
+  Write-Host "inswapper_128.onnx presente: $InswapperPath"
+} else {
+  Write-Host "PENDIENTE MANUAL: descarga inswapper_128.onnx (modelo gated de InsightFace,"
+  Write-Host "licencia no comercial; este script no lo redistribuye) y colócalo en:"
+  Write-Host "  $InswapperPath"
+}
+
+Write-Host "== Probe w-okada (POST /test) =="
+try {
+  $Body = '{"timestamp":0,"buffer":"' + $WokadaBuffer + '"}'
+  $Response = Invoke-RestMethod -Method Post -Uri $WokadaEndpoint -ContentType 'application/json' -Body $Body -TimeoutSec 5
+  if ($Response.changedVoiceBase64 -or $Response.data.changedVoiceBase64) {
+    Write-Host "w-okada responde con changedVoiceBase64 en $WokadaEndpoint"
+  } else {
+    Write-Host "warn: w-okada respondió sin changedVoiceBase64; revisa el slot RVC cargado."
+  }
+} catch {
+  Write-Host "warn: w-okada no respondió en $WokadaEndpoint; arráncalo con un slot RVC cargado antes del demo."
+}
+
+Write-Host "== Doctor final =="
+${doctorCommand}
+`;
 }
 
 function renderWindowsSetupScript(modelPaths) {
@@ -1198,6 +1625,17 @@ function modelBootstrapRuntimeArgs(selectedProfile) {
     runtimePreset,
   ];
 
+  if (inproc) {
+    values.push("--engine", "inproc");
+    values.push(
+      "--model-endpoint-host",
+      modelEndpointHost,
+      "--model-endpoint-port",
+      modelEndpointPort,
+    );
+    return values;
+  }
+
   if (runtimePreset === "local-endpoints") {
     values.push(
       "--model-endpoint-host",
@@ -1313,9 +1751,33 @@ function defaultWorkspaceRoot(selectedProfile) {
 }
 
 function defaultVcClientEndpoint(selectedProfile) {
-  return selectedProfile === "windows-nvidia"
+  // El modo inproc siempre necesita w-okada configurado (cliente persistente
+  // /test); en wrappers solo la workstation Windows lo asume por defecto.
+  return selectedProfile === "windows-nvidia" || inproc
     ? "http://127.0.0.1:18888/test"
     : "";
+}
+
+function normalizeEngineMode(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (!normalized || normalized === "wrappers") return "";
+  if (["inproc", "in-proc", "in-process", "inprocess"].includes(normalized)) {
+    return "inproc";
+  }
+  fail(`Engine no soportado: ${value}. Usa inproc o wrappers.`);
+}
+
+function normalizeBackgroundEngine(value) {
+  // Mismos alias que engines/background_matting.create_background_engine().
+  const normalized = String(value || "rvm")
+    .trim()
+    .toLowerCase();
+  return ["bmv2", "backgroundmattingv2", "bgmv2"].includes(normalized)
+    ? "bmv2"
+    : "rvm";
 }
 
 function defaultRuntimeEnvPath() {

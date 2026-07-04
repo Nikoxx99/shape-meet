@@ -102,6 +102,8 @@ const config = {
   inswapperModel:
     argValue("--inswapper-model") ?? process.env.SHAPE_INSWAPPER_MODEL,
   rvmModel: argValue("--rvm-model") ?? process.env.SHAPE_RVM_MODEL,
+  endpointPython:
+    argValue("--endpoint-python") ?? process.env.SHAPE_MODEL_ENDPOINT_PYTHON,
   insightfaceHome:
     argValue("--insightface-home") ??
     process.env.SHAPE_INSIGHTFACE_HOME ??
@@ -225,10 +227,26 @@ function renderInprocRuntimeEnv(input) {
     `SHAPE_MANAGED_HEALTH_TIMEOUT_SECS=${timeouts.managedHealth}`,
     "# In-process engine weights & providers (host-provided; never committed)",
     `SHAPE_FACE_EXECUTION_PROVIDERS=${faceProviders}`,
+    ...optionalLine("SHAPE_MODEL_ENDPOINT_PYTHON", input.endpointPython),
     ...optionalLine("SHAPE_INSWAPPER_MODEL", input.inswapperModel),
     ...optionalLine("SHAPE_RVM_MODEL", input.rvmModel),
+    ...(backgroundEngine === "bmv2"
+      ? optionalLine(
+          "BMV2_MODEL_CHECKPOINT",
+          input.modelEnv.BMV2_MODEL_CHECKPOINT,
+        )
+      : []),
     ...optionalLine("INSIGHTFACE_HOME", input.insightfaceHome),
     ...optionalLine("SHAPE_BACKGROUND_COLOR", input.backgroundColor),
+    "# Voz: cliente persistente in-process hacia w-okada (slot RVC ya cargado)",
+    ...optionalLine(
+      "VCCLIENT000_HTTP_ENDPOINT",
+      input.modelEnv.VCCLIENT000_HTTP_ENDPOINT,
+    ),
+    ...optionalLine(
+      "VCCLIENT000_HTTP_MODE",
+      input.modelEnv.VCCLIENT000_HTTP_MODE,
+    ),
     "",
   ].join("\n");
 }

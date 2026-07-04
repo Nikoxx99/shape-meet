@@ -22,10 +22,144 @@ try {
   await smokeVcclientPostReport();
   smokeAppleWorkspaceReport();
   smokeAppleDefaultSetupScript();
+  smokeInprocReport();
   smokeDemoAssetsWrite();
   console.log("model workstation bootstrap smoke ok");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
+}
+
+// --engine inproc: runtime env colapsado (endpoints directos, sin
+// *_PROCESSOR_COMMAND), pesos in-process y setup script con descarga RVM
+// verificada + warm-up buffalo_l + probe w-okada + doctor final.
+function smokeInprocReport() {
+  const setupScriptPath = join(tempDir, "setup-inproc.sh");
+  const checklistPath = join(tempDir, "inproc-checklist.md");
+  const weightsDir = join(tempDir, "inproc-weights");
+  mkdirSync(weightsDir, { recursive: true });
+  writeFileSync(join(weightsDir, "inswapper_128.onnx"), "stub-weight");
+  writeFileSync(
+    join(weightsDir, "rvm_mobilenetv3_fp32.torchscript"),
+    "stub-weight",
+  );
+
+  const report = runBootstrap([
+    "--json",
+    "--dry-run",
+    "--skip-hardware",
+    "--skip-vcclient",
+    "--profile",
+    "apple-silicon",
+    "--engine",
+    "inproc",
+    "--weights-dir",
+    weightsDir,
+    "--model-endpoint-host",
+    "127.0.0.1",
+    "--model-endpoint-port",
+    "9100",
+    "--write-setup-script",
+    "--setup-script-out",
+    setupScriptPath,
+    "--write-checklist",
+    "--checklist-out",
+    checklistPath,
+  ]);
+
+  assertEqual(report.engine, "inproc", "inproc engine");
+  assertEqual(report.runtimePreset, "local-endpoints", "inproc preset");
+  assertEqual(
+    report.runtimeEnv.SHAPE_MODEL_ENDPOINT_ENGINE,
+    "inproc",
+    "inproc runtime engine",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_VIDEO_PROCESSOR_ENDPOINT,
+    "http://127.0.0.1:9100/process-frame",
+    "inproc collapsed video endpoint",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_AUDIO_PROCESSOR_ENDPOINT,
+    "http://127.0.0.1:9100/process-audio",
+    "inproc collapsed audio endpoint",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_VIDEO_PROCESSOR_COMMAND,
+    undefined,
+    "inproc must not define a video command (collapsed hops)",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_AUDIO_PROCESSOR_COMMAND,
+    undefined,
+    "inproc must not define an audio command (collapsed hops)",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_FACE_EXECUTION_PROVIDERS,
+    "coreml,cpu",
+    "inproc apple providers",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_BACKGROUND_ENGINE,
+    "rvm",
+    "inproc background engine",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_PROCESSOR_TIMEOUT_SECS,
+    "4.0",
+    "inproc phase-1 processor timeout",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_AUDIO_PROCESSOR_TIMEOUT_SECS,
+    "2.5",
+    "inproc phase-1 audio timeout",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_MODEL_ENDPOINT_TIMEOUT_SECS,
+    "3.0",
+    "inproc phase-1 endpoint timeout",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_MODEL_ENDPOINT_LOAD_TIMEOUT_SECS,
+    "60",
+    "inproc phase-1 load timeout",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_INSWAPPER_MODEL,
+    join(weightsDir, "inswapper_128.onnx"),
+    "inproc inswapper path",
+  );
+  assertEqual(
+    report.runtimeEnv.SHAPE_RVM_MODEL,
+    join(weightsDir, "rvm_mobilenetv3_fp32.torchscript"),
+    "inproc rvm path",
+  );
+  assertEqual(
+    report.runtimeEnv.VCCLIENT000_HTTP_ENDPOINT,
+    "http://127.0.0.1:18888/test",
+    "inproc default w-okada endpoint",
+  );
+  assertHasCheck(report, "pesos", "ok");
+  assertNoCheck(report, "FaceFusion", "error");
+  assertNoCheck(report, "BackgroundMattingV2", "error");
+
+  assertFileIncludes(setupScriptPath, "requirements-inproc-mac.txt");
+  assertFileIncludes(
+    setupScriptPath,
+    "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.torchscript",
+  );
+  assertFileIncludes(
+    setupScriptPath,
+    "f01e0c9338b9a6a31b881ea6d4360d70c1e549701b3792e14c9ed88d6196c5a1",
+  );
+  assertFileIncludes(setupScriptPath, "buffalo_l");
+  assertFileIncludes(setupScriptPath, "inswapper_128.onnx");
+  assertFileIncludes(setupScriptPath, "changedVoiceBase64");
+  assertFileIncludes(setupScriptPath, "pnpm models:doctor");
+  assertFileExcludes(setupScriptPath, "git clone");
+
+  assertFileIncludes(checklistPath, "Engine: inproc");
+  assertFileIncludes(checklistPath, "--engine inproc");
+  assertFileIncludes(checklistPath, "Endpoint video (colapsado)");
 }
 
 function smokeWindowsReport() {
@@ -126,7 +260,11 @@ function smokeEndpointRuntimeReport() {
     "9191",
   ]);
 
-  assertEqual(report.runtimePreset, "local-endpoints", "endpoint runtimePreset");
+  assertEqual(
+    report.runtimePreset,
+    "local-endpoints",
+    "endpoint runtimePreset",
+  );
   assertEqual(
     report.runtimeEnv.SHAPE_MODEL_RUNTIME_PRESET,
     "local-endpoints",
@@ -137,7 +275,11 @@ function smokeEndpointRuntimeReport() {
     "127.0.0.1",
     "endpoint host",
   );
-  assertEqual(report.runtimeEnv.SHAPE_MODEL_ENDPOINT_PORT, "9191", "endpoint port");
+  assertEqual(
+    report.runtimeEnv.SHAPE_MODEL_ENDPOINT_PORT,
+    "9191",
+    "endpoint port",
+  );
   assertEqual(
     report.runtimeEnv.SHAPE_VIDEO_FRAME_ENDPOINT,
     "http://127.0.0.1:9191/video-frame",
