@@ -25,6 +25,9 @@ const skipPrepare = args.includes("--skip-prepare");
 const skipDebug = args.includes("--skip-debug");
 const skipRealCheck = args.includes("--skip-real-check");
 const skipLocalPreview = args.includes("--skip-local-preview");
+const verifyUi =
+  args.includes("--verify-ui") || args.includes("--full-ui-verify");
+const skipVerifyUi = args.includes("--skip-verify-ui");
 const skipDesktop = args.includes("--skip-desktop");
 const skipModelBootstrap = args.includes("--skip-model-bootstrap");
 const skipIdentityPush = args.includes("--skip-identity-push");
@@ -47,6 +50,7 @@ const timeoutMs = argValue("--timeout-ms") ?? "45000";
 const remoteTimeoutMs = argValue("--remote-timeout-ms") ?? null;
 const localPreviewTimeoutMs =
   argValue("--local-preview-timeout-ms") ?? "120000";
+const verifyUiTimeoutMs = argValue("--verify-ui-timeout-ms") ?? "240000";
 const identityArtifactFile =
   argValue("--identity-artifact-file") ??
   argValue("--artifact-file") ??
@@ -67,6 +71,8 @@ const report = {
     timeoutMs,
     remoteTimeoutMs,
     localPreviewTimeoutMs,
+    verifyUi,
+    verifyUiTimeoutMs,
     remoteApiFlow: remoteApiFlowEnabled(),
     remoteIdentityFlow: remoteIdentityFlowEnabled(),
     identityArtifactFile,
@@ -106,6 +112,16 @@ function main() {
   report.steps.localPreview = skipLocalPreview
     ? skipped("Preview local IA", "omitido por --skip-local-preview")
     : runLocalPreviewStep();
+
+  report.steps.fullUiVerify =
+    verifyUi && !skipVerifyUi
+      ? runFullUiVerifyStep()
+      : skipped(
+          "Verificacion UI completa",
+          skipVerifyUi
+            ? "omitido por --skip-verify-ui"
+            : "usa --verify-ui para validarla",
+        );
 
   report.steps.identityPush = resolveIdentityPushStep();
 
@@ -293,6 +309,34 @@ function runLocalPreviewStep() {
   return step;
 }
 
+function runFullUiVerifyStep() {
+  const commandArgs = ["demo:verify", "--"];
+  forwardFlag(commandArgs, "--replace-ai");
+  forwardFlag(commandArgs, "--no-docker");
+  forwardFlag(commandArgs, "--no-prepare");
+  if (args.includes("--verify-ui-keep-alive")) commandArgs.push("--keep-alive");
+  if (strict) commandArgs.push("--strict");
+
+  const step = commandStep("Verificacion UI completa", commandArgs, {
+    timeout: positiveInteger(verifyUiTimeoutMs, 240_000),
+  });
+  step.verified =
+    step.ok && /(UI demo smoke ok|Demo verificado:)/i.test(step.stdout ?? "");
+
+  const publicLink =
+    matchLine(step.stdout, /^Demo verificado:\s*(.+)$/m) ??
+    matchLine(step.stdout, /^Public link:\s*(.+)$/m) ??
+    null;
+  if (publicLink || step.verified) {
+    report.demo.fullUi = {
+      ok: step.ok,
+      verified: step.verified,
+      publicLink,
+    };
+  }
+  return step;
+}
+
 function runDesktopStep() {
   const resolvedMode = resolveDesktopMode();
   const out = join(outputDir, "desktop-handoff", resolvedMode);
@@ -472,6 +516,11 @@ function collectSummary() {
       "Ejecuta `pnpm demo:local-preview` para validar que la app abre, el host entra y publica IA demo.",
     );
   }
+  if (!report.steps.fullUiVerify?.ok && !report.steps.fullUiVerify?.skipped) {
+    nextSteps.push(
+      "Ejecuta `pnpm demo:verify` para validar login host, sala de espera, admision y medios remotos en la UI real.",
+    );
+  }
   if (!report.steps.identityPush?.ok && !report.steps.identityPush?.skipped) {
     nextSteps.push(
       "Publica la identidad real con `pnpm demo:identity:push` antes de entrar como host con face swap.",
@@ -513,6 +562,15 @@ function renderReadme(currentReport) {
           currentReport.steps.localPreview.skipped
             ? "omitido"
             : currentReport.steps.localPreview.ok
+              ? "ok"
+              : "revisar"
+        }`
+      : null,
+    currentReport.steps.fullUiVerify
+      ? `- Verificacion UI completa: ${
+          currentReport.steps.fullUiVerify.skipped
+            ? "omitido"
+            : currentReport.steps.fullUiVerify.ok
               ? "ok"
               : "revisar"
         }`
@@ -561,6 +619,7 @@ pnpm demo:up
 pnpm demo:local-preview
 pnpm demo:verify
 pnpm demo:handoff
+pnpm demo:handoff -- --verify-ui
 pnpm demo:handoff -- --remote-env-file infra/shape-meet.production.env --identity-artifact-file /ruta/rostro-o-modelo.bin
 pnpm demo:real:check -- --include-desktop --require-real-models --strict
 pnpm models:bootstrap -- --profile ${currentReport.options.profile} --write-runtime --strict --write-checklist

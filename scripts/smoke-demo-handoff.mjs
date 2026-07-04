@@ -72,6 +72,11 @@ try {
     report.steps.localPreview.ok === true,
     "local preview step did not pass",
   );
+  assert(report.options.verifyUi === false, "verify UI should be opt-in");
+  assert(
+    report.steps.fullUiVerify.skipped === true,
+    "full UI verify should be skipped by default",
+  );
   assert(report.steps.desktop.ok === true, "desktop step did not pass");
   assert(report.steps.desktop.mode === "github", "desktop mode mismatch");
   assert(
@@ -95,10 +100,15 @@ try {
   const readme = readFileSync(readmePath, "utf8");
   assert(readme.includes("Shape Meet Demo Handoff"), "README title missing");
   assert(readme.includes("Preview local IA: ok"), "README preview missing");
+  assert(
+    readme.includes("Verificacion UI completa: omitido"),
+    "README full UI verify status missing",
+  );
   assert(readme.includes("Desktop handoff: ok"), "README status missing");
   assert(readme.includes("shape-meet-windows-x64"), "README artifact missing");
 
   smokeRemoteFlowInference();
+  smokeVerifyUiSkip();
 
   console.log("demo handoff smoke ok");
 } finally {
@@ -162,6 +172,46 @@ function smokeRemoteFlowInference() {
   assert(
     report.options.remoteIdentityFlow === true,
     "remote identity flow was not inferred from identity artifact",
+  );
+}
+
+function smokeVerifyUiSkip() {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "scripts/package-demo-handoff.mjs",
+      "--json",
+      "--output-dir",
+      join(tempDir, "verify-ui-skip"),
+      "--skip-prepare",
+      "--skip-debug",
+      "--skip-real-check",
+      "--skip-local-preview",
+      "--verify-ui",
+      "--skip-verify-ui",
+      "--skip-identity-push",
+      "--skip-desktop",
+      "--skip-model-bootstrap",
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+
+  if (result.status !== 0) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    throw new Error(`verify UI skip smoke failed with ${result.status}`);
+  }
+
+  const report = JSON.parse(result.stdout);
+  assert(report.ok === true, "verify UI skip report was not ok");
+  assert(report.options.verifyUi === true, "verify UI option was not recorded");
+  assert(
+    report.steps.fullUiVerify.skipped === true,
+    "verify UI step was not skipped",
   );
 }
 

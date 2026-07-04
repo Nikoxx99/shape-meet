@@ -119,9 +119,12 @@ publique el rostro/modelo real del host contra el admin remoto, agrega
 handoff también valida login host, creación de reunión y emisión de token
 LiveKit remoto; con `--identity-artifact-file` valida además el flujo remoto de
 identidad. Usa `--skip-remote-api-flow` o `--skip-remote-identity-flow` solo si
-estás preparando un paquete parcial. Si esa máquina no tiene Chromium/Playwright
-disponible, agrega `--skip-local-preview` y corre `pnpm demo:local-preview` en
-la estación donde se probará la app.
+estás preparando un paquete parcial. Agrega `--verify-ui` cuando quieras que el
+paquete también ejecute la prueba completa host/invitado contra la UI real; si
+esa máquina no tiene Chromium/Playwright disponible, agrega
+`--skip-local-preview` y corre `pnpm demo:local-preview` o `pnpm demo:verify` en
+la estación donde se probará la app. Puedes subir el límite con
+`--verify-ui-timeout-ms 360000` si Docker o LiveKit tardan más en iniciar.
 
 Si `demo:doctor` muestra `IA local: online sin demo`, detén el sidecar actual y
 vuelve a correr `pnpm demo:up -- --replace-ai`. Ese flag solo reemplaza el
