@@ -482,6 +482,8 @@ pnpm desktop:bundle:check
 `build:ai-sidecar` crea archivos locales ignorados por git:
 
 - `apps/desktop/src-tauri/binaries/shape-ai-sidecar-${targetTriple}`
+- `apps/desktop/src-tauri/binaries/shape-ai-processor-${targetTriple}`
+- `apps/desktop/src-tauri/binaries/shape-model-endpoint-${targetTriple}`
 - `apps/desktop/src-tauri/resources/ai-wrappers/`
 - `apps/desktop/src-tauri/resources/shape-meet.env`
 - `apps/desktop/src-tauri/tauri.sidecar.conf.json`
@@ -519,8 +521,9 @@ Tauri y sidecars generados para el target actual. Usa
 `pnpm desktop:doctor -- --strict` después de `pnpm build:ai-sidecar` para fallar
 si falta algún binario empaquetado.
 `pnpm desktop:bundle:check` inspecciona el bundle generado y falla si faltan el
-ejecutable principal, los binarios `shape-ai-sidecar` / `shape-ai-processor`,
-los wrappers IA, el instalador o los deep links del paquete macOS.
+ejecutable principal, los binarios `shape-ai-sidecar`, `shape-ai-processor` y
+`shape-model-endpoint`, los wrappers IA, el instalador o los deep links del
+paquete macOS.
 
 Los workflows en `.github/workflows` validan el monorepo y permiten generar
 paquetes desktop por plataforma. Ver [desktop-release.md](docs/desktop-release.md).

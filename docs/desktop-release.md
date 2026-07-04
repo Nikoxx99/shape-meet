@@ -189,11 +189,12 @@ El paso `sidecar:build` genera:
 
 - `apps/desktop/src-tauri/binaries/shape-ai-sidecar-${targetTriple}`;
 - `apps/desktop/src-tauri/binaries/shape-ai-processor-${targetTriple}`;
+- `apps/desktop/src-tauri/binaries/shape-model-endpoint-${targetTriple}`;
 - `apps/desktop/src-tauri/resources/ai-wrappers/`;
 - `apps/desktop/src-tauri/resources/shape-meet.env`;
 - `apps/desktop/src-tauri/tauri.sidecar.conf.json`.
 
-Ambos artefactos son locales al runner y están ignorados por git.
+Estos artefactos son locales al runner y están ignorados por git.
 
 Antes de empaquetar, valida el entorno local con:
 
@@ -205,11 +206,12 @@ pnpm desktop:bundle:check
 ```
 
 El modo estricto falla si los binarios esperados no existen o están
-desactualizados frente a `server.py` / `shape_processor_command.py`.
+desactualizados frente a `server.py`, `shape_processor_command.py` o
+`shape_model_endpoint_server.py`.
 `desktop:bundle:check` valida el bundle ya generado. En macOS confirma `.app`,
-`.dmg`, `shape-ai-sidecar`, `shape-ai-processor`, wrappers IA y esquemas
-`shapemeet://` / `shape-meet://`; en Windows confirma ejecutables, wrappers IA
-y un instalador en `target/release/bundle`.
+`.dmg`, `shape-ai-sidecar`, `shape-ai-processor`, `shape-model-endpoint`,
+wrappers IA y esquemas `shapemeet://` / `shape-meet://`; en Windows confirma
+ejecutables, wrappers IA y un instalador en `target/release/bundle`.
 
 ## Debug de hardware
 
