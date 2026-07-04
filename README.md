@@ -101,6 +101,7 @@ Prepara datos y valida el demo:
 pnpm demo:prepare
 pnpm demo:check
 pnpm demo:verify
+pnpm demo:admin-ui
 pnpm demo:ai-runtime
 pnpm models:doctor
 pnpm models:runtime -- --face-command "python apps/ai-sidecar/wrappers/facefusion_frame.py --input {input} --output {output} --identity {identity}"
@@ -114,6 +115,11 @@ SHAPE_SMOKE_API_URL=http://127.0.0.1:13000 \
 SHAPE_SMOKE_HOST_IDENTIFIER=admin@shape.test \
 SHAPE_SMOKE_HOST_PASSWORD=ChangeMe123! \
 pnpm smoke:admin
+
+SHAPE_SMOKE_ADMIN_URL=http://127.0.0.1:13000 \
+SHAPE_SMOKE_HOST_IDENTIFIER=admin@shape.test \
+SHAPE_SMOKE_HOST_PASSWORD=ChangeMe123! \
+pnpm smoke:admin-ui
 
 SHAPE_SMOKE_API_URL=http://127.0.0.1:13000 \
 SHAPE_SMOKE_HOST_IDENTIFIER=admin@shape.test \
@@ -182,6 +188,11 @@ invitado por enlace público, sala de espera, login de host, configuración de
 host, admisión y entrada de ambos participantes. Requiere que la desktop web
 esté viva en `http://localhost:1420` o en `SHAPE_DEMO_APP_URL`. En una máquina
 nueva corre primero `pnpm demo:ui:install`.
+
+`pnpm demo:admin-ui` abre Chromium contra el panel admin real, inicia sesión,
+crea un host, sube un artefacto de rostro, lo publica para el host y valida que
+la entrega quede registrada en auditoría. Requiere que el admin/API esté vivo en
+`http://localhost:13000` o en `SHAPE_ADMIN_UI_URL`/`SHAPE_SMOKE_ADMIN_URL`.
 
 `pnpm demo:local-preview` es el smoke más corto para máquinas sin Docker,
 Postgres ni LiveKit: levanta Vite y el sidecar IA demo en puertos libres, usa
