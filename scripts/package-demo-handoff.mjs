@@ -438,6 +438,7 @@ ${nextStepLines}
 
 \`\`\`bash
 pnpm demo:up
+pnpm demo:verify
 pnpm demo:handoff
 pnpm demo:real:check -- --include-desktop --require-real-models --strict
 pnpm models:bootstrap -- --profile ${currentReport.options.profile} --write-runtime --strict --write-checklist
