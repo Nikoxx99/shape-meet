@@ -48,6 +48,7 @@ COPY --from=builder --chown=nextjs:nodejs /repo/apps/admin/public ./apps/admin/p
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/admin/lib ./apps/admin/lib
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/admin/prisma.config.ts ./apps/admin/prisma.config.ts
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/admin/prisma ./apps/admin/prisma
+COPY --chown=nextjs:nodejs apps/admin/keepalive.js ./apps/admin/keepalive.js
 COPY --chown=nextjs:nodejs apps/admin/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 
