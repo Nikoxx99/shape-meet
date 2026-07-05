@@ -9,4 +9,4 @@ if [ "$RUN_SEED" = "true" ]; then
 fi
 
 cd /app
-exec node -r /app/apps/admin/keepalive.js apps/admin/server.js
+exec node -r /app/apps/admin/keepalive.cjs apps/admin/server.js
