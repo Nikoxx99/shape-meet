@@ -202,6 +202,7 @@ export async function createProcessedVideoPipeline(
               ? "Sidecar sin respuesta; publicando cámara limpia."
               : "Esperando sidecar.",
           processor: null,
+          reason: null,
           lastError:
             error instanceof Error
               ? error.message

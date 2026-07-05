@@ -134,6 +134,16 @@ import {
   type ProcessedVideoRuntimeStatus,
 } from "./lib/processedVideo";
 import {
+  buildProcessedVideoFallbackStatus,
+  buildStageDiagnosticRows,
+  buildStageStatusNotices,
+  buildVoicePreparingNotice,
+  type EffectFallbackStatus,
+  type StageDiagnosticRow,
+  type StageNoticeTone,
+  type StageStatusNotice,
+} from "./lib/stageStatus";
+import {
   normalizeDeviceSelection,
   readStoredDeviceSelection,
   useMediaDevices,
@@ -183,6 +193,7 @@ interface CallTile {
     backgroundEnabled: boolean;
     voiceEnabled: boolean;
   };
+  effectFallback?: EffectFallbackStatus;
 }
 
 interface CallChatMessage {
@@ -536,6 +547,7 @@ function statusTone(status?: string | null): "ok" | "warning" | "idle" {
       "offline",
       "error",
       "failed",
+      "degraded",
       "missing",
       "limited",
       "stopped",
@@ -3524,6 +3536,62 @@ function HostSettingsScreen({
     identityOptions[0] ??
     null;
   const [backgroundWizardOpen, setBackgroundWizardOpen] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<AiDiagnostics | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const enabledEffects = useMemo(
+    () => ({
+      face: faceEnabled,
+      background: backgroundEnabled,
+      voice: voiceEnabled,
+    }),
+    [backgroundEnabled, faceEnabled, voiceEnabled],
+  );
+  const stageStatusNotices = useMemo(() => {
+    const notices = buildStageStatusNotices({
+      session: preflight?.session ?? null,
+      diagnostics,
+      enabled: enabledEffects,
+    });
+
+    if (notices.length > 0 || !preflightRunning || !voiceEnabled) {
+      return notices;
+    }
+
+    return [buildVoicePreparingNotice()];
+  }, [diagnostics, enabledEffects, preflight, preflightRunning, voiceEnabled]);
+  const stageDiagnosticRows = useMemo(
+    () =>
+      buildStageDiagnosticRows({
+        session: preflight?.session ?? null,
+        diagnostics,
+        enabled: enabledEffects,
+      }),
+    [diagnostics, enabledEffects, preflight],
+  );
+
+  useEffect(() => {
+    if (!aiEffectsEnabled) {
+      setDiagnostics(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function refreshDiagnostics() {
+      const nextDiagnostics = await getAiDiagnostics().catch(() => null);
+      if (!cancelled && nextDiagnostics) {
+        setDiagnostics(nextDiagnostics);
+      }
+    }
+
+    void refreshDiagnostics();
+    const interval = window.setInterval(refreshDiagnostics, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [aiEffectsEnabled, preflight?.checkedAt, preflightRunning]);
 
   function handleIdentitySelect(identityId: string) {
     onIdentityChange(identityId || null);
@@ -3649,6 +3717,10 @@ function HostSettingsScreen({
                 onClick={onToggleVoice}
               />
             </Panel>
+            <StageStatusNoticeList
+              notices={stageStatusNotices}
+              onReviewDiagnostics={() => setDiagnosticsOpen(true)}
+            />
             {preflightError ? (
               <InlineNotice icon={<ShieldAlert />}>
                 {preflightError}
@@ -3657,6 +3729,8 @@ function HostSettingsScreen({
             <details
               className="panel debug-details setup-diagnostics"
               data-testid="host-setup-diagnostics"
+              open={diagnosticsOpen}
+              onToggle={(event) => setDiagnosticsOpen(event.currentTarget.open)}
             >
               <summary>Diagnóstico</summary>
               <div className="debug-details-body">
@@ -3682,6 +3756,7 @@ function HostSettingsScreen({
                     preflightRunning ? "running" : preflight?.status,
                   )}
                 />
+                <StageDiagnosticsTable rows={stageDiagnosticRows} />
                 {preflightError ? (
                   <InlineNotice icon={<ShieldAlert />}>
                     {preflightError}
@@ -5174,6 +5249,9 @@ function ActiveCallScreen({
   const [liveKitError, setLiveKitError] = useState<string | null>(null);
   const [callActionError, setCallActionError] = useState<string | null>(null);
   const [aiSession, setAiSession] = useState<AiSession | null>(null);
+  const [aiDiagnostics, setAiDiagnostics] = useState<AiDiagnostics | null>(
+    null,
+  );
   const [aiSessionError, setAiSessionError] = useState<string | null>(null);
   const [aiRuntimeStartupState, setAiRuntimeStartupState] = useState<
     "idle" | "starting" | "ready" | "error"
@@ -5254,6 +5332,42 @@ function ActiveCallScreen({
   const liveKitCredentialsConfigured = Boolean(liveKitUrl && liveKitToken);
   const localMediaPreviewEnabled =
     !room && (!liveKitCredentialsConfigured || liveKitState === "error");
+  const hostAiEffectsEnabled =
+    hostMode && (faceEnabled || backgroundEnabled || voiceEnabled);
+  const enabledEffects = useMemo(
+    () => ({
+      face: faceEnabled,
+      background: backgroundEnabled,
+      voice: voiceEnabled,
+    }),
+    [backgroundEnabled, faceEnabled, voiceEnabled],
+  );
+  const stageStatusNotices = useMemo(
+    () =>
+      buildStageStatusNotices({
+        session: aiSession,
+        diagnostics: aiDiagnostics,
+        enabled: enabledEffects,
+      }),
+    [aiDiagnostics, aiSession, enabledEffects],
+  );
+  const stageDiagnosticRows = useMemo(
+    () =>
+      buildStageDiagnosticRows({
+        session: aiSession,
+        diagnostics: aiDiagnostics,
+        enabled: enabledEffects,
+      }),
+    [aiDiagnostics, aiSession, enabledEffects],
+  );
+  const processedVideoFallback = useMemo(
+    () =>
+      buildProcessedVideoFallbackStatus(processedRuntimeStatus, {
+        face: faceEnabled,
+        background: backgroundEnabled,
+      }),
+    [backgroundEnabled, faceEnabled, processedRuntimeStatus],
+  );
 
   useEffect(() => {
     if (!liveKitUrl || !liveKitToken) {
@@ -5630,11 +5744,10 @@ function ActiveCallScreen({
   ]);
 
   useEffect(() => {
-    const shouldUseAi = faceEnabled || backgroundEnabled || voiceEnabled;
-
-    if (!hostMode || !liveKitConnection?.identity || !shouldUseAi) {
+    if (!hostAiEffectsEnabled || !liveKitConnection?.identity) {
       setAiSession(null);
       setAiSessionError(null);
+      setAiDiagnostics(null);
       setAiRuntimeStartupState("idle");
       setAiRuntimeStartupMessage(null);
       return;
@@ -5680,7 +5793,8 @@ function ActiveCallScreen({
         identityVoiceModelPath: artifactCache?.voiceModelPath ?? null,
         identityVoiceIndexPath: artifactCache?.voiceIndexPath ?? null,
         identityVoiceConfigPath: artifactCache?.voiceConfigPath ?? null,
-        identityBackgroundAssetsPath: artifactCache?.backgroundAssetsPath ?? null,
+        identityBackgroundAssetsPath:
+          artifactCache?.backgroundAssetsPath ?? null,
         identityArtifactSha256:
           artifactCache?.sha256 ?? resolvedIdentity?.artifactSha256 ?? null,
         identityArtifactSizeBytes:
@@ -5735,7 +5849,7 @@ function ActiveCallScreen({
     backgroundCalibration,
     backgroundEnabled,
     faceEnabled,
-    hostMode,
+    hostAiEffectsEnabled,
     hostToken,
     identity,
     liveKitConnection?.identity,
@@ -5847,6 +5961,30 @@ function ActiveCallScreen({
 
     return () => window.clearInterval(interval);
   }, [aiSession?.id, aiSession?.status]);
+
+  useEffect(() => {
+    if (!hostAiEffectsEnabled) {
+      setAiDiagnostics(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function refreshDiagnostics() {
+      const diagnostics = await getAiDiagnostics().catch(() => null);
+      if (!cancelled && diagnostics) {
+        setAiDiagnostics(diagnostics);
+      }
+    }
+
+    void refreshDiagnostics();
+    const interval = window.setInterval(refreshDiagnostics, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [aiSession?.id, hostAiEffectsEnabled]);
 
   async function handleCallDebugBundle() {
     setCallDebugBusy("bundle");
@@ -5988,13 +6126,13 @@ function ActiveCallScreen({
           return {
             ...metric,
             value: pipelineValue(aiSession, "face", faceEnabled),
-            state: faceEnabled ? "ok" : "idle",
+            state: pipelineTone(aiSession, "face", faceEnabled),
           };
         if (metric.label === "Fondo")
           return {
             ...metric,
             value: pipelineValue(aiSession, "background", backgroundEnabled),
-            state: backgroundEnabled ? "ok" : "idle",
+            state: pipelineTone(aiSession, "background", backgroundEnabled),
           };
         if (metric.label === "Voz") {
           if (voiceEnabled && processedAudioState === "published") {
@@ -6016,7 +6154,7 @@ function ActiveCallScreen({
           return {
             ...metric,
             value: pipelineValue(aiSession, "voice", voiceEnabled),
-            state: voiceEnabled ? "ok" : "idle",
+            state: pipelineTone(aiSession, "voice", voiceEnabled),
           };
         }
         return metric;
@@ -6058,6 +6196,7 @@ function ActiveCallScreen({
         participant,
         liveKitConnection?.identity ?? null,
         effects,
+        processedVideoFallback,
       ),
     );
 
@@ -6078,6 +6217,9 @@ function ActiveCallScreen({
       micOn: micEnabled,
       videoTrack: localPreviewVideoTrack,
       effects: hostMode ? effects : undefined,
+      effectFallback: hostMode
+        ? (processedVideoFallback ?? undefined)
+        : undefined,
     };
 
     if (localIndex === -1) return [localTile, ...tiles];
@@ -6090,6 +6232,9 @@ function ActiveCallScreen({
             micOn: micEnabled,
             videoTrack: localPreviewVideoTrack,
             effects: hostMode ? effects : tile.effects,
+            effectFallback: hostMode
+              ? (processedVideoFallback ?? undefined)
+              : tile.effectFallback,
           }
         : tile,
     );
@@ -6103,6 +6248,7 @@ function ActiveCallScreen({
     localDisplayName,
     localPreviewVideoTrack,
     micEnabled,
+    processedVideoFallback,
     voiceEnabled,
   ]);
   const liveKitTiles = useMemo(
@@ -6118,6 +6264,7 @@ function ActiveCallScreen({
               backgroundEnabled,
               voiceEnabled,
             },
+            processedVideoFallback,
           )
         : [],
     [
@@ -6126,6 +6273,7 @@ function ActiveCallScreen({
       hostMode,
       liveKitConnection?.identity,
       meeting,
+      processedVideoFallback,
       room,
       roomMediaVersion,
       voiceEnabled,
@@ -6236,6 +6384,11 @@ function ActiveCallScreen({
           </div>
         </section>
         <aside className="call-side">
+          <StageStatusNoticeList
+            compact
+            notices={stageStatusNotices}
+            onReviewDiagnostics={() => setCallDiagnosticsOpen(true)}
+          />
           <div className="tabs">
             <button
               className={sideTab === "participants" ? "active" : ""}
@@ -6384,6 +6537,9 @@ function ActiveCallScreen({
                     tone={preflightTone(aiPreflight.status)}
                   />
                 ) : null}
+                {hostMode ? (
+                  <StageDiagnosticsTable rows={stageDiagnosticRows} />
+                ) : null}
                 {callAiWarnings.length > 0 ? (
                   <div
                     className="diagnostic-warning-list"
@@ -6517,6 +6673,19 @@ function pipelineValue(
   return pipeline.status === "standby" ? "En espera" : pipeline.status;
 }
 
+function pipelineTone(
+  session: AiSession | null,
+  pipelineId: "face" | "background" | "voice",
+  enabled: boolean,
+): "ok" | "warning" | "idle" {
+  if (!enabled) return "idle";
+
+  const pipeline = session?.pipelines.find((item) => item.id === pipelineId);
+  if (!session || !pipeline) return "idle";
+
+  return statusTone(pipeline.state ?? pipeline.status);
+}
+
 function encodeChatMessage(message: CallChatMessage): Uint8Array {
   return new TextEncoder().encode(
     JSON.stringify({
@@ -6566,6 +6735,7 @@ function buildLiveKitTiles(
   hostMode: boolean,
   localIdentity: string | null,
   effects: NonNullable<CallTile["effects"]>,
+  localEffectFallback: EffectFallbackStatus | null,
 ) {
   const meetingByParticipantId = new Map(
     meeting.participants.map((participant) => [participant.id, participant]),
@@ -6594,6 +6764,7 @@ function buildLiveKitTiles(
         meetingByParticipantId,
         isLocal,
         effects,
+        localEffectFallback,
       ),
     );
     return participantTiles;
@@ -6609,7 +6780,12 @@ function buildLiveKitTiles(
     )
     .forEach((participant) => {
       tiles.push(
-        fallbackTileFromMeetingParticipant(participant, localIdentity, effects),
+        fallbackTileFromMeetingParticipant(
+          participant,
+          localIdentity,
+          effects,
+          localEffectFallback,
+        ),
       );
     });
 
@@ -6623,6 +6799,7 @@ function tileFromLiveKitParticipant(
   meetingByParticipantId: Map<string, Meeting["participants"][number]>,
   isLocal: boolean,
   effects: NonNullable<CallTile["effects"]>,
+  localEffectFallback: EffectFallbackStatus | null,
 ): CallTile {
   const meetingParticipant = meetingByParticipantId.get(participant.identity);
   const videoPublication =
@@ -6650,6 +6827,10 @@ function tileFromLiveKitParticipant(
     videoTrack,
     audioTrack,
     effects: role === "host" ? effects : undefined,
+    effectFallback:
+      isLocal && role === "host"
+        ? (localEffectFallback ?? undefined)
+        : undefined,
   };
 }
 
@@ -6687,6 +6868,7 @@ function fallbackTileFromMeetingParticipant(
   participant: Meeting["participants"][number],
   localIdentity: string | null,
   effects: NonNullable<CallTile["effects"]>,
+  localEffectFallback?: EffectFallbackStatus | null,
 ): CallTile {
   return {
     id: participant.id,
@@ -6698,6 +6880,10 @@ function fallbackTileFromMeetingParticipant(
     cameraOn: participant.camera === "on",
     micOn: participant.mic === "on",
     effects: participant.role === "host" ? effects : undefined,
+    effectFallback:
+      participant.id === localIdentity && participant.role === "host"
+        ? (localEffectFallback ?? undefined)
+        : undefined,
   };
 }
 
@@ -7353,6 +7539,12 @@ function VideoTile({ tile, primary }: { tile: CallTile; primary?: boolean }) {
           <VideoOff />
         </div>
       )}
+      {tile.effectFallback ? (
+        <div className={`tile-effect-warning ${tile.effectFallback.tone}`}>
+          <strong>{tile.effectFallback.title}</strong>
+          <span>{tile.effectFallback.message}</span>
+        </div>
+      ) : null}
       <div className="tile-footer">
         <div>
           <strong>{tile.label}</strong>
@@ -7451,17 +7643,112 @@ function StepDots({ active }: { active: number }) {
   );
 }
 
+function StageStatusNoticeList({
+  notices,
+  compact,
+  onReviewDiagnostics,
+}: {
+  notices: StageStatusNotice[];
+  compact?: boolean;
+  onReviewDiagnostics: () => void;
+}) {
+  if (notices.length === 0) return null;
+
+  return (
+    <div
+      className={
+        compact ? "stage-status-notices compact" : "stage-status-notices"
+      }
+      data-testid="stage-status-notices"
+    >
+      {notices.map((notice) => (
+        <InlineNotice
+          action={
+            notice.action ? (
+              <button
+                className="inline-action"
+                type="button"
+                onClick={onReviewDiagnostics}
+              >
+                {notice.action}
+              </button>
+            ) : undefined
+          }
+          icon={stageNoticeIcon(notice.tone)}
+          key={`${notice.id}-${notice.state ?? "state"}-${notice.reason ?? "reason"}`}
+          tone={notice.tone}
+        >
+          <span className="stage-notice-copy">
+            <strong>{notice.title}</strong>
+            <span>{notice.message}</span>
+          </span>
+        </InlineNotice>
+      ))}
+    </div>
+  );
+}
+
+function StageDiagnosticsTable({ rows }: { rows: StageDiagnosticRow[] }) {
+  if (rows.length === 0) return null;
+
+  return (
+    <div
+      className="stage-diagnostics-table"
+      data-testid="stage-diagnostics-table"
+    >
+      <table>
+        <thead>
+          <tr>
+            <th>Stage</th>
+            <th>State</th>
+            <th>Reason</th>
+            <th>Detail</th>
+            <th>Device</th>
+            <th>Latencia</th>
+            <th>VRAM</th>
+            <th>Voz runtime</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <th scope="row">{row.label}</th>
+              <td>{row.enabled ? row.state : "sin_activar"}</td>
+              <td>{row.reason}</td>
+              <td>{row.detail}</td>
+              <td>{row.device}</td>
+              <td>{row.latency}</td>
+              <td>{row.vram}</td>
+              <td>{row.voiceRuntime}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function stageNoticeIcon(tone: StageNoticeTone) {
+  if (tone === "info") return <RefreshCw className="spin-icon" />;
+  return <ShieldAlert />;
+}
+
 function InlineNotice({
   icon,
   children,
+  action,
+  tone = "info",
 }: {
   icon: React.ReactNode;
   children: React.ReactNode;
+  action?: React.ReactNode;
+  tone?: StageNoticeTone | "success";
 }) {
   return (
-    <div className="inline-notice">
+    <div className={`inline-notice ${tone}`}>
       {icon}
-      <span>{children}</span>
+      <div className="inline-notice-content">{children}</div>
+      {action}
     </div>
   );
 }
